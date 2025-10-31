@@ -45,7 +45,14 @@ const getEmployee = async (req, res) => {
 // @access  Private
 const createEmployee = async (req, res) => {
   try {
-    const employee = await User.create(req.body);
+    const body = { ...req.body };
+    if (!body.password) {
+      body.password = 'Password123';
+    }
+    if (!body.name && body.firstName) {
+      body.name = `${body.firstName} ${body.lastName || ''}`.trim();
+    }
+    const employee = await User.create(body);
     const employeeData = await User.findById(employee._id).select('-password');
     res.status(201).json(employeeData);
   } catch (error) {
@@ -58,17 +65,48 @@ const createEmployee = async (req, res) => {
 // @access  Private
 const updateEmployee = async (req, res) => {
   try {
-    const employee = await User.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    ).select('-password');
+    const employee = await User.findById(req.params.id);
 
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
 
-    res.json(employee);
+    // Update fields
+    Object.keys(req.body).forEach(key => {
+      if (key !== '_id' && key !== '__v') {
+        employee[key] = req.body[key];
+      }
+    });
+
+    // If password is being updated, ensure it's set (will be hashed by pre-save hook)
+    if (req.body.password) {
+      employee.password = req.body.password;
+    }
+
+    await employee.save();
+
+    const employeeData = await User.findById(employee._id).select('-password');
+    res.json(employeeData);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Reset employee password to default
+// @route   PUT /api/employees/:id/reset-password
+// @access  Private
+const resetEmployeePassword = async (req, res) => {
+  try {
+    const employee = await User.findById(req.params.id);
+
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    employee.password = 'Password123';
+    await employee.save();
+
+    res.json({ message: 'Password reset to Password123 successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -95,5 +133,6 @@ module.exports = {
   createEmployee,
   updateEmployee,
   getEmployeeLeaves,
+  resetEmployeePassword,
 };
 

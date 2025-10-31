@@ -1,21 +1,30 @@
 const Training = require('../models/Training');
 
-// @desc    Get all trainings
+// @desc    Get all trainings with filters
 // @route   GET /api/training
 // @access  Private
 const getTrainings = async (req, res) => {
   try {
-    const { status, trainerId } = req.query;
+    const { status, trainerId, employeeId, zone, schoolCode, schoolName, fromDate, toDate } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
     if (trainerId) filter.trainerId = trainerId;
+    if (employeeId) filter.employeeId = employeeId;
+    if (zone) filter.zone = zone;
+    if (schoolCode) filter.schoolCode = { $regex: schoolCode, $options: 'i' };
+    if (schoolName) filter.schoolName = { $regex: schoolName, $options: 'i' };
+    if (fromDate || toDate) {
+      filter.trainingDate = {};
+      if (fromDate) filter.trainingDate.$gte = new Date(fromDate);
+      if (toDate) filter.trainingDate.$lte = new Date(toDate);
+    }
 
     const trainings = await Training.find(filter)
-      .populate('trainerId', 'name email')
-      .populate('assignedTo', 'name email')
+      .populate('trainerId', 'name mobile')
+      .populate('employeeId', 'name email')
       .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ trainingDate: -1 });
 
     res.json(trainings);
   } catch (error) {
@@ -29,10 +38,9 @@ const getTrainings = async (req, res) => {
 const getTraining = async (req, res) => {
   try {
     const training = await Training.findById(req.params.id)
-      .populate('trainerId', 'name email')
-      .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email')
-      .populate('completionStatus.employeeId', 'name email');
+      .populate('trainerId', 'name mobile')
+      .populate('employeeId', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!training) {
       return res.status(404).json({ message: 'Training not found' });
@@ -55,8 +63,8 @@ const createTraining = async (req, res) => {
     });
 
     const populatedTraining = await Training.findById(training._id)
-      .populate('trainerId', 'name email')
-      .populate('assignedTo', 'name email')
+      .populate('trainerId', 'name mobile')
+      .populate('employeeId', 'name email')
       .populate('createdBy', 'name email');
 
     res.status(201).json(populatedTraining);
@@ -65,20 +73,19 @@ const createTraining = async (req, res) => {
   }
 };
 
-// @desc    Assign training
-// @route   POST /api/training/assign
+// @desc    Update training
+// @route   PUT /api/training/:id
 // @access  Private
-const assignTraining = async (req, res) => {
+const updateTraining = async (req, res) => {
   try {
-    const { trainingId, employeeIds } = req.body;
-
     const training = await Training.findByIdAndUpdate(
-      trainingId,
-      { $addToSet: { assignedTo: { $each: employeeIds } } },
-      { new: true }
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
     )
-      .populate('trainerId', 'name email')
-      .populate('assignedTo', 'name email');
+      .populate('trainerId', 'name mobile')
+      .populate('employeeId', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!training) {
       return res.status(404).json({ message: 'Training not found' });
@@ -90,44 +97,24 @@ const assignTraining = async (req, res) => {
   }
 };
 
-// @desc    Mark training as complete
-// @route   PUT /api/training/:id/complete
+// @desc    Cancel training
+// @route   PUT /api/training/:id/cancel
 // @access  Private
-const completeTraining = async (req, res) => {
+const cancelTraining = async (req, res) => {
   try {
-    const { employeeId, score } = req.body;
-
-    const training = await Training.findById(req.params.id);
+    const training = await Training.findByIdAndUpdate(
+      req.params.id,
+      { status: 'Cancelled' },
+      { new: true }
+    )
+      .populate('trainerId', 'name mobile')
+      .populate('employeeId', 'name email');
 
     if (!training) {
       return res.status(404).json({ message: 'Training not found' });
     }
 
-    const completionIndex = training.completionStatus.findIndex(
-      (c) => c.employeeId.toString() === employeeId
-    );
-
-    if (completionIndex >= 0) {
-      training.completionStatus[completionIndex].status = 'Completed';
-      training.completionStatus[completionIndex].completedAt = new Date();
-      if (score) training.completionStatus[completionIndex].score = score;
-    } else {
-      training.completionStatus.push({
-        employeeId,
-        status: 'Completed',
-        completedAt: new Date(),
-        score,
-      });
-    }
-
-    await training.save();
-
-    const populatedTraining = await Training.findById(training._id)
-      .populate('trainerId', 'name email')
-      .populate('assignedTo', 'name email')
-      .populate('completionStatus.employeeId', 'name email');
-
-    res.json(populatedTraining);
+    res.json(training);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -137,7 +124,7 @@ module.exports = {
   getTrainings,
   getTraining,
   createTraining,
-  assignTraining,
-  completeTraining,
+  updateTraining,
+  cancelTraining,
 };
 

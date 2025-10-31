@@ -33,6 +33,10 @@ const dcOrderSchema = new mongoose.Schema(
       default: 'pending',
       index: true,
     },
+    hold: {
+      type: Boolean,
+      default: false,
+    },
     estimated_delivery_date: { type: Date },
     actual_delivery_date: { type: Date },
     created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

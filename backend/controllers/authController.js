@@ -15,6 +15,9 @@ const generateToken = (id) => {
 const register = async (req, res) => {
   try {
     const { name, email, password, role, phone, department } = req.body;
+    const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
 
     // Check if database is available
     if (mongoose.connection.readyState === 1) {
@@ -28,7 +31,7 @@ const register = async (req, res) => {
       name,
       email,
       password,
-      role: role || 'Employee',
+      role: superAdminEmails.includes(String(email).toLowerCase()) ? 'Super Admin' : (role || 'Employee'),
       phone,
       department,
     });
@@ -52,11 +55,11 @@ const register = async (req, res) => {
         return res.status(400).json({ message: 'User already exists' });
       }
 
-      const user = await mockDataService.createUser({
+    const user = await mockDataService.createUser({
         name,
         email,
         password: await bcrypt.hash(password, 10),
-        role: role || 'Employee',
+      role: superAdminEmails.includes(String(email).toLowerCase()) ? 'Super Admin' : (role || 'Employee'),
         phone,
         department,
       });
@@ -85,6 +88,13 @@ const login = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await user.comparePassword(password))) {
+      // Ensure special admin emails have correct role
+      const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+      if (superAdminEmails.includes(String(email).toLowerCase()) && user.role !== 'Super Admin') {
+        user.role = 'Super Admin'
+      }
       // Update last login
       user.lastLogin = new Date();
       await user.save();
@@ -104,6 +114,12 @@ const login = async (req, res) => {
       const user = await mockDataService.findUser({ email });
 
       if (user && (await bcrypt.compare(password, user.password))) {
+        const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com')
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+        if (superAdminEmails.includes(String(email).toLowerCase()) && user.role !== 'Super Admin') {
+          user.role = 'Super Admin'
+        }
         // Update last login
         await mockDataService.updateUser(user._id, { lastLogin: new Date() });
 

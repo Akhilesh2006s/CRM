@@ -13,6 +13,12 @@ const warehouseSchema = new mongoose.Schema({
   category: {
     type: String,
   },
+  level: {
+    type: String,
+  },
+  itemType: {
+    type: String,
+  },
   currentStock: {
     type: Number,
     required: true,
@@ -27,7 +33,7 @@ const warehouseSchema = new mongoose.Schema({
   },
   unitPrice: {
     type: Number,
-    required: true,
+    default: 0,
   },
   unit: {
     type: String,

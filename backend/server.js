@@ -6,13 +6,20 @@ const authRoutes = require('./routes/authRoutes');
 const leadRoutes = require('./routes/leadRoutes');
 const salesRoutes = require('./routes/salesRoutes');
 const dcRoutes = require('./routes/dcRoutes');
+const dcOrderRoutes = require('./routes/dcOrderRoutes');
+const empDcRoutes = require('./routes/empDcRoutes');
 const employeeRoutes = require('./routes/employeeRoutes');
 const trainingRoutes = require('./routes/trainingRoutes');
+const trainerRoutes = require('./routes/trainerRoutes');
+const serviceRoutes = require('./routes/serviceRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const warehouseRoutes = require('./routes/warehouseRoutes');
 const expenseRoutes = require('./routes/expenseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
+const schoolRoutes = require('./routes/schoolRoutes');
+const metadataRoutes = require('./routes/metadataRoutes');
 
 dotenv.config();
 
@@ -32,13 +39,20 @@ app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/dc', dcRoutes);
+app.use('/api/dc-orders', dcOrderRoutes);
+app.use('/api/emp-dc', empDcRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/training', trainingRoutes);
+app.use('/api/trainers', trainerRoutes);
+app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/leaves', leaveRoutes);
+app.use('/api/schools', schoolRoutes);
+app.use('/api/metadata', metadataRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

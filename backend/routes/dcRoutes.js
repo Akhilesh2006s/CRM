@@ -5,10 +5,12 @@ const {
   getDC,
   createDC,
   updateDC,
+  employeeStats,
 } = require('../controllers/dcController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 router.get('/', authMiddleware, getDCs);
+router.get('/stats/employee', authMiddleware, employeeStats);
 router.get('/:id', authMiddleware, getDC);
 router.post('/create', authMiddleware, createDC);
 router.put('/:id', authMiddleware, updateDC);

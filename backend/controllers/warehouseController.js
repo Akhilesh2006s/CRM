@@ -101,8 +101,57 @@ const getWarehouseReports = async (req, res) => {
   }
 };
 
+// @desc    Get single warehouse item
+// @route   GET /api/warehouse/:id
+// @access  Private
+const getWarehouseItem = async (req, res) => {
+  try {
+    const item = await Warehouse.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Warehouse item not found' });
+    }
+    res.json(item);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create warehouse item
+// @route   POST /api/warehouse
+// @access  Private
+const createWarehouseItem = async (req, res) => {
+  try {
+    const item = await Warehouse.create(req.body);
+    res.status(201).json(item);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update warehouse item
+// @route   PUT /api/warehouse/:id
+// @access  Private
+const updateWarehouseItem = async (req, res) => {
+  try {
+    const item = await Warehouse.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!item) {
+      return res.status(404).json({ message: 'Warehouse item not found' });
+    }
+    res.json(item);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getWarehouse,
+  getWarehouseItem,
+  createWarehouseItem,
+  updateWarehouseItem,
   updateStock,
   getWarehouseReports,
 };

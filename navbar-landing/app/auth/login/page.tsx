@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -72,15 +73,25 @@ export default function LoginPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-gray-300">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    placeholder="••••••••"
-                    className="bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-400"
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      placeholder="••••••••"
+                      className="bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-400 pr-12"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((s) => !s)}
+                      className="absolute inset-y-0 right-0 px-3 text-sm text-neutral-300 hover:text-white"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
                 </div>
                 <Button type="submit" disabled={loading} className="w-full">
                   {loading ? 'Signing in…' : 'Sign in'}

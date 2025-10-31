@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -71,7 +72,9 @@ export default function WarehousePage() {
         </div>
         <div className="mt-4 flex gap-3">
           <Button className="bg-[#2478c3] hover:bg-[#1f6aab]">Search</Button>
-          <Button className="bg-[#e6532e] hover:bg-[#cc4827]">Add New Item</Button>
+          <Link href="/dashboard/warehouse/inventory-items/new">
+            <Button className="bg-[#e6532e] hover:bg-[#cc4827]">Add New Item</Button>
+          </Link>
         </div>
       </Card>
 

@@ -9,10 +9,16 @@ const getLeads = async (req, res) => {
     const filter = {};
 
     if (status) filter.status = status;
-    if (assignedTo) filter.assignedTo = assignedTo;
+    // Backward compatible: some schemas use assignedTo, others use managed_by/assigned_by
+    if (assignedTo) {
+      filter.$or = [
+        { assignedTo },
+        { managed_by: assignedTo },
+        { assigned_by: assignedTo },
+      ];
+    }
 
     const leads = await Lead.find(filter)
-      .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 
@@ -28,7 +34,6 @@ const getLeads = async (req, res) => {
 const getLead = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id)
-      .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
     if (!lead) {
@@ -52,7 +57,6 @@ const createLead = async (req, res) => {
     });
 
     const populatedLead = await Lead.findById(lead._id)
-      .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
     res.status(201).json(populatedLead);
@@ -71,7 +75,6 @@ const updateLead = async (req, res) => {
       req.body,
       { new: true, runValidators: true }
     )
-      .populate('assignedTo', 'name email')
       .populate('createdBy', 'name email');
 
     if (!lead) {

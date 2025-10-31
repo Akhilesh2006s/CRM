@@ -1,63 +1,26 @@
 const mongoose = require('mongoose');
 
 const trainingSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: true,
-  },
-  description: {
-    type: String,
-  },
-  trainerId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  assignedTo: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  }],
-  startDate: {
-    type: Date,
-    required: true,
-  },
-  endDate: {
-    type: Date,
-    required: true,
-  },
-  status: {
-    type: String,
-    enum: ['Scheduled', 'In Progress', 'Completed', 'Cancelled'],
-    default: 'Scheduled',
-  },
-  completionStatus: [{
-    employeeId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-    status: {
-      type: String,
-      enum: ['Not Started', 'In Progress', 'Completed'],
-      default: 'Not Started',
-    },
-    completedAt: {
-      type: Date,
-    },
-    score: {
-      type: Number,
-    },
-  }],
-  materials: [{
-    type: String,
-  }],
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
+  schoolCode: { type: String, required: true },
+  schoolName: { type: String, required: true },
+  zone: { type: String },
+  town: { type: String },
+  subject: { type: String, enum: ['Abacus', 'Vedic Maths', 'EELL'], required: true },
+  trainerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Assigned executive
+  trainingDate: { type: Date, required: true },
+  status: { type: String, enum: ['Scheduled', 'Completed', 'Cancelled'], default: 'Scheduled' },
+  poImageUrl: { type: String }, // Purchase Order image
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 }, {
   timestamps: true,
 });
+
+trainingSchema.index({ schoolCode: 1 });
+trainingSchema.index({ trainerId: 1 });
+trainingSchema.index({ trainingDate: 1 });
+trainingSchema.index({ status: 1 });
+trainingSchema.index({ zone: 1 });
 
 module.exports = mongoose.model('Training', trainingSchema);
 

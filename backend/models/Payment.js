@@ -15,7 +15,7 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'Bank Transfer', 'Credit Card', 'Debit Card', 'Online Payment', 'Other'],
+    enum: ['Cash', 'Bank Transfer', 'Credit Card', 'Debit Card', 'Online Payment', 'Other', 'Cheque'],
     required: true,
   },
   paymentDate: {
@@ -24,16 +24,57 @@ const paymentSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected'],
+    enum: ['Pending', 'Approved', 'Rejected', 'hold/duplicate'],
     default: 'Pending',
   },
   referenceNumber: {
+    type: String,
+  },
+  refNo: {
     type: String,
   },
   description: {
     type: String,
   },
   receipt: {
+    type: String,
+  },
+  // School/Customer information
+  schoolCode: {
+    type: String,
+  },
+  contactName: {
+    type: String,
+  },
+  mobileNumber: {
+    type: String,
+  },
+  location: {
+    type: String,
+  },
+  town: {
+    type: String,
+  },
+  zone: {
+    type: String,
+  },
+  cluster: {
+    type: String,
+  },
+  // Payment details
+  financialYear: {
+    type: String,
+  },
+  chqDate: {
+    type: Date,
+  },
+  submissionNo: {
+    type: String,
+  },
+  handoverRemarks: {
+    type: String,
+  },
+  txnNo: {
     type: String,
   },
   approvedBy: {

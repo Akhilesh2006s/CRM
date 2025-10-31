@@ -4,16 +4,16 @@ const {
   getTrainings,
   getTraining,
   createTraining,
-  assignTraining,
-  completeTraining,
+  updateTraining,
+  cancelTraining,
 } = require('../controllers/trainingController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 router.get('/', authMiddleware, getTrainings);
 router.get('/:id', authMiddleware, getTraining);
 router.post('/create', authMiddleware, createTraining);
-router.post('/assign', authMiddleware, assignTraining);
-router.put('/:id/complete', authMiddleware, completeTraining);
+router.put('/:id', authMiddleware, updateTraining);
+router.put('/:id/cancel', authMiddleware, cancelTraining);
 
 module.exports = router;
 

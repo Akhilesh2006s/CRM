@@ -1,20 +1,22 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Card } from '@/components/ui/card'
 import { apiRequest } from '@/lib/api'
+import { Button } from '@/components/ui/button'
 
-type DC = { _id: string; status?: string; reference?: string }
+type Stats = { total: number; byStatus: { Pending: number; Processing: number; Saved: number; Closed: number } }
 
 export default function DCPage() {
-  const [items, setItems] = useState<DC[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await apiRequest<DC[]>('/dc')
-        setItems(data as any)
+        const data = await apiRequest<Stats>('/dc/stats/employee')
+        setStats(data)
       } catch (_) {}
       setLoading(false)
     })()
@@ -22,15 +24,21 @@ export default function DCPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Delivery Challans</h1>
-      <Card className="p-4 text-sm">
-        {!loading && items.length === 0 && 'No DCs yet.'}
-        {items.slice(0, 30).map((d) => (
-          <div key={d._id} className="flex justify-between border-b last:border-0 py-2">
-            <div className="font-medium text-neutral-900">{d.reference || d._id}</div>
-            <div className="text-neutral-600">{d.status || '-'}</div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Deal Conversion</h1>
+        <Link href="/dashboard/dc/create"><Button>Create Sale</Button></Link>
+      </div>
+      <Card className="p-4">
+        {loading && 'Loading...'}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <Link href="/dashboard/dc/pending"><Card className="p-3 cursor-pointer"><div className="text-xs text-neutral-600">Processing</div><div className="text-xl font-semibold">{stats.byStatus.Processing}</div></Card></Link>
+            <Link href="/dashboard/dc/saved"><Card className="p-3 cursor-pointer"><div className="text-xs text-neutral-600">Saved</div><div className="text-xl font-semibold">{stats.byStatus.Saved}</div></Card></Link>
+            <Link href="/dashboard/dc/closed"><Card className="p-3 cursor-pointer"><div className="text-xs text-neutral-600">Closed</div><div className="text-xl font-semibold">{stats.byStatus.Closed}</div></Card></Link>
+            <Card className="p-3"><div className="text-xs text-neutral-600">Pending</div><div className="text-xl font-semibold">{stats.byStatus.Pending}</div></Card>
+            <Card className="p-3"><div className="text-xs text-neutral-600">Total</div><div className="text-xl font-semibold">{stats.total}</div></Card>
           </div>
-        ))}
+        )}
       </Card>
     </div>
   )

@@ -2,12 +2,12 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Suspense } from "react"
 import "./globals.css"
-import { PageTransition } from "@/components/page-transition"
-import { NavigationTransition } from "@/components/navigation-transition"
+// Removed page/nav transitions to avoid dark flash during route changes
 import { SpeedInsights } from "@vercel/speed-insights/next"
 import { Dancing_Script, Caveat } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
+import RouteProgress from "@/components/route-progress"
 
 const dancingScript = Dancing_Script({
   subsets: ["latin"],
@@ -39,12 +39,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`font-sans antialiased ${dancingScript.variable} ${caveat.variable}`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
           <Suspense fallback={null}>
-            <NavigationTransition />
-            <PageTransition>{children}</PageTransition>
+            <RouteProgress />
+            {children}
           </Suspense>
           <Toaster richColors position="top-center" />
           <SpeedInsights />
