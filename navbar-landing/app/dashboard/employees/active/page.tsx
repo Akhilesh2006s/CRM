@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiRequest } from '@/lib/api'
+import { toast } from 'sonner'
 
 type Employee = { _id: string; name: string; email: string; phone?: string; role: string; department?: string }
 
@@ -25,6 +26,17 @@ export default function ActiveEmployeesPage() {
 
   useEffect(() => { load() }, [])
 
+  const resetPassword = async (id: string, name: string) => {
+    if (!confirm(`Reset password for ${name} to "Password123"?`)) return
+    try {
+      await apiRequest(`/employees/${id}/reset-password`, { method: 'PUT', body: JSON.stringify({}) })
+      toast.success(`Password reset to Password123 for ${name}`)
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to reset password')
+    }
+  }
+
   const filtered = items.filter(e => e.name.toLowerCase().includes(q.toLowerCase()) || e.email.toLowerCase().includes(q.toLowerCase()) || (e.phone || '').includes(q))
 
   return (
@@ -43,6 +55,7 @@ export default function ActiveEmployeesPage() {
               <th className="py-2 px-3">Phone</th>
               <th className="py-2 px-3">Role</th>
               <th className="py-2 px-3">Department</th>
+              <th className="py-2 px-3">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -53,6 +66,11 @@ export default function ActiveEmployeesPage() {
                 <td className="py-2 px-3 text-center">{e.phone || '-'}</td>
                 <td className="py-2 px-3 text-center">{e.role}</td>
                 <td className="py-2 px-3 text-center">{e.department || '-'}</td>
+                <td className="py-2 px-3 text-right">
+                  <Button size="sm" variant="secondary" onClick={() => resetPassword(e._id, e.name)}>
+                    Reset Password
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -62,6 +80,8 @@ export default function ActiveEmployeesPage() {
     </div>
   )
 }
+
+
 
 
 

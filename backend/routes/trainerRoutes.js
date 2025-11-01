@@ -12,3 +12,5 @@ router.put('/:id/reset-password', authMiddleware, resetTrainerPassword);
 module.exports = router;
 
 
+
+

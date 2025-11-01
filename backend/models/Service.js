@@ -24,3 +24,5 @@ serviceSchema.index({ zone: 1 });
 
 module.exports = mongoose.model('Service', serviceSchema);
 
+
+

@@ -8,64 +8,74 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-type Lead = {
+type DC = {
   _id: string
-  school_name?: string
-  name?: string
-  contact_person?: string
-  contact_mobile?: string
-  phone?: string
-  products?: string
-  location?: string
-  zone?: string
-  priority?: 'Hot' | 'Warm' | 'Cold'
-  status?: 'Pending' | 'Processing' | 'Saved' | 'Closed' | 'New' | string
-  remarks?: string
+  saleId?: {
+    _id: string
+    customerName?: string
+    product?: string
+    quantity?: number
+  }
+  customerName?: string
+  customerEmail?: string
+  customerAddress?: string
+  customerPhone?: string
+  product?: string
+  requestedQuantity?: number
+  status?: string
+  poPhotoUrl?: string
+  employeeId?: {
+    _id: string
+    name?: string
+    email?: string
+  }
+  deliveryNotes?: string
 }
 
-export default function EditLeadPage() {
+export default function EditDCPage() {
   const router = useRouter()
   const params = useParams()
   const id = params?.id as string
-  const [lead, setLead] = useState<Lead | null>(null)
+  const [dc, setDC] = useState<DC | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!id) return
     ;(async () => {
       try {
-        const data = await apiRequest<Lead>(`/leads/${id}`)
-        setLead(data)
+        const data = await apiRequest<DC>(`/dc/${id}`)
+        setDC(data)
       } catch (e: any) {
-        setError(e?.message || 'Failed to load lead')
+        setError(e?.message || 'Failed to load DC')
+      } finally {
+        setLoading(false)
       }
     })()
   }, [id])
 
-  const update = (patch: Partial<Lead>) => setLead((l) => (l ? { ...l, ...patch } : l))
+  const update = (patch: Partial<DC>) => setDC((d) => (d ? { ...d, ...patch } : d))
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!lead) return
+    if (!dc) return
     setSaving(true)
     setError(null)
     try {
       const payload: any = {
-        school_name: lead.school_name || lead.name,
-        contact_person: lead.contact_person,
-        contact_mobile: lead.contact_mobile || lead.phone,
-        products: lead.products,
-        location: lead.location,
-        zone: lead.zone,
-        priority: lead.priority,
-        status: lead.status,
-        remarks: lead.remarks,
+        customerName: dc.customerName,
+        customerEmail: dc.customerEmail,
+        customerAddress: dc.customerAddress,
+        customerPhone: dc.customerPhone,
+        product: dc.product,
+        requestedQuantity: dc.requestedQuantity,
+        deliveryNotes: dc.deliveryNotes,
       }
-      await apiRequest(`/leads/${lead._id}`, { method: 'PUT', body: JSON.stringify(payload) })
-      router.push('/dashboard/dc/pending')
+      await apiRequest(`/dc/${dc._id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      alert('DC updated successfully!')
+      router.back()
     } catch (e: any) {
       setError(e?.message || 'Failed to save')
     } finally {
@@ -73,71 +83,106 @@ export default function EditLeadPage() {
     }
   }
 
-  if (!lead) {
+  if (loading) {
     return <div className="p-4 text-sm text-neutral-600">Loading...</div>
+  }
+
+  if (!dc) {
+    return <div className="p-4 text-sm text-red-600">{error || 'DC not found'}</div>
   }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Edit Deal</h1>
+      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Edit DC</h1>
       <Card className="p-4 md:p-6">
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label>School name</Label>
-            <Input value={lead.school_name || lead.name || ''} onChange={(e) => update({ school_name: e.target.value })} />
+            <Label>Customer Name</Label>
+            <Input
+              value={dc.customerName || dc.saleId?.customerName || ''}
+              onChange={(e) => update({ customerName: e.target.value })}
+            />
           </div>
           <div>
-            <Label>Contact person</Label>
-            <Input value={lead.contact_person || ''} onChange={(e) => update({ contact_person: e.target.value })} />
+            <Label>Customer Email</Label>
+            <Input
+              type="email"
+              value={dc.customerEmail || ''}
+              onChange={(e) => update({ customerEmail: e.target.value })}
+            />
           </div>
           <div>
-            <Label>Contact mobile</Label>
-            <Input value={lead.contact_mobile || lead.phone || ''} onChange={(e) => update({ contact_mobile: e.target.value })} />
+            <Label>Customer Phone</Label>
+            <Input
+              value={dc.customerPhone || ''}
+              onChange={(e) => update({ customerPhone: e.target.value })}
+            />
           </div>
           <div>
-            <Label>Zone</Label>
-            <Input value={lead.zone || ''} onChange={(e) => update({ zone: e.target.value })} />
+            <Label>Product</Label>
+            <Input
+              value={dc.product || dc.saleId?.product || ''}
+              onChange={(e) => update({ product: e.target.value })}
+            />
           </div>
           <div className="md:col-span-2">
-            <Label>Products</Label>
-            <Textarea value={lead.products || ''} onChange={(e) => update({ products: e.target.value })} />
+            <Label>Customer Address</Label>
+            <Textarea
+              value={dc.customerAddress || ''}
+              onChange={(e) => update({ customerAddress: e.target.value })}
+              rows={2}
+            />
+          </div>
+          <div>
+            <Label>Requested Quantity</Label>
+            <Input
+              type="number"
+              min="1"
+              value={dc.requestedQuantity || dc.saleId?.quantity || ''}
+              onChange={(e) => update({ requestedQuantity: Number(e.target.value) })}
+            />
           </div>
           <div>
             <Label>Status</Label>
-            <Select value={lead.status as string} onValueChange={(v) => update({ status: v })}>
-              <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Pending">Pending</SelectItem>
-                <SelectItem value="Processing">Processing</SelectItem>
-                <SelectItem value="Saved">Saved</SelectItem>
-                <SelectItem value="Closed">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Priority</Label>
-            <Select value={lead.priority as string} onValueChange={(v) => update({ priority: v as any })}>
-              <SelectTrigger><SelectValue placeholder="Select priority" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Hot">Hot</SelectItem>
-                <SelectItem value="Warm">Warm</SelectItem>
-                <SelectItem value="Cold">Cold</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input value={dc.status || 'created'} disabled className="bg-gray-100" />
           </div>
           <div className="md:col-span-2">
-            <Label>Remarks</Label>
-            <Textarea value={lead.remarks || ''} onChange={(e) => update({ remarks: e.target.value })} />
+            <Label>Employee</Label>
+            <Input value={dc.employeeId?.name || '-'} disabled className="bg-gray-100" />
+          </div>
+          {dc.poPhotoUrl && (
+            <div className="md:col-span-2">
+              <Label>Purchase Order</Label>
+              <div className="mt-2">
+                <img
+                  src={dc.poPhotoUrl}
+                  alt="PO"
+                  className="max-w-full h-auto max-h-64 rounded border cursor-pointer"
+                  onClick={() => window.open(dc.poPhotoUrl, '_blank')}
+                />
+              </div>
+            </div>
+          )}
+          <div className="md:col-span-2">
+            <Label>Remarks / Notes</Label>
+            <Textarea
+              value={dc.deliveryNotes || ''}
+              onChange={(e) => update({ deliveryNotes: e.target.value })}
+              rows={4}
+              placeholder="Add any remarks or notes about this DC..."
+            />
           </div>
           {error && <div className="md:col-span-2 text-red-600 text-sm">{error}</div>}
-          <div className="md:col-span-2">
-            <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</Button>
+          <div className="md:col-span-2 flex gap-2">
+            <Button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => router.back()}>
+              Cancel
+            </Button>
           </div>
         </form>
       </Card>
     </div>
   )
 }
-
-
-
