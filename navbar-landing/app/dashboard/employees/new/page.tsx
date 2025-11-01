@@ -129,7 +129,9 @@ export default function NewEmployeePage() {
               <SelectContent>
                 <SelectItem value="Employee">Employee</SelectItem>
                 <SelectItem value="Trainer">Trainer</SelectItem>
+                <SelectItem value="Co-ordinator">Co-ordinator</SelectItem>
                 <SelectItem value="Finance Manager">Finance Manager</SelectItem>
+                <SelectItem value="Manager">Manager</SelectItem>
                 <SelectItem value="Admin">Admin</SelectItem>
                 <SelectItem value="Super Admin">Super Admin</SelectItem>
               </SelectContent>

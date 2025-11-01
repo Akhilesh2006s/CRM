@@ -5,99 +5,281 @@ import { apiRequest } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 
-type Emp = { _id: string; name: string }
-type EmpDC = { _id: string; emp_dc_code: string; employee_id: Emp | string; kit_type: string; distribution_date: string; status: string }
+type DcOrder = {
+  _id: string
+  dc_code?: string
+  school_name: string
+  contact_person?: string
+  contact_mobile?: string
+  products?: any
+}
 
-export default function EmployeeDCPage() {
-  const [list, setList] = useState<EmpDC[]>([])
+export default function EMPDCPage() {
+  const [user, setUser] = useState<{ role?: string } | null>(null)
+  const [isManager, setIsManager] = useState(false)
+  const [items, setItems] = useState<DcOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ employee_id: '', kit_type: 'Sales', distribution_date: '', expected_return_date: '' })
-  const [submitting, setSubmitting] = useState(false)
+
+  // Check user role
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('authUser')
+        if (raw) {
+          const userData = JSON.parse(raw)
+          setUser(userData)
+          setIsManager(userData.role === 'Manager')
+        }
+      } catch {}
+    }
+  }, [])
 
   const load = async () => {
-    setLoading(true)
-    try {
-      const data = await apiRequest<EmpDC[]>(`/emp-dc/list`)
-      setList(data)
-    } finally {
+    if (!isManager) {
+      setLoading(true)
+      try {
+        const data = await apiRequest<DcOrder[]>(`/dc-orders?status=emp`)
+        setItems(data)
+      } catch (_) {}
       setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSubmitting(true)
-    try {
-      await apiRequest(`/emp-dc/create`, { method: 'POST', body: JSON.stringify(form) })
-      setForm({ employee_id: '', kit_type: 'Sales', distribution_date: '', expected_return_date: '' })
+  useEffect(() => {
+    if (!isManager) {
       load()
-    } catch (e) {
-      alert('Failed to create EMP DC. Ensure you are logged in.')
-    } finally {
-      setSubmitting(false)
     }
-  }
+  }, [isManager])
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">EMP DC (Employee Kits)</h1>
-      <Card className="p-4 space-y-4 text-neutral-900">
-        <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <div>
-            <Label>Employee ID</Label>
-            <Input value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} placeholder="User ObjectId" required />
+  // Manager-specific view
+  if (isManager) {
+    return (
+      <div className="space-y-6 bg-gray-50 min-h-screen">
+        {/* Header */}
+        <div className="bg-white border-b">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">Viswam Edutech - EMP DC List</h1>
+                <p className="text-sm text-gray-600 mt-1">EMP DC</p>
+              </div>
+              <div className="text-sm text-gray-500">Home &gt; Leads &gt; EMP DC</div>
+            </div>
           </div>
-          <div>
-            <Label>Kit Type</Label>
-            <Select value={form.kit_type} onValueChange={(v) => setForm({ ...form, kit_type: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+        </div>
+
+        {/* Filters Section */}
+        <div className="bg-gray-100 mx-4 rounded-lg px-4 py-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
+            <Input 
+              placeholder="By School Name" 
+              className="bg-white border-gray-300"
+            />
+            <Input 
+              placeholder="By School Code" 
+              className="bg-white border-gray-300"
+            />
+            <Input 
+              placeholder="By Contact Mobile No" 
+              className="bg-white border-gray-300"
+            />
+            <Input 
+              placeholder="dd-mm-yyyy" 
+              type="text"
+              className="bg-white border-gray-300"
+            />
+            <Input 
+              placeholder="dd-mm-yyyy" 
+              type="text"
+              className="bg-white border-gray-300"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Select>
+              <SelectTrigger className="bg-white border-gray-300">
+                <SelectValue placeholder="Select Executive" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Sales">Sales</SelectItem>
-                <SelectItem value="Training">Training</SelectItem>
-                <SelectItem value="Field">Field</SelectItem>
+                <SelectItem value="exec1">Executive 1</SelectItem>
+                <SelectItem value="exec2">Executive 2</SelectItem>
               </SelectContent>
             </Select>
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white">Search</Button>
           </div>
-          <div>
-            <Label>Distribution Date</Label>
-            <Input type="date" value={form.distribution_date} onChange={(e) => setForm({ ...form, distribution_date: e.target.value })} required />
-          </div>
-          <div>
-            <Label>Expected Return</Label>
-            <Input type="date" value={form.expected_return_date} onChange={(e) => setForm({ ...form, expected_return_date: e.target.value })} />
-          </div>
-          <div className="md:col-span-4">
-            <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create Kit'}</Button>
-          </div>
-        </form>
-      </Card>
+        </div>
 
-      <Card className="p-0 overflow-x-auto">
-        {loading && <div className="p-4">Loading…</div>}
-        {!loading && (
+        {/* Table Section */}
+        <div className="bg-white mx-4 rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            <table className="w-full text-sm min-w-[1200px]">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Created On
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Type
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Fin Year
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Zone
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Town
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Name
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Executive
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Mobile
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Products
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Code
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      PO
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Action
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Remarks
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                <tr>
+                  <td colSpan={13} className="py-8 px-4 text-center text-gray-500">
+                    No data available in table
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination Info */}
+          <div className="px-4 py-3 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">Showing 0 to 0 of 0 entries</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Default view for non-Manager users
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">EMP DC</h1>
+      <Card className="p-4 text-neutral-900 overflow-x-auto">
+        {loading && 'Loading...'}
+        {!loading && items.length === 0 && 'No EMP DCs.'}
+        {!loading && items.length > 0 && (
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-sky-50/70 border-b text-neutral-700">
-                <th className="py-2 px-3 text-left">Code</th>
-                <th className="py-2 px-3 text-left">Employee</th>
-                <th className="py-2 px-3">Kit</th>
-                <th className="py-2 px-3">Date</th>
-                <th className="py-2 px-3">Status</th>
+                <th className="py-2 px-3 text-left">DC Code</th>
+                <th className="py-2 px-3 text-left">School</th>
+                <th className="py-2 px-3">Contact</th>
+                <th className="py-2 px-3">Mobile</th>
+                <th className="py-2 px-3 text-left">Products</th>
               </tr>
             </thead>
             <tbody>
-              {list.map((k) => (
-                <tr key={k._id} className="border-b last:border-0">
-                  <td className="py-2 px-3">{k.emp_dc_code}</td>
-                  <td className="py-2 px-3">{typeof k.employee_id === 'string' ? k.employee_id : k.employee_id?.name}</td>
-                  <td className="py-2 px-3 text-center">{k.kit_type}</td>
-                  <td className="py-2 px-3 text-center">{k.distribution_date ? new Date(k.distribution_date).toLocaleDateString() : '-'}</td>
-                  <td className="py-2 px-3 text-center">{k.status}</td>
+              {items.map((d) => (
+                <tr key={d._id} className="border-b last:border-0">
+                  <td className="py-2 px-3">{d.dc_code || '-'}</td>
+                  <td className="py-2 px-3">{d.school_name}</td>
+                  <td className="py-2 px-3 text-center">{d.contact_person || '-'}</td>
+                  <td className="py-2 px-3 text-center">{d.contact_mobile || '-'}</td>
+                  <td className="py-2 px-3 truncate max-w-[320px]">{Array.isArray(d.products) ? d.products.map(p=>p.product_name).join(', ') : '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -107,4 +289,3 @@ export default function EmployeeDCPage() {
     </div>
   )
 }
-

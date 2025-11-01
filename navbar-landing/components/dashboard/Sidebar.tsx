@@ -40,6 +40,7 @@ import {
   History,
   Menu,
   X,
+  ChevronRight,
 } from 'lucide-react'
 
 type NavItem = {
@@ -198,6 +199,127 @@ export function Sidebar() {
   }, [])
 
   const isEmployee = user?.role === 'Employee'
+  const isManager = user?.role === 'Manager'
+  const isCoordinator = user?.role === 'Co-ordinator'
+
+  // Manager-specific simplified navigation
+  const MANAGER_NAV: NavItem[] = [
+    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    {
+      label: 'DC',
+      icon: Truck,
+      children: [
+        { label: 'Closed Sales', href: '/dashboard/dc/closed', icon: CheckCircle2 },
+        { label: 'Saved DC', href: '/dashboard/dc/saved', icon: Save },
+        { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
+        { label: 'EMP DC', href: '/dashboard/dc/emp', icon: UserCircle2 },
+      ],
+    },
+    {
+      label: 'Warehouse',
+      icon: Boxes,
+      children: [
+        { label: 'Completed DC', href: '/dashboard/warehouse/completed-dc', icon: CheckCircle2 },
+      ],
+    },
+    {
+      label: 'Expenses',
+      icon: Calculator,
+      children: [
+        { label: 'Pending Expenses List', href: '/dashboard/expenses/pending', icon: Clock },
+      ],
+    },
+    {
+      label: 'Reports',
+      icon: BarChart3,
+      href: '/dashboard/reports',
+      children: [
+        { label: 'Leads', href: '/dashboard/reports/leads', icon: FileText },
+        { label: 'Sales Visit', href: '/dashboard/reports/sales-visit', icon: FileText },
+        { label: 'Employee Track', href: '/dashboard/reports/employee-track', icon: FileText },
+        { label: 'All Expenses', href: '/dashboard/reports/expenses', icon: FileText },
+      ],
+    },
+    {
+      label: 'Settings',
+      icon: Settings,
+      children: [
+        { label: 'Change Password', href: '/dashboard/settings/password', icon: Settings },
+      ],
+    },
+    { label: 'Sign out', icon: LogOut, href: '/auth/login' },
+  ]
+
+  // Coordinator-specific navigation
+  const COORDINATOR_NAV: NavItem[] = [
+    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    {
+      label: 'DC',
+      icon: Truck,
+      children: [
+        { label: 'Create Sale', href: '/dashboard/dc/create', icon: PlusCircle },
+        { label: 'Closed Sales', href: '/dashboard/dc/closed', icon: CheckCircle2 },
+        { label: 'Saved DC', href: '/dashboard/dc/saved', icon: Save },
+        { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
+        { label: 'EMP DC', href: '/dashboard/dc/emp', icon: UserCircle2 },
+      ],
+    },
+    {
+      label: 'Users / Employees',
+      icon: Users,
+      children: [
+        { label: 'Active Employees', href: '/dashboard/employees/active' },
+      ],
+    },
+    {
+      label: 'Trainings & Services',
+      icon: GraduationCap,
+      children: [
+        { label: 'Active Trainers', href: '/dashboard/training/trainers/active' },
+        { label: 'Trainers Dashboard', href: '/dashboard/training/dashboard' },
+        { label: 'Assign Training/Service', href: '/dashboard/training/assign' },
+        { label: 'Trainings List', href: '/dashboard/training/list' },
+        { label: 'Services List', href: '/dashboard/training/services' },
+        { label: 'Inactive Trainers', href: '/dashboard/training/trainers/inactive' },
+      ],
+    },
+    {
+      label: 'Warehouse',
+      icon: Boxes,
+      children: [
+        { label: 'DC @ Warehouse', href: '/dashboard/warehouse/dc-at-warehouse', icon: FileText },
+        { label: 'Completed DC', href: '/dashboard/warehouse/completed-dc', icon: CheckCircle2 },
+      ],
+    },
+    {
+      label: 'Payments',
+      icon: CreditCard,
+      children: [
+        { label: 'Transaction Report', href: '/dashboard/payments/transaction-report' },
+        { label: 'Approval Pending Cash', href: '/dashboard/payments/approval-pending-cash' },
+        { label: 'Approval Pending Cheques', href: '/dashboard/payments/approval-pending-cheques' },
+        { label: 'Approved Payments', href: '/dashboard/payments/approved-payments' },
+      ],
+    },
+    {
+      label: 'Reports',
+      icon: BarChart3,
+      children: [
+        { label: 'Leads', href: '/dashboard/reports/leads' },
+        { label: 'DC', href: '/dashboard/reports/dc' },
+        { label: 'Returns', href: '/dashboard/reports/returns' },
+        { label: 'All Expenses', href: '/dashboard/reports/expenses' },
+      ],
+    },
+    {
+      label: 'Settings',
+      icon: Settings,
+      children: [
+        { label: 'Change Password', href: '/dashboard/settings/password' },
+      ],
+    },
+    { label: 'Sign out', icon: LogOut, href: '/auth/login' },
+  ]
 
   // Add employee leave menu if employee, replace admin Leave Management
   const employeeLeavesMenu: NavItem = {
@@ -224,6 +346,10 @@ export function Sidebar() {
       employeeLeavesMenu,
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
+  } else if (isManager) {
+    finalNav = MANAGER_NAV
+  } else if (isCoordinator) {
+    finalNav = COORDINATOR_NAV
   } else {
     finalNav = NAV
   }
@@ -259,7 +385,7 @@ export function Sidebar() {
 
       return shouldUpdate ? newOpenState : currentOpen
     })
-  }, [pathname, isEmployee])
+  }, [pathname, isEmployee, isManager])
 
   const signOut = () => {
     if (typeof window !== 'undefined') {
@@ -302,6 +428,386 @@ export function Sidebar() {
       }
     }
   }, [sidebarOpen])
+
+  // Coordinator-specific sidebar layout (similar to Manager but with different menu)
+  if (isCoordinator) {
+    return (
+      <>
+        {/* Coordinator Sidebar with Blue Header */}
+        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-gray-800 text-white min-h-screen fixed md:sticky top-0 left-0 z-40 transition-all duration-300 relative`}>
+          {/* Blue Header Bar */}
+          <div className="bg-blue-600 h-14 flex items-center justify-between px-4 border-b border-blue-700">
+            {sidebarOpen && <div className="text-white font-semibold text-sm">ViswamEdutech</div>}
+            {!sidebarOpen && <div className="text-white font-semibold text-xs">VE</div>}
+            <div className="flex items-center gap-2">
+              {sidebarOpen && (
+                <>
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-xs font-bold text-white">
+                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                  <div className="text-white text-sm font-medium">{user?.name || 'User'}</div>
+                </>
+              )}
+              {!sidebarOpen && (
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-xs font-bold text-white">
+                  {user?.name?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              )}
+              <button
+                onClick={toggleSidebar}
+                className="bg-transparent text-white p-1.5 rounded hover:bg-blue-700 transition-all duration-300 flex-shrink-0"
+                aria-label="Toggle sidebar"
+              >
+                {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Logo and User Section */}
+          {sidebarOpen && (
+            <div className="bg-gray-800 px-4 py-3 border-b border-gray-700 flex items-center gap-3">
+              <div className="w-8 h-8 rounded bg-green-500 flex items-center justify-center text-white text-xs font-bold">
+                SL
+              </div>
+              <div className="text-white text-sm font-medium">{user?.name || 'User'}</div>
+            </div>
+          )}
+          {!sidebarOpen && (
+            <div className="bg-gray-800 px-2 py-3 border-b border-gray-700 flex justify-center">
+              <div className="w-8 h-8 rounded bg-green-500 flex items-center justify-center text-white text-xs font-bold">
+                SL
+              </div>
+            </div>
+          )}
+
+          {/* MAIN NAVIGATION Header */}
+          {sidebarOpen && (
+            <div className="px-4 py-3 border-b border-gray-700">
+              <div className="text-[11px] tracking-wider text-gray-400 font-semibold uppercase">MAIN NAVIGATION</div>
+            </div>
+          )}
+
+          {/* Navigation Menu */}
+          <nav className="py-2">
+            <ul className="space-y-1">
+              {finalNav.map((item) => (
+                <li key={item.label}>
+                  {item.children ? (
+                    <div>
+                      {item.href ? (
+                        <Link
+                          href={item.href}
+                          onClick={(e) => {
+                            if (!sidebarOpen) {
+                              e.preventDefault()
+                              setSidebarOpen(true)
+                              setTimeout(() => toggle(item.label), 100)
+                            } else {
+                              e.preventDefault()
+                              toggle(item.label)
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                            sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                          } ${
+                            open[item.label] || pathname === item.href || (item.href && pathname?.startsWith(item.href))
+                              ? 'bg-gray-700'
+                              : ''
+                          }`}
+                          title={!sidebarOpen ? item.label : ''}
+                        >
+                          <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                            {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                            {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                          </div>
+                          {sidebarOpen && (
+                            <ChevronRight 
+                              size={16} 
+                              className={`text-gray-400 transition-transform ${open[item.label] ? 'rotate-90' : ''}`}
+                            />
+                          )}
+                        </Link>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (!sidebarOpen) {
+                              setSidebarOpen(true)
+                              setTimeout(() => toggle(item.label), 100)
+                            } else {
+                              toggle(item.label)
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                            sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                          } ${
+                            open[item.label] ? 'bg-gray-700' : ''
+                          }`}
+                          title={!sidebarOpen ? item.label : ''}
+                        >
+                          <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                            {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                            {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                          </div>
+                          {sidebarOpen && (
+                            <ChevronRight 
+                              size={16} 
+                              className={`text-gray-400 transition-transform ${open[item.label] ? 'rotate-90' : ''}`}
+                            />
+                          )}
+                        </button>
+                      )}
+                      {sidebarOpen && open[item.label] && (
+                        <ul className="ml-4 mt-1 mb-2 space-y-1">
+                          {item.children.map((child) => (
+                            <li key={child.label}>
+                              <Link
+                                href={child.href}
+                                className={`flex items-center gap-3 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors text-sm ${
+                                  pathname === child.href || (child.href && pathname?.startsWith(child.href))
+                                    ? 'bg-gray-700'
+                                    : ''
+                                }`}
+                              >
+                                {child.icon && (
+                                  <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                                )}
+                                <span>{child.label}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : item.label === 'Sign out' ? (
+                    <button
+                      onClick={signOut}
+                      className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                        sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                        {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                        {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                      </div>
+                      {sidebarOpen && <ChevronRight size={16} className="text-gray-400" />}
+                    </button>
+                  ) : (
+                    <Link
+                      href={item.href || '#'}
+                      className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                        sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                      } ${
+                        pathname === item.href || (item.href && pathname?.startsWith(item.href))
+                          ? 'bg-gray-700'
+                          : ''
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                        {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                        {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                      </div>
+                      {sidebarOpen && <ChevronRight size={16} className="text-gray-400" />}
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </aside>
+      </>
+    )
+  }
+
+  // Manager-specific sidebar layout
+  if (isManager) {
+    return (
+      <>
+        {/* Manager Sidebar with Blue Header */}
+        <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-gray-800 text-white min-h-screen fixed md:sticky top-0 left-0 z-40 transition-all duration-300 relative`}>
+          {/* Blue Header Bar */}
+          <div className="bg-blue-600 h-14 flex items-center justify-between px-4 border-b border-blue-700">
+            {sidebarOpen && <div className="text-white font-semibold text-sm">ViswamEdutech</div>}
+            {!sidebarOpen && <div className="text-white font-semibold text-xs">VE</div>}
+            <div className="flex items-center gap-2">
+              {sidebarOpen && (
+                <>
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-xs font-bold text-white">
+                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                  <div className="text-white text-sm font-medium">{user?.name || 'User'}</div>
+                </>
+              )}
+              {!sidebarOpen && (
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-xs font-bold text-white">
+                  {user?.name?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              )}
+              <button
+                onClick={toggleSidebar}
+                className="bg-transparent text-white p-1.5 rounded hover:bg-blue-700 transition-all duration-300 flex-shrink-0"
+                aria-label="Toggle sidebar"
+              >
+                {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Logo and User Section */}
+          {sidebarOpen && (
+            <div className="bg-gray-800 px-4 py-3 border-b border-gray-700 flex items-center gap-3">
+              <div className="w-8 h-8 rounded bg-green-500 flex items-center justify-center text-white text-xs font-bold">
+                SL
+              </div>
+              <div className="text-white text-sm font-medium">{user?.name || 'User'}</div>
+            </div>
+          )}
+          {!sidebarOpen && (
+            <div className="bg-gray-800 px-2 py-3 border-b border-gray-700 flex justify-center">
+              <div className="w-8 h-8 rounded bg-green-500 flex items-center justify-center text-white text-xs font-bold">
+                SL
+              </div>
+            </div>
+          )}
+
+          {/* MAIN NAVIGATION Header */}
+          {sidebarOpen && (
+            <div className="px-4 py-3 border-b border-gray-700">
+              <div className="text-[11px] tracking-wider text-gray-400 font-semibold uppercase">MAIN NAVIGATION</div>
+            </div>
+          )}
+
+          {/* Navigation Menu */}
+          <nav className="py-2">
+            <ul className="space-y-1">
+              {finalNav.map((item) => (
+                <li key={item.label}>
+                  {item.children ? (
+                    <div>
+                      {item.href ? (
+                        <Link
+                          href={item.href}
+                          onClick={(e) => {
+                            if (!sidebarOpen) {
+                              e.preventDefault()
+                              setSidebarOpen(true)
+                              setTimeout(() => toggle(item.label), 100)
+                            } else {
+                              e.preventDefault()
+                              toggle(item.label)
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                            sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                          } ${
+                            open[item.label] ? 'bg-gray-700' : ''
+                          }`}
+                          title={!sidebarOpen ? item.label : ''}
+                        >
+                          <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                            {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                            {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                          </div>
+                          {sidebarOpen && (
+                            <ChevronRight 
+                              size={16} 
+                              className={`text-gray-400 transition-transform ${open[item.label] ? 'rotate-90' : ''}`}
+                            />
+                          )}
+                        </Link>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            if (!sidebarOpen) {
+                              setSidebarOpen(true)
+                              setTimeout(() => toggle(item.label), 100)
+                            } else {
+                              toggle(item.label)
+                            }
+                          }}
+                          className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                            sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                          } ${
+                            open[item.label] ? 'bg-gray-700' : ''
+                          }`}
+                          title={!sidebarOpen ? item.label : ''}
+                        >
+                          <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                            {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                            {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                          </div>
+                          {sidebarOpen && (
+                            <ChevronRight 
+                              size={16} 
+                              className={`text-gray-400 transition-transform ${open[item.label] ? 'rotate-90' : ''}`}
+                            />
+                          )}
+                        </button>
+                      )}
+                      {sidebarOpen && open[item.label] && (
+                        <ul className="ml-4 mt-1 mb-2 space-y-1">
+                          {item.children.map((child) => (
+                            <li key={child.label}>
+                              <Link
+                                href={child.href}
+                                className={`flex items-center gap-3 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors text-sm ${
+                                  pathname === child.href || (child.href && pathname?.startsWith(child.href))
+                                    ? 'bg-gray-700'
+                                    : ''
+                                }`}
+                              >
+                                {child.icon && (
+                                  <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                                )}
+                                <span>{child.label}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ) : item.label === 'Sign out' ? (
+                    <button
+                      onClick={signOut}
+                      className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                        sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                        {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                        {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                      </div>
+                      {sidebarOpen && <ChevronRight size={16} className="text-gray-400" />}
+                    </button>
+                  ) : (
+                    <Link
+                      href={item.href || '#'}
+                      className={`w-full flex items-center justify-between text-white py-3 hover:bg-gray-700 transition-colors ${
+                        sidebarOpen ? 'px-4' : 'px-2 justify-center'
+                      } ${
+                        pathname === item.href || (item.href && pathname?.startsWith(item.href))
+                          ? 'bg-gray-700'
+                          : ''
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      <div className={`flex items-center ${sidebarOpen ? 'gap-3' : ''}`}>
+                        {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                        {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                      </div>
+                      {sidebarOpen && <ChevronRight size={16} className="text-gray-400" />}
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </aside>
+      </>
+    )
+  }
 
   return (
     <>

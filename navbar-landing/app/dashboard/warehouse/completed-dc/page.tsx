@@ -24,6 +24,8 @@ type Row = {
 export default function CompletedDCPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
+  const [isManager, setIsManager] = useState(false)
+  const [isCoordinator, setIsCoordinator] = useState(false)
   const [filters, setFilters] = useState({
     zone: '',
     employee: '',
@@ -32,6 +34,20 @@ export default function CompletedDCPage() {
     fromDate: '',
     toDate: '',
   })
+
+  // Check user role
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('authUser')
+        if (raw) {
+          const userData = JSON.parse(raw)
+          setIsManager(userData.role === 'Manager')
+          setIsCoordinator(userData.role === 'Co-ordinator')
+        }
+      } catch {}
+    }
+  }, [])
 
   async function load() {
     const qs = new URLSearchParams()
@@ -77,22 +93,22 @@ export default function CompletedDCPage() {
           <Table className="min-w-[1400px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10">S.No</TableHead>
-                <TableHead>DC No</TableHead>
-                <TableHead>DC Date</TableHead>
-                <TableHead>DC Category</TableHead>
-                <TableHead>DC Fin Year</TableHead>
-                <TableHead>School Name</TableHead>
-                <TableHead>School Code</TableHead>
-                <TableHead>Zone</TableHead>
-                <TableHead>Executive</TableHead>
-                <TableHead>Completed Date</TableHead>
-                <TableHead>LR Info</TableHead>
-                <TableHead>LR Date</TableHead>
-                <TableHead>Action 1</TableHead>
-                <TableHead>Action 2</TableHead>
-                <TableHead>Remarks</TableHead>
-                <TableHead>Delivery Status</TableHead>
+                <TableHead className="w-10 text-gray-900 font-bold">S.No</TableHead>
+                <TableHead className="text-gray-900 font-bold">DC No</TableHead>
+                <TableHead className="text-gray-900 font-bold">DC Date</TableHead>
+                <TableHead className="text-gray-900 font-bold">DC Category</TableHead>
+                <TableHead className="text-gray-900 font-bold">DC Fin Year</TableHead>
+                <TableHead className="text-gray-900 font-bold">School Name</TableHead>
+                <TableHead className="text-gray-900 font-bold">School Code</TableHead>
+                <TableHead className="text-gray-900 font-bold">Zone</TableHead>
+                <TableHead className="text-gray-900 font-bold">Executive</TableHead>
+                <TableHead className="text-gray-900 font-bold">Completed Date</TableHead>
+                <TableHead className="text-gray-900 font-bold">LR Info</TableHead>
+                <TableHead className="text-gray-900 font-bold">LR Date</TableHead>
+                <TableHead className="text-gray-900 font-bold">Action 1</TableHead>
+                <TableHead className="text-gray-900 font-bold">Action 2</TableHead>
+                <TableHead className="text-gray-900 font-bold">Remarks</TableHead>
+                <TableHead className="text-gray-900 font-bold">Delivery Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -123,7 +139,10 @@ export default function CompletedDCPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={() => actionPlaceholder('Stock Return')}>Stock Return</Button>
+                    {!isManager && !isCoordinator && (
+                      <Button size="sm" onClick={() => actionPlaceholder('Stock Return')}>Stock Return</Button>
+                    )}
+                    {(isManager || isCoordinator) && <span className="text-gray-400">-</span>}
                   </TableCell>
                   <TableCell className="truncate max-w-[240px]">-</TableCell>
                   <TableCell className="whitespace-nowrap">-</TableCell>

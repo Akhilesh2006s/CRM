@@ -37,6 +37,7 @@ export default function ApprovalPendingChequesPage() {
   const router = useRouter()
   const [rows, setRows] = useState<PaymentRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [isCoordinator, setIsCoordinator] = useState(false)
   const [filters, setFilters] = useState({
     schoolCode: '',
     schoolName: '',
@@ -74,6 +75,19 @@ export default function ApprovalPendingChequesPage() {
       setLoading(false)
     }
   }
+
+  // Check user role
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('authUser')
+        if (raw) {
+          const userData = JSON.parse(raw)
+          setIsCoordinator(userData.role === 'Co-ordinator')
+        }
+      } catch {}
+    }
+  }, [])
 
   useEffect(() => {
     load()
@@ -149,27 +163,27 @@ export default function ApprovalPendingChequesPage() {
           <Table className="min-w-[1800px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10">S.No</TableHead>
-                <TableHead>School Code</TableHead>
-                <TableHead>School Name</TableHead>
-                <TableHead>Contact Name</TableHead>
-                <TableHead>Mobile</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead>Date of Pay</TableHead>
-                <TableHead>Added By</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Payment Mode</TableHead>
-                <TableHead>Payment Fin Year</TableHead>
-                <TableHead>Chq Date</TableHead>
-                <TableHead>Submission No</TableHead>
-                <TableHead>Handover Remarks</TableHead>
-                <TableHead>Action</TableHead>
+                <TableHead className="w-10 text-gray-900 font-bold">S.No</TableHead>
+                <TableHead className="text-gray-900 font-bold">School Code</TableHead>
+                <TableHead className="text-gray-900 font-bold">School Name</TableHead>
+                <TableHead className="text-gray-900 font-bold">Contact Name</TableHead>
+                <TableHead className="text-gray-900 font-bold">Mobile</TableHead>
+                <TableHead className="text-gray-900 font-bold">Location</TableHead>
+                <TableHead className="text-gray-900 font-bold">Date of Pay</TableHead>
+                <TableHead className="text-gray-900 font-bold">Added By</TableHead>
+                <TableHead className="text-gray-900 font-bold">Amount</TableHead>
+                <TableHead className="text-gray-900 font-bold">Payment Mode</TableHead>
+                <TableHead className="text-gray-900 font-bold">Payment Fin Year</TableHead>
+                <TableHead className="text-gray-900 font-bold">Chq Date</TableHead>
+                <TableHead className="text-gray-900 font-bold">Submission No</TableHead>
+                <TableHead className="text-gray-900 font-bold">Handover Remarks</TableHead>
+                {!isCoordinator && <TableHead className="text-gray-900 font-bold">Action</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {!loading && rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={15} className="text-center text-neutral-500">
+                  <TableCell colSpan={isCoordinator ? 14 : 15} className="text-center text-neutral-500">
                     No pending cheque payments found
                   </TableCell>
                 </TableRow>
@@ -203,16 +217,18 @@ export default function ApprovalPendingChequesPage() {
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{r.submissionNo || r.refNo || '-'}</TableCell>
                   <TableCell className="truncate max-w-[150px]">{r.handoverRemarks || '-'}</TableCell>
-                  <TableCell>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleEdit(r._id)}
-                      className="text-orange-600 border-orange-600 hover:bg-orange-50"
-                    >
-                      <Pencil size={14} />
-                    </Button>
-                  </TableCell>
+                  {!isCoordinator && (
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleEdit(r._id)}
+                        className="text-orange-600 border-orange-600 hover:bg-orange-50"
+                      >
+                        <Pencil size={14} />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

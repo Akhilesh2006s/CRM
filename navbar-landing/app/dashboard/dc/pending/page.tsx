@@ -1,160 +1,255 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { apiRequest } from '@/lib/api'
 import { Card } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 
 type DcOrder = {
   _id: string
   dc_code?: string
-  school_name?: string
+  school_name: string
   contact_person?: string
   contact_mobile?: string
   products?: any
-  location?: string
-  zone?: string
-  status?: string
 }
 
 export default function PendingDCPage() {
+  const [user, setUser] = useState<{ role?: string } | null>(null)
+  const [isManager, setIsManager] = useState(false)
   const [items, setItems] = useState<DcOrder[]>([])
   const [loading, setLoading] = useState(true)
-  const [q, setQ] = useState('')
-  const [zone, setZone] = useState('')
-  const [leadStatus, setLeadStatus] = useState('')
-  const [assignedTo, setAssignedTo] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+
+  // Check user role
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('authUser')
+        if (raw) {
+          const userData = JSON.parse(raw)
+          setUser(userData)
+          setIsManager(userData.role === 'Manager')
+        }
+      } catch {}
+    }
+  }, [])
 
   const load = async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      params.set('status', 'pending')
-      if (q) params.set('q', q)
-      if (zone) params.set('zone', zone)
-      if (leadStatus) params.set('lead_status', leadStatus)
-      if (assignedTo) params.set('assigned_to', assignedTo)
-      if (from) params.set('from', from)
-      if (to) params.set('to', to)
-      const data = await apiRequest<DcOrder[]>(`/dc-orders?${params.toString()}`)
-      setItems(Array.isArray(data) ? data : [])
-    } catch (_) {}
-    setLoading(false)
+    if (!isManager) {
+      setLoading(true)
+      try {
+        const data = await apiRequest<DcOrder[]>(`/dc-orders?status=pending`)
+        setItems(data)
+      } catch (_) {}
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const markSaved = async (id: string) => {
-    try {
-      await apiRequest(`/dc-orders/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'saved' }) })
+    if (!isManager) {
       load()
-    } catch (e) {
-      console.error(e)
-      alert('Failed to save. Please ensure you are logged in.')
     }
+  }, [isManager])
+
+  // Manager-specific view
+  if (isManager) {
+    return (
+      <div className="space-y-6 bg-gray-50 min-h-screen">
+        {/* Header */}
+        <div className="bg-white border-b">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">Viswam Edutech - Pending DC List</h1>
+              </div>
+              <div className="text-sm text-gray-500">Home &gt; DC &gt; Pending DC List</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section Title */}
+        <div className="mx-4">
+          <h2 className="text-lg font-bold text-gray-900">Pending DC List</h2>
+        </div>
+
+        {/* Table Section */}
+        <div className="bg-white mx-4 rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            <table className="w-full text-sm min-w-[1400px]">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      S.No
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      DC No
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      DC Date
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      DC Fin Year
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Executive
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Code
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Name
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      School Type
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      DC Category
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Products
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      DC Remarks
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Zone
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      SME & FIN
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                  <th className="py-3 px-4 text-left font-bold text-gray-900 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      Action
+                      <div className="flex flex-col">
+                        <ChevronUp size={12} className="text-gray-400 -mb-1" />
+                        <ChevronDown size={12} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                <tr>
+                  <td colSpan={14} className="py-8 px-4 text-center text-gray-500">
+                    No data available in table
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination Info */}
+          <div className="px-4 py-3 border-t bg-gray-50">
+            <div className="text-sm text-gray-600">Showing 0 to 0 of 0 entries</div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
-  const markClosed = async (id: string) => {
-    try {
-      await apiRequest(`/dc-orders/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'completed' }) })
-      load()
-    } catch (e) {
-      console.error(e)
-      alert('Failed to close. Please ensure you are logged in.')
-    }
-  }
-
-  const search = async (e: React.FormEvent) => {
-    e.preventDefault()
-    load()
-  }
-
+  // Default view for non-Manager users
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Pending DC (Processing)</h1>
-        <Link href="/dashboard/dc/create"><Button>Create Sale</Button></Link>
-      </div>
-      <form onSubmit={search} className="grid grid-cols-1 md:grid-cols-6 gap-2">
-        <Input placeholder="Search school/contact/product" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Input placeholder="Zone" value={zone} onChange={(e) => setZone(e.target.value)} />
-        <Select value={leadStatus} onValueChange={setLeadStatus}>
-          <SelectTrigger><SelectValue placeholder="Lead status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="Hot">Hot</SelectItem>
-            <SelectItem value="Warm">Warm</SelectItem>
-            <SelectItem value="Cold">Cold</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input placeholder="Assigned To (user id)" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} />
-        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        <div className="md:col-span-6 flex gap-2">
-          <Button type="submit">Search</Button>
-          <Button type="button" variant="secondary" onClick={() => { setQ(''); setZone(''); setLeadStatus(''); setAssignedTo(''); setFrom(''); setTo(''); load(); }}>Reset</Button>
-        </div>
-      </form>
-      <Card className="p-0 text-neutral-900 overflow-x-auto">
-        {loading && <div className="p-4">Loading...</div>}
-        {!loading && items.length === 0 && <div className="p-4">No deals.</div>}
+      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Pending DC</h1>
+      <Card className="p-4 text-neutral-900 overflow-x-auto">
+        {loading && 'Loading...'}
+        {!loading && items.length === 0 && 'No pending DCs.'}
         {!loading && items.length > 0 && (
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-sky-50/70 border-b text-neutral-700">
-                <th className="py-2 px-3 text-left">S.No</th>
                 <th className="py-2 px-3 text-left">DC Code</th>
-                <th className="py-2 px-3 text-left">School Name</th>
+                <th className="py-2 px-3 text-left">School</th>
                 <th className="py-2 px-3">Contact</th>
                 <th className="py-2 px-3">Mobile</th>
-                <th className="py-2 px-3 text-left">Zone</th>
                 <th className="py-2 px-3 text-left">Products</th>
-                <th className="py-2 px-3">Action</th>
               </tr>
             </thead>
             <tbody>
-              {items
-                .filter((d) => {
-                  const s = `${d.school_name || d.name || ''} ${d.contact_person || ''} ${d.contact_mobile || d.phone || ''} ${d.products || ''}`.toLowerCase()
-                  return s.includes(q.toLowerCase())
-                })
-                .map((d, idx) => (
+              {items.map((d) => (
                 <tr key={d._id} className="border-b last:border-0">
-                  <td className="py-2 px-3">{idx + 1}</td>
                   <td className="py-2 px-3">{d.dc_code || '-'}</td>
-                  <td className="py-2 px-3 font-medium">
-                    {d._id ? (
-                      <Link className="underline-offset-2 hover:underline" href={`/dashboard/dc/edit/${d._id}`}>
-                        {d.school_name || '-'}
-                      </Link>
-                    ) : (d.school_name || '-')}
-                  </td>
+                  <td className="py-2 px-3">{d.school_name}</td>
                   <td className="py-2 px-3 text-center">{d.contact_person || '-'}</td>
                   <td className="py-2 px-3 text-center">{d.contact_mobile || '-'}</td>
-                  <td className="py-2 px-3 text-center">{d.zone || '-'}</td>
-                  <td className="py-2 px-3 truncate max-w-[280px]">{Array.isArray(d.products) ? d.products.map(p=>p.product_name).join(', ') : '-'}</td>
-                  <td className="py-2 px-3">
-                    <div className="flex gap-2 justify-end items-center">
-                      <Select defaultValue="pending" onValueChange={(v) => apiRequest(`/dc-orders/${d._id}`, { method: 'PUT', body: JSON.stringify({ status: v }) }).then(load).catch(()=>alert('Failed'))}>
-                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="saved">Saved</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="in_transit">In-Transit</SelectItem>
-                          <SelectItem value="completed">Completed</SelectItem>
-                          <SelectItem value="hold">Hold</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Input className="w-40" placeholder="Assign user id" onBlur={(e) => e.target.value && apiRequest(`/dc-orders/${d._id}`, { method: 'PUT', body: JSON.stringify({ assigned_to: e.target.value }) }).then(load)} />
-                    </div>
-                  </td>
+                  <td className="py-2 px-3 truncate max-w-[320px]">{Array.isArray(d.products) ? d.products.map(p=>p.product_name).join(', ') : '-'}</td>
                 </tr>
               ))}
             </tbody>
