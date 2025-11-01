@@ -3,11 +3,15 @@
 import { Card } from '@/components/ui/card'
 import Link from 'next/link'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Zap, TrendingUp, DollarSign, GraduationCap, AlertTriangle } from 'lucide-react'
+import { Zap, TrendingUp, DollarSign, GraduationCap, AlertTriangle, X, Minimize2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import BarGradient from '@/components/charts/BarGradient'
 import AreaGradient from '@/components/charts/AreaGradient'
 import DoughnutStatus from '@/components/charts/DoughnutStatus'
+import { apiRequest } from '@/lib/api'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 const sections = [
   { href: '/dashboard/leads', label: 'Leads' },
@@ -118,12 +122,78 @@ const MOCK_ALERTS = [
   { level: 'info', text: '3 trainings scheduled this week' },
 ]
 
-const PIE_DATA = [
-  { label: 'Pending Trainings', value: MOCK_STATS[3]?.value || 0, color: '#fbbf24' },    // Amber
-  { label: 'Completed Trainings', value: MOCK_STATS[4]?.value || 0, color: '#34d399' }, // Green
-  { label: 'Pending Services', value: MOCK_STATS[5]?.value || 0, color: '#f59e42' },     // Orange
-  { label: 'Completed Services', value: MOCK_STATS[6]?.value || 0, color: '#60a5fa' },   // Blue
-]
+// PIE_DATA will be computed from stats state
+
+type DashboardStats = {
+  activeLeads: number
+  totalSales: number
+  existingSchools: number
+  pendingTrainings: number
+  completedTrainings: number
+  pendingServices: number
+  completedServices: number
+}
+
+type TrendData = {
+  name: string
+  leads: number
+  sales: number
+  revenue: number
+}
+
+type VolumeData = {
+  hour: string
+  value: number
+}
+
+type ZoneData = {
+  zone: string
+  total: number
+  hot: number
+  warm: number
+  cold: number
+}
+
+type AlertData = {
+  level: 'warning' | 'info'
+  text: string
+}
+
+type ActivityData = {
+  id: string
+  type: string
+  message: string
+  timestamp: string | Date
+  user: string
+}
+
+type ZoneWiseLeadData = {
+  zone: string
+  total: number
+  hot: number
+  warm: number
+  cold: number
+}
+
+type ExecutiveWiseLeadData = {
+  zone: string
+  executiveName: string
+  total: number
+  hot: number
+  warm: number
+  cold: number
+}
+
+type ZoneWiseClosedLeadData = {
+  zone: string
+  totalClosed: number
+}
+
+type ExecutiveWiseClosedLeadData = {
+  zone: string
+  executiveName: string
+  totalClosed: number
+}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState(MOCK_STATS)
@@ -131,6 +201,18 @@ export default function DashboardPage() {
   const [zones, setZones] = useState(MOCK_ZONES)
   const [alerts, setAlerts] = useState(MOCK_ALERTS)
   const [volume, setVolume] = useState(MOCK_VOLUME)
+  const [activities, setActivities] = useState<ActivityData[]>([])
+  const [loading, setLoading] = useState(true)
+  
+  // Leads analytics state
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [zoneWiseLeads, setZoneWiseLeads] = useState<ZoneWiseLeadData[]>([])
+  const [executiveWiseLeads, setExecutiveWiseLeads] = useState<ExecutiveWiseLeadData[]>([])
+  const [zoneWiseClosedLeads, setZoneWiseClosedLeads] = useState<ZoneWiseClosedLeadData[]>([])
+  const [executiveWiseClosedLeads, setExecutiveWiseClosedLeads] = useState<ExecutiveWiseClosedLeadData[]>([])
+  const [leadsLoading, setLeadsLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'leads'>('dashboard')
 
   // compute KPIs for the teal chart
   const salesArr = trends && trends.length ? trends.map(t => t.revenue) : [0]
@@ -139,9 +221,112 @@ export default function DashboardPage() {
   const avg = Math.round(salesArr.reduce((s,v)=>s+v,0) / (salesArr.length || 1))
   const fmtINR = (n:number) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
+  // Compute pie chart data from stats
+  const PIE_DATA = [
+    { label: 'Pending Trainings', value: stats[3]?.value || 0, color: '#fbbf24' },    // Amber
+    { label: 'Completed Trainings', value: stats[4]?.value || 0, color: '#34d399' }, // Green
+    { label: 'Pending Services', value: stats[5]?.value || 0, color: '#f59e42' },     // Orange
+    { label: 'Completed Services', value: stats[6]?.value || 0, color: '#60a5fa' },   // Blue
+  ]
+
   useEffect(() => {
-    // If needed later, replace mocks with live API calls
+    const fetchDashboardData = async () => {
+      setLoading(true)
+      try {
+        // Fetch all dashboard data in parallel
+        const [statsData, trendsData, volumeData, zonesData, alertsData, activitiesData] = await Promise.all([
+          apiRequest<DashboardStats>('/dashboard/stats').catch(() => null),
+          apiRequest<TrendData[]>('/dashboard/revenue-trends').catch(() => null),
+          apiRequest<VolumeData[]>('/dashboard/leads-volume').catch(() => null),
+          apiRequest<ZoneData[]>('/dashboard/leads-by-zone').catch(() => null),
+          apiRequest<AlertData[]>('/dashboard/alerts').catch(() => null),
+          apiRequest<ActivityData[]>('/dashboard/recent-activities').catch(() => null),
+        ])
+
+        // Update stats
+        if (statsData) {
+          setStats([
+            { value: statsData.activeLeads },
+            { value: statsData.totalSales },
+            { value: statsData.existingSchools },
+            { value: statsData.pendingTrainings },
+            { value: statsData.completedTrainings },
+            { value: statsData.pendingServices },
+            { value: statsData.completedServices },
+          ])
+        }
+
+        // Update trends
+        if (trendsData && trendsData.length > 0) {
+          setTrends(trendsData)
+        }
+
+        // Update volume
+        if (volumeData && volumeData.length > 0) {
+          setVolume(volumeData)
+        }
+
+        // Update zones
+        if (zonesData && zonesData.length > 0) {
+          setZones(zonesData)
+        } else if (zonesData && zonesData.length === 0) {
+          setZones([]) // Empty array if no zones
+        }
+
+        // Update alerts
+        if (alertsData && alertsData.length > 0) {
+          setAlerts(alertsData)
+        } else if (alertsData && alertsData.length === 0) {
+          setAlerts([]) // Empty array if no alerts
+        }
+
+        // Update activities
+        if (activitiesData && activitiesData.length > 0) {
+          setActivities(activitiesData)
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error)
+        // Keep using mock data on error
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchDashboardData()
+    fetchLeadsAnalytics() // Initial load without date filter
   }, [])
+
+  const fetchLeadsAnalytics = async () => {
+    setLeadsLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (fromDate) params.append('fromDate', fromDate)
+      if (toDate) params.append('toDate', toDate)
+      
+      const queryString = params.toString()
+      const suffix = queryString ? `?${queryString}` : ''
+
+      const [zoneWise, executiveWise, zoneClosed, executiveClosed] = await Promise.all([
+        apiRequest<ZoneWiseLeadData[]>(`/dashboard/leads-analytics/zone-wise${suffix}`).catch(() => []),
+        apiRequest<ExecutiveWiseLeadData[]>(`/dashboard/leads-analytics/executive-wise${suffix}`).catch(() => []),
+        apiRequest<ZoneWiseClosedLeadData[]>(`/dashboard/leads-analytics/zone-wise-closed${suffix}`).catch(() => []),
+        apiRequest<ExecutiveWiseClosedLeadData[]>(`/dashboard/leads-analytics/executive-wise-closed${suffix}`).catch(() => []),
+      ])
+
+      setZoneWiseLeads(zoneWise || [])
+      setExecutiveWiseLeads(executiveWise || [])
+      setZoneWiseClosedLeads(zoneClosed || [])
+      setExecutiveWiseClosedLeads(executiveClosed || [])
+    } catch (error) {
+      console.error('Error fetching leads analytics:', error)
+    } finally {
+      setLeadsLoading(false)
+    }
+  }
+
+  const handleSearch = () => {
+    fetchLeadsAnalytics()
+  }
 
   return (
     <div className="p-2 md:p-6 max-w-7xl mx-auto space-y-7">
@@ -169,7 +354,38 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* Charts Row */}
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-4 border-b border-neutral-200">
+        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'dashboard' | 'leads')} className="w-full">
+          <TabsList className="bg-transparent p-0 h-auto">
+            <TabsTrigger
+              value="dashboard"
+              className={`px-6 py-3 rounded-t-lg font-medium transition-colors ${
+                activeTab === 'dashboard'
+                  ? 'bg-white border-b-2 border-blue-600 text-blue-600'
+                  : 'text-neutral-600 hover:text-neutral-900'
+              }`}
+            >
+              Dashboard
+            </TabsTrigger>
+            <TabsTrigger
+              value="leads"
+              className={`px-6 py-3 rounded-t-lg font-medium transition-colors ${
+                activeTab === 'leads'
+                  ? 'bg-white border-b-2 border-blue-600 text-blue-600'
+                  : 'text-neutral-600 hover:text-neutral-900'
+              }`}
+            >
+              Leads Dashboard
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* Dashboard Content */}
+      {activeTab === 'dashboard' && (
+        <>
+          {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* BarChart: Chart.js */}
         <Card className="shadow-sm rounded-xl bg-white text-neutral-900 p-6 flex flex-col gap-3 border border-neutral-200">
@@ -245,21 +461,27 @@ export default function DashboardPage() {
             <div className="font-semibold text-neutral-900">Active Alerts</div>
             <button className="text-xs text-blue-600 hover:text-blue-700">View all</button>
           </div>
-          {alerts.map((a, idx) => (
-            <div
-              key={idx}
-              className={`relative flex items-center gap-2 rounded-lg p-3 text-sm transition-all hover:translate-x-[1px] ${
-                a.level === 'warning'
-                  ? 'bg-orange-50 text-orange-800 border border-orange-200'
-                  : 'bg-green-50 text-green-800 border border-green-200'
-              }`}
-              style={{ boxShadow: '0 1px 0 0 rgba(0,0,0,0.02) inset' }}
-            >
-              <span className={`absolute left-0 top-0 h-full w-1 ${a.level === 'warning' ? 'bg-orange-400' : 'bg-green-400'} rounded-l-lg`} />
-              <AlertTriangle size={18} />
-              <span className="pl-1">{a.text}</span>
-            </div>
-          ))}
+          {loading ? (
+            <div className="text-neutral-500 text-sm">Loading alerts...</div>
+          ) : alerts.length > 0 ? (
+            alerts.map((a, idx) => (
+              <div
+                key={idx}
+                className={`relative flex items-center gap-2 rounded-lg p-3 text-sm transition-all hover:translate-x-[1px] ${
+                  a.level === 'warning'
+                    ? 'bg-orange-50 text-orange-800 border border-orange-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}
+                style={{ boxShadow: '0 1px 0 0 rgba(0,0,0,0.02) inset' }}
+              >
+                <span className={`absolute left-0 top-0 h-full w-1 ${a.level === 'warning' ? 'bg-orange-400' : 'bg-green-400'} rounded-l-lg`} />
+                <AlertTriangle size={18} />
+                <span className="pl-1">{a.text}</span>
+              </div>
+            ))
+          ) : (
+            <div className="text-neutral-500 text-sm">No active alerts</div>
+          )}
         </Card>
         {/* Leads by Zone - zebra and hover */}
         <Card className="bg-emerald-50 shadow rounded-xl p-6 lg:col-span-2 border border-emerald-100">
@@ -275,15 +497,25 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {zones.map((z, i) => (
-                <tr key={z.zone} className={`border-b last:border-0 transition-colors hover:bg-neutral-50 ${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50/60'}`}>
-                  <td className="py-2 px-2 text-neutral-900">{z.zone}</td>
-                  <td className="py-2 px-2 text-right"><span className="inline-flex items-center justify-center min-w-8 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">{z.total}</span></td>
-                  <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700">{z.hot}</span></td>
-                  <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-green-50 text-green-700">{z.warm}</span></td>
-                  <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{z.cold}</span></td>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-4 px-2 text-center text-neutral-500">Loading zones...</td>
                 </tr>
-              ))}
+              ) : zones.length > 0 ? (
+                zones.map((z, i) => (
+                  <tr key={z.zone} className={`border-b last:border-0 transition-colors hover:bg-neutral-50 ${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50/60'}`}>
+                    <td className="py-2 px-2 text-neutral-900">{z.zone}</td>
+                    <td className="py-2 px-2 text-right"><span className="inline-flex items-center justify-center min-w-8 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">{z.total}</span></td>
+                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700">{z.hot}</span></td>
+                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-green-50 text-green-700">{z.warm}</span></td>
+                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{z.cold}</span></td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="py-4 px-2 text-center text-neutral-500">No zone data available</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </Card>
@@ -293,22 +525,249 @@ export default function DashboardPage() {
         <Card className="bg-violet-50 shadow rounded-xl p-6 border border-violet-100">
           <div className="font-semibold text-neutral-900 mb-3">Recent Activity</div>
           <div className="flex flex-col gap-3 text-sm">
-            <div className="flex items-center gap-2 text-orange-700">
-              <span className="h-2 w-2 rounded-full bg-orange-500" />
-              <span>Created 2 new leads in Nizamabad</span>
-            </div>
-            <div className="flex items-center gap-2 text-green-700">
-              <span className="h-2 w-2 rounded-full bg-green-500" />
-              <span>Closed 1 sale (₹48,000)</span>
-            </div>
-            <div className="flex items-center gap-2 text-neutral-700">
-              <span className="h-2 w-2 rounded-full bg-neutral-500" />
-              <span>Scheduled training for School ABC (Fri)</span>
-            </div>
+            {loading ? (
+              <div className="text-neutral-500">Loading activities...</div>
+            ) : activities.length > 0 ? (
+              activities.slice(0, 5).map((activity) => {
+                const getColorClasses = () => {
+                  if (activity.type === 'lead_created') return { text: 'text-orange-700', bg: 'bg-orange-500' }
+                  if (activity.type === 'sale_made') return { text: 'text-green-700', bg: 'bg-green-500' }
+                  if (activity.type === 'training_completed') return { text: 'text-blue-700', bg: 'bg-blue-500' }
+                  return { text: 'text-neutral-700', bg: 'bg-neutral-500' }
+                }
+                const colors = getColorClasses()
+                return (
+                  <div key={activity.id} className={`flex items-center gap-2 ${colors.text}`}>
+                    <span className={`h-2 w-2 rounded-full ${colors.bg}`} />
+                    <span>{activity.message}</span>
+                  </div>
+                )
+              })
+            ) : (
+              <div className="text-neutral-500">No recent activities</div>
+            )}
           </div>
         </Card>
         <div className="hidden" />
       </div>
+        </>
+      )}
+
+      {/* Leads Dashboard Content */}
+      {activeTab === 'leads' && (
+      <div className="mt-6 space-y-6">
+        <Card className="p-6 shadow-sm rounded-xl bg-white border border-neutral-200">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-neutral-900 mb-4">Dashboard</h2>
+            
+            {/* Date Range Filter */}
+            <div className="flex flex-wrap items-center gap-4 mb-6">
+              <div className="flex items-center gap-2">
+                <label htmlFor="fromDate" className="text-sm font-medium text-neutral-700 whitespace-nowrap">
+                  From Date:
+                </label>
+                <Input
+                  id="fromDate"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-[180px]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="toDate" className="text-sm font-medium text-neutral-700 whitespace-nowrap">
+                  To Date:
+                </label>
+                <Input
+                  id="toDate"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-[180px]"
+                />
+              </div>
+              <Button onClick={handleSearch} className="bg-blue-600 hover:bg-blue-700 text-white">
+                Search
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {/* Zone wise Leads */}
+            <Card className="p-4 border border-neutral-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-neutral-900">Zone wise Leads</h3>
+                <div className="flex items-center gap-2">
+                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-neutral-50">
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Leads</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Hot</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Warm</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Cold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadsLoading ? (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-center text-neutral-500">Loading...</td>
+                      </tr>
+                    ) : zoneWiseLeads.length > 0 ? (
+                      zoneWiseLeads.map((item, idx) => (
+                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
+                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-right">{item.total}</td>
+                          <td className="py-2 px-3 text-right">{item.hot}</td>
+                          <td className="py-2 px-3 text-right">{item.warm}</td>
+                          <td className="py-2 px-3 text-right">{item.cold}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-4 text-center text-neutral-500">No data available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Executive wise Leads */}
+            <Card className="p-4 border border-neutral-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-neutral-900">Executive wise Leads</h3>
+                <div className="flex items-center gap-2">
+                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-neutral-50">
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Executive Name</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Leads</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Hot</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Warm</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Cold</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadsLoading ? (
+                      <tr>
+                        <td colSpan={6} className="py-4 text-center text-neutral-500">Loading...</td>
+                      </tr>
+                    ) : executiveWiseLeads.length > 0 ? (
+                      executiveWiseLeads.map((item, idx) => (
+                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
+                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-neutral-900">{item.executiveName || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-right">{item.total}</td>
+                          <td className="py-2 px-3 text-right">{item.hot}</td>
+                          <td className="py-2 px-3 text-right">{item.warm}</td>
+                          <td className="py-2 px-3 text-right">{item.cold}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-4 text-center text-neutral-500">No data available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Zone wise Closed Leads */}
+            <Card className="p-4 border border-neutral-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-neutral-900">Zone wise Closed Leads</h3>
+                <div className="flex items-center gap-2">
+                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-neutral-50">
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Closed Leads</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadsLoading ? (
+                      <tr>
+                        <td colSpan={2} className="py-4 text-center text-neutral-500">Loading...</td>
+                      </tr>
+                    ) : zoneWiseClosedLeads.length > 0 ? (
+                      zoneWiseClosedLeads.map((item, idx) => (
+                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
+                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-right">{item.totalClosed}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={2} className="py-4 text-center text-neutral-500">No data available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* Executive wise Closed Leads */}
+            <Card className="p-4 border border-neutral-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-neutral-900">Executive wise Closed Leads</h3>
+                <div className="flex items-center gap-2">
+                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-neutral-50">
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
+                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Executive Name</th>
+                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Closed Leads</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leadsLoading ? (
+                      <tr>
+                        <td colSpan={3} className="py-4 text-center text-neutral-500">Loading...</td>
+                      </tr>
+                    ) : executiveWiseClosedLeads.length > 0 ? (
+                      executiveWiseClosedLeads.map((item, idx) => (
+                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
+                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-neutral-900">{item.executiveName || 'Unassigned'}</td>
+                          <td className="py-2 px-3 text-right">{item.totalClosed}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="py-4 text-center text-neutral-500">No data available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        </Card>
+      </div>
+      )}
     </div>
   )
 }
