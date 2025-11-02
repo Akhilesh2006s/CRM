@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { apiRequest } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -101,6 +102,10 @@ export default function PendingDCPage() {
   const [selectedDC, setSelectedDC] = useState<DC | null>(null)
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  
+  // Get current user to check role
+  const currentUser = getCurrentUser()
+  const isCoordinator = currentUser?.role === 'Coordinator'
   
   // DC Details form fields
   const [financeRemarks, setFinanceRemarks] = useState('')
@@ -720,13 +725,15 @@ export default function PendingDCPage() {
               >
                 {saving ? 'Saving...' : 'Save'}
               </Button>
-              <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
-                onClick={handleSubmitToWarehouse}
-                disabled={submitting}
-              >
-                {submitting ? 'Submitting...' : 'Submit to Warehouse'}
-              </Button>
+              {!isCoordinator && (
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleSubmitToWarehouse}
+                  disabled={submitting}
+                >
+                  {submitting ? 'Submitting...' : 'Submit to Warehouse'}
+                </Button>
+              )}
             </div>
           </div>
         </Card>

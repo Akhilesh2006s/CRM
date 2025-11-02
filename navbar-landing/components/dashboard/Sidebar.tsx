@@ -198,6 +198,8 @@ export function Sidebar() {
   }, [])
 
   const isEmployee = user?.role === 'Employee'
+  const isManager = user?.role === 'Manager'
+  const isCoordinator = user?.role === 'Coordinator'
 
   // Add employee leave menu if employee, replace admin Leave Management
   const employeeLeavesMenu: NavItem = {
@@ -224,7 +226,106 @@ export function Sidebar() {
       employeeLeavesMenu,
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
+  } else if (isManager) {
+    // For Manager role, only show: Dashboard, DC, Warehouse, Expenses, Reports, Settings, Sign out
+    const allowedMenuItems = ['Dashboard', 'DC', 'Warehouse', 'Expenses', 'Reports', 'Settings', 'Sign out']
+    finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
+      .map(item => {
+        // Filter DC menu items to exclude "Create Sale" and "My DC"
+        if (item.label === 'DC' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label !== 'Create Sale' && child.label !== 'My DC'
+            )
+          }
+        }
+        // Filter Warehouse menu items to only show "Completed DC" for Manager
+        if (item.label === 'Warehouse' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label === 'Completed DC'
+            )
+          }
+        }
+        // Filter Expenses menu items to only show "Pending Expenses List" for Manager
+        if (item.label === 'Expenses' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label === 'Pending Expenses List'
+            )
+          }
+        }
+        // Filter Reports menu items to only show: Leads, Sales Visit, Employee Track, All Expenses for Manager
+        if (item.label === 'Reports' && item.children) {
+          const allowedReportItems = ['Leads', 'Sales Visit', 'Employee Track', 'All Expenses']
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              allowedReportItems.includes(child.label)
+            )
+          }
+        }
+        return item
+      })
+  } else if (isCoordinator) {
+    // For Coordinator role, only show: Dashboard, DC, Users / Employees, Trainings & Services, Warehouse, Payments, Reports, Settings, Sign out
+    const allowedMenuItems = ['Dashboard', 'DC', 'Users / Employees', 'Trainings & Services', 'Warehouse', 'Payments', 'Reports', 'Settings', 'Sign out']
+    finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
+      .map(item => {
+        // Filter Users / Employees menu items to only show "Active Employees" for Coordinator
+        if (item.label === 'Users / Employees' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label === 'Active Employees'
+            )
+          }
+        }
+        // Filter Trainings & Services menu items to exclude "Add Trainer" for Coordinator
+        if (item.label === 'Trainings & Services' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label !== 'Add Trainer'
+            )
+          }
+        }
+        // Filter Warehouse menu items to only show "DC @ Warehouse" and "Completed DC" for Coordinator
+        if (item.label === 'Warehouse' && item.children) {
+          const allowedWarehouseItems = ['DC @ Warehouse', 'Completed DC']
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              allowedWarehouseItems.includes(child.label)
+            )
+          }
+        }
+        // Filter Payments menu items to exclude "Add Payment" and "HOLD Payments" for Coordinator
+        if (item.label === 'Payments' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label !== 'Add Payment' && child.label !== 'HOLD Payments'
+            )
+          }
+        }
+        // Filter Reports menu items to only show: Leads, DC, Returns, All Expenses for Coordinator
+        if (item.label === 'Reports' && item.children) {
+          const allowedReportItems = ['Leads', 'DC', 'Returns', 'All Expenses']
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              allowedReportItems.includes(child.label)
+            )
+          }
+        }
+        return item
+      })
   } else {
+    // For all other roles (Admin, Super Admin, etc.), show all menu items
     finalNav = NAV
   }
 
@@ -259,7 +360,7 @@ export function Sidebar() {
 
       return shouldUpdate ? newOpenState : currentOpen
     })
-  }, [pathname, isEmployee])
+  }, [pathname, isEmployee, isManager, isCoordinator])
 
   const signOut = () => {
     if (typeof window !== 'undefined') {

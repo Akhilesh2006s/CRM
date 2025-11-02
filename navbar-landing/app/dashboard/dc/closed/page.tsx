@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiRequest } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,6 +74,10 @@ export default function ClosedSalesPage() {
   // Map to store existing DCs for each deal: dealId -> DC
   const [dealDCs, setDealDCs] = useState<Record<string, DC>>({})
   const [existingDC, setExistingDC] = useState<DC | null>(null)
+  
+  // Get current user to check role
+  const currentUser = getCurrentUser()
+  const isManager = currentUser?.role === 'Manager'
   
   // Form state for Raise DC modal
   const [dcDate, setDcDate] = useState('')
@@ -547,20 +552,24 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex flex-col gap-1">
-                      <Button
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700 text-white"
-                        onClick={() => openRaiseDC(d)}
-                      >
-                        {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                        onClick={() => openViewLocation(d)}
-                      >
-                        View Location
-                      </Button>
+                      {!isManager && (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => openRaiseDC(d)}
+                          >
+                            {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => openViewLocation(d)}
+                          >
+                            View Location
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

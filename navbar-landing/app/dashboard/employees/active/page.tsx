@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiRequest } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 
 type Employee = { _id: string; name: string; email: string; phone?: string; role: string; department?: string }
@@ -13,6 +14,10 @@ export default function ActiveEmployeesPage() {
   const [items, setItems] = useState<Employee[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  
+  // Get current user to check role
+  const currentUser = getCurrentUser()
+  const isCoordinator = currentUser?.role === 'Coordinator'
 
   const load = async () => {
     setLoading(true)
@@ -55,7 +60,7 @@ export default function ActiveEmployeesPage() {
               <th className="py-2 px-3">Phone</th>
               <th className="py-2 px-3">Role</th>
               <th className="py-2 px-3">Department</th>
-              <th className="py-2 px-3">Action</th>
+              {!isCoordinator && <th className="py-2 px-3">Action</th>}
             </tr>
           </thead>
           <tbody>
@@ -66,11 +71,13 @@ export default function ActiveEmployeesPage() {
                 <td className="py-2 px-3 text-center">{e.phone || '-'}</td>
                 <td className="py-2 px-3 text-center">{e.role}</td>
                 <td className="py-2 px-3 text-center">{e.department || '-'}</td>
-                <td className="py-2 px-3 text-right">
-                  <Button size="sm" variant="secondary" onClick={() => resetPassword(e._id, e.name)}>
-                    Reset Password
-                  </Button>
-                </td>
+                {!isCoordinator && (
+                  <td className="py-2 px-3 text-right">
+                    <Button size="sm" variant="secondary" onClick={() => resetPassword(e._id, e.name)}>
+                      Reset Password
+                    </Button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

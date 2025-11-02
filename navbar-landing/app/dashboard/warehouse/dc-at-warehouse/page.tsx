@@ -45,6 +45,7 @@ export default function WarehouseDcAtWarehouse() {
   const [remarks, setRemarks] = useState('')
   const [processing, setProcessing] = useState(false)
   const [openDialog, setOpenDialog] = useState(false)
+  const [insufficientQuantity, setInsufficientQuantity] = useState(false)
 
   async function load() {
     try {
@@ -66,8 +67,24 @@ export default function WarehouseDcAtWarehouse() {
     setAvailableQuantity(String(dc.availableQuantity || ''))
     setDeliverableQuantity(String(dc.deliverableQuantity || dc.requestedQuantity || ''))
     setRemarks('')
+    setInsufficientQuantity(false)
     setOpenDialog(true)
   }
+
+  // Check if available quantity is insufficient when values change
+  useEffect(() => {
+    if (openDialog && selectedDC && availableQuantity && deliverableQuantity) {
+      const availQty = Number(availableQuantity)
+      const delivQty = Number(deliverableQuantity)
+      if (!isNaN(availQty) && !isNaN(delivQty) && availQty < delivQty) {
+        setInsufficientQuantity(true)
+      } else {
+        setInsufficientQuantity(false)
+      }
+    } else {
+      setInsufficientQuantity(false)
+    }
+  }, [availableQuantity, deliverableQuantity, openDialog, selectedDC])
 
   const processDC = async () => {
     if (!selectedDC) return
@@ -77,6 +94,30 @@ export default function WarehouseDcAtWarehouse() {
 
     if (delivQty !== undefined && delivQty < 0) {
       alert('Deliverable quantity cannot be negative')
+      return
+    }
+
+    // Check if available quantity is less than deliverable quantity
+    if (availQty !== undefined && delivQty !== undefined && availQty < delivQty) {
+      alert('Available quantity is not sufficient. The DC will be put on hold.')
+      
+      setProcessing(true)
+      try {
+        // Put DC on hold
+        await apiRequest(`/dc/${selectedDC._id}/hold`, {
+          method: 'POST',
+          body: JSON.stringify({
+            holdReason: `Available quantity (${availQty}) is less than deliverable quantity (${delivQty}). ${remarks ? `Remarks: ${remarks}` : ''}`,
+          }),
+        })
+        alert('DC has been put on hold due to insufficient available quantity.')
+        setOpenDialog(false)
+        load()
+      } catch (err: any) {
+        alert(err?.message || 'Failed to put DC on hold')
+      } finally {
+        setProcessing(false)
+      }
       return
     }
 
@@ -90,7 +131,27 @@ export default function WarehouseDcAtWarehouse() {
           remarks,
         }),
       })
-      alert('DC processed and submitted successfully!')
+      
+      // If available quantity is greater than deliverable quantity, mark DC as completed
+      if (availQty !== undefined && delivQty !== undefined && availQty > delivQty) {
+        try {
+          // Update DC status to completed
+          await apiRequest(`/dc/${selectedDC._id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              status: 'completed',
+            }),
+          })
+          alert('DC processed successfully and marked as completed (available quantity exceeds deliverable quantity). It will appear in Completed DC.')
+        } catch (completeErr: any) {
+          // If completion fails, still show success for warehouse processing
+          console.warn('Failed to mark DC as completed:', completeErr)
+          alert('DC processed successfully, but failed to mark as completed. Please update manually.')
+        }
+      } else {
+        alert('DC processed and submitted successfully!')
+      }
+      
       setOpenDialog(false)
       load()
     } catch (err: any) {
@@ -228,6 +289,11 @@ export default function WarehouseDcAtWarehouse() {
                   required
                 />
                 <p className="text-xs text-neutral-500 mt-1">Final quantity to be delivered (cannot exceed requested quantity)</p>
+                {insufficientQuantity && (
+                  <p className="text-xs text-red-600 mt-1 font-medium">
+                    ⚠️ Available quantity is not sufficient. DC will be put on hold.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -243,8 +309,12 @@ export default function WarehouseDcAtWarehouse() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button onClick={processDC} disabled={processing || !deliverableQuantity}>
-              {processing ? 'Processing...' : 'Update & Submit'}
+            <Button 
+              onClick={processDC} 
+              disabled={processing || !deliverableQuantity}
+              className={insufficientQuantity ? 'bg-orange-600 hover:bg-orange-700' : ''}
+            >
+              {processing ? 'Processing...' : insufficientQuantity ? 'Put DC On Hold' : 'Update & Submit'}
             </Button>
           </DialogFooter>
         </DialogContent>

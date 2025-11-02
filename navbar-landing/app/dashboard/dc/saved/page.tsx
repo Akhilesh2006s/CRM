@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiRequest } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -16,6 +17,10 @@ type DcOrder = {
 export default function SavedDCPage() {
   const [items, setItems] = useState<DcOrder[]>([])
   const [loading, setLoading] = useState(true)
+  
+  // Get current user to check role
+  const currentUser = getCurrentUser()
+  const isManager = currentUser?.role === 'Manager'
 
   const load = async () => {
     setLoading(true)
@@ -50,9 +55,11 @@ export default function SavedDCPage() {
                 <div className="font-medium text-neutral-900">{d.school_name}</div>
                 <div className="text-neutral-600 text-sm">{d.contact_person || '-'} · {d.contact_mobile || '-'}</div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={() => reopen(d._id)}>Reopen</Button>
-              </div>
+              {!isManager && (
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => reopen(d._id)}>Reopen</Button>
+                </div>
+              )}
             </div>
           ))}
         </div>

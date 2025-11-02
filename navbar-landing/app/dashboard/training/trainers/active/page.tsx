@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { apiRequest } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 
 type Trainer = { _id: string; name: string; email?: string; mobile?: string; zone?: string; trainerProducts?: string[]; trainerLevels?: string; trainerType?: string }
@@ -13,6 +14,10 @@ export default function ActiveTrainersPage() {
   const [items, setItems] = useState<Trainer[]>([])
   const [q, setQ] = useState('')
   const [loading, setLoading] = useState(true)
+  
+  // Get current user to check role
+  const currentUser = getCurrentUser()
+  const isCoordinator = currentUser?.role === 'Coordinator'
 
   const load = async () => {
     setLoading(true)
@@ -58,12 +63,12 @@ export default function ActiveTrainersPage() {
                 <th className="py-2 px-3 text-left">Products</th>
                 <th className="py-2 px-3">Levels</th>
                 <th className="py-2 px-3">Type</th>
-                <th className="py-2 px-3 text-right">Actions</th>
+                {!isCoordinator && <th className="py-2 px-3 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={7} className="py-4 px-3 text-center text-neutral-500">No trainers found</td></tr>
+                <tr><td colSpan={isCoordinator ? 6 : 7} className="py-4 px-3 text-center text-neutral-500">No trainers found</td></tr>
               )}
               {items.map(t => (
                 <tr key={t._id} className="border-b last:border-0">
@@ -73,9 +78,11 @@ export default function ActiveTrainersPage() {
                   <td className="py-2 px-3 text-left">{(t.trainerProducts||[]).join(', ')}</td>
                   <td className="py-2 px-3">{t.trainerLevels || '-'}</td>
                   <td className="py-2 px-3">{t.trainerType || '-'}</td>
-                  <td className="py-2 px-3 text-right">
-                    <Button size="sm" variant="secondary" onClick={()=>resetPassword(t._id)}>Reset Password</Button>
-                  </td>
+                  {!isCoordinator && (
+                    <td className="py-2 px-3 text-right">
+                      <Button size="sm" variant="secondary" onClick={()=>resetPassword(t._id)}>Reset Password</Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
