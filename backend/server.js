@@ -39,6 +39,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/dc', dcRoutes);
+app.use('/api/contact-queries', require('./routes/contactQueryRoutes'));
 app.use('/api/dc-orders', dcOrderRoutes);
 app.use('/api/emp-dc', empDcRoutes);
 app.use('/api/employees', employeeRoutes);
@@ -67,8 +68,22 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+// Handle port conflicts gracefully
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use!`);
+    console.error(`Please stop the process using port ${PORT} or use a different port.\n`);
+    console.error('To find and kill the process on Windows:');
+    console.error(`  netstat -ano | findstr :${PORT}`);
+    console.error(`  taskkill /PID <PID> /F\n`);
+    process.exit(1);
+  } else {
+    throw err;
+  }
 });
 
 module.exports = app;

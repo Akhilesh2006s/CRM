@@ -1,23 +1,36 @@
 const DC = require('../models/DC');
 const Sale = require('../models/Sale');
 const Warehouse = require('../models/Warehouse');
+const ExcelJS = require('exceljs');
 
 // @desc    Get all DCs with filtering
 // @route   GET /api/dc
 // @access  Private
 const getDCs = async (req, res) => {
   try {
-    const { status, employeeId, saleId, dcOrderId } = req.query;
+    const { status, employeeId, saleId, dcOrderId, zone, schoolName, schoolCode, contactMobile, fromDate, toDate, visitCategory } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
     if (employeeId) filter.employeeId = employeeId;
     if (saleId) filter.saleId = saleId;
     if (dcOrderId) filter.dcOrderId = dcOrderId;
+    if (visitCategory) filter.dcCategory = visitCategory;
+    
+    // Date filtering on dcDate or createdAt
+    if (fromDate || toDate) {
+      const dateFilter = {};
+      if (fromDate) dateFilter.$gte = new Date(fromDate);
+      if (toDate) dateFilter.$lte = new Date(toDate + 'T23:59:59.999Z');
+      filter.$or = [
+        { dcDate: dateFilter },
+        { createdAt: dateFilter }
+      ];
+    }
 
     const dcs = await DC.find(filter)
       .populate('saleId', 'customerName product quantity status poDocument')
-      .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products')
+      .populate('dcOrderId', 'school_name school_type contact_person contact_mobile email address location zone products dc_code')
       .populate('employeeId', 'name email')
       .populate('createdBy', 'name email')
       .populate('submittedBy', 'name email')
@@ -26,7 +39,37 @@ const getDCs = async (req, res) => {
       .populate('completedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    res.json(dcs);
+    // Apply additional filters that need to check populated fields
+    let filteredDCs = dcs;
+    
+    if (zone) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.zone && dc.dcOrderId.zone.toLowerCase().includes(zone.toLowerCase())) ||
+        (dc.saleId && dc.saleId.zone && dc.saleId.zone.toLowerCase().includes(zone.toLowerCase()))
+      );
+    }
+    
+    if (schoolName) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.school_name && dc.dcOrderId.school_name.toLowerCase().includes(schoolName.toLowerCase())) ||
+        (dc.customerName && dc.customerName.toLowerCase().includes(schoolName.toLowerCase()))
+      );
+    }
+    
+    if (schoolCode) {
+      filteredDCs = filteredDCs.filter(dc => 
+        dc.dcOrderId && dc.dcOrderId.dc_code && dc.dcOrderId.dc_code.toLowerCase().includes(schoolCode.toLowerCase())
+      );
+    }
+    
+    if (contactMobile) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.contact_mobile && dc.dcOrderId.contact_mobile.includes(contactMobile)) ||
+        (dc.customerPhone && dc.customerPhone.includes(contactMobile))
+      );
+    }
+
+    res.json(filteredDCs);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -876,6 +919,125 @@ const updateDC = async (req, res) => {
   }
 };
 
+// @desc    Export sales visit report to Excel
+// @route   GET /api/dc/export-sales-visit
+// @access  Private
+const exportSalesVisit = async (req, res) => {
+  try {
+    const { zone, employeeId, schoolName, schoolCode, contactMobile, fromDate, toDate, visitCategory } = req.query;
+    const filter = {};
+
+    if (employeeId) filter.employeeId = employeeId;
+    if (visitCategory) filter.dcCategory = visitCategory;
+    
+    if (fromDate || toDate) {
+      const dateFilter = {};
+      if (fromDate) dateFilter.$gte = new Date(fromDate);
+      if (toDate) dateFilter.$lte = new Date(toDate + 'T23:59:59.999Z');
+      filter.$or = [
+        { dcDate: dateFilter },
+        { createdAt: dateFilter }
+      ];
+    }
+
+    const dcs = await DC.find(filter)
+      .populate('saleId', 'customerName product quantity status')
+      .populate('dcOrderId', 'school_name school_type contact_person contact_mobile email address location zone products dc_code')
+      .populate('employeeId', 'name email')
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 });
+
+    // Apply client-side filters
+    let filteredDCs = dcs;
+    
+    if (zone) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.zone && dc.dcOrderId.zone.toLowerCase().includes(zone.toLowerCase())) ||
+        (dc.saleId && dc.saleId.zone && dc.saleId.zone.toLowerCase().includes(zone.toLowerCase()))
+      );
+    }
+    
+    if (schoolName) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.school_name && dc.dcOrderId.school_name.toLowerCase().includes(schoolName.toLowerCase())) ||
+        (dc.customerName && dc.customerName.toLowerCase().includes(schoolName.toLowerCase()))
+      );
+    }
+    
+    if (schoolCode) {
+      filteredDCs = filteredDCs.filter(dc => 
+        dc.dcOrderId && dc.dcOrderId.dc_code && dc.dcOrderId.dc_code.toLowerCase().includes(schoolCode.toLowerCase())
+      );
+    }
+    
+    if (contactMobile) {
+      filteredDCs = filteredDCs.filter(dc => 
+        (dc.dcOrderId && dc.dcOrderId.contact_mobile && dc.dcOrderId.contact_mobile.includes(contactMobile)) ||
+        (dc.customerPhone && dc.customerPhone.includes(contactMobile))
+      );
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Sales Visit Report');
+
+    // Define columns
+    worksheet.columns = [
+      { header: 'S.No', key: 'sno', width: 8 },
+      { header: 'School Code', key: 'schoolCode', width: 15 },
+      { header: 'School Type', key: 'schoolType', width: 15 },
+      { header: 'School Name', key: 'schoolName', width: 30 },
+      { header: 'Zone', key: 'zone', width: 15 },
+      { header: 'Executive', key: 'executive', width: 25 },
+      { header: 'Town', key: 'town', width: 30 },
+      { header: 'Visit Category', key: 'visitCategory', width: 20 },
+      { header: 'Visit Remarks', key: 'visitRemarks', width: 40 },
+      { header: 'Visit Date', key: 'visitDate', width: 20 },
+    ];
+
+    // Add data
+    filteredDCs.forEach((dc, index) => {
+      const schoolName = dc.dcOrderId?.school_name || dc.customerName || '';
+      const schoolCode = dc.dcOrderId?.dc_code || '';
+      const schoolType = dc.dcOrderId?.school_type || (dc.dcOrderId ? 'Existing' : 'New');
+      const zone = dc.dcOrderId?.zone || '';
+      const executive = dc.employeeId?.name || dc.createdBy?.name || 'Not Assigned';
+      const town = dc.dcOrderId?.location || dc.customerAddress || '';
+      const visitCategory = dc.dcCategory || '';
+      const visitRemarks = dc.dcRemarks || dc.dcNotes || '';
+      const visitDate = dc.dcDate || dc.createdAt || new Date();
+      
+      worksheet.addRow({
+        sno: index + 1,
+        schoolCode: schoolCode,
+        schoolType: schoolType,
+        schoolName: schoolName,
+        zone: zone,
+        executive: executive,
+        town: town,
+        visitCategory: visitCategory,
+        visitRemarks: visitRemarks,
+        visitDate: new Date(visitDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      });
+    });
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' },
+    };
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Sales_Visit_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getDCs,
   getDC,
@@ -901,4 +1063,5 @@ module.exports = {
   getMyDCs,
   updateDC,
   submitDCToManager,
+  exportSalesVisit,
 };

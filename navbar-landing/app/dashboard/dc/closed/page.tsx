@@ -32,6 +32,7 @@ type DcOrder = {
   created_at?: string
   createdAt?: string
   remarks?: string
+  pod_proof_url?: string
 }
 
 type DC = {
@@ -190,6 +191,7 @@ export default function ClosedSalesPage() {
           dc_code: deal.dc_code || deal.dcCode || '',
           remarks: deal.remarks || '',
           cluster: deal.cluster || '',
+          pod_proof_url: deal.pod_proof_url || deal.podProofUrl || null,
         }
       })
       
@@ -497,10 +499,10 @@ export default function ClosedSalesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Closed Leads List</h1>
+      <h1 className="text-2xl md:text-3xl font-semibold text-slate-900 mb-6">Closed Leads List</h1>
       
       {/* Search/Filter Section */}
-      <Card className="p-4">
+      <Card className="p-5 shadow-sm border-slate-200">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input placeholder="By School Name" />
           <Input placeholder="By Contact Mobile No" />
@@ -509,61 +511,87 @@ export default function ClosedSalesPage() {
           <Input placeholder="Select Zone" />
           <Input placeholder="Select Executive" />
           <Input placeholder="By Town" />
-          <Button className="bg-blue-600 hover:bg-blue-700">Search</Button>
+          <Button className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm">Search</Button>
         </div>
       </Card>
 
-      <Card className="p-0 overflow-x-auto">
-        {loading && <div className="p-4">Loading...</div>}
-        {!loading && items.length === 0 && <div className="p-4">No closed deals found.</div>}
+      <Card className="p-0 overflow-x-auto shadow-sm border-slate-200">
+        {loading && <div className="p-6 text-slate-600">Loading...</div>}
+        {!loading && items.length === 0 && <div className="p-6 text-slate-500">No closed deals found.</div>}
         {!loading && items.length > 0 && (
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-sky-50/70 border-b text-neutral-700">
-                <th className="py-2 px-3 text-left">Created On</th>
-                <th className="py-2 px-3 text-left">School Type</th>
-                <th className="py-2 px-3 text-left">Zone</th>
-                <th className="py-2 px-3 text-left">Town</th>
-                <th className="py-2 px-3 text-left">School Name</th>
-                <th className="py-2 px-3 text-left">Executive</th>
-                <th className="py-2 px-3 text-left">Mobile</th>
-                <th className="py-2 px-3 text-left">Products</th>
-                <th className="py-2 px-3 text-left">PO</th>
-                <th className="py-2 px-3">Action</th>
+              <tr className="bg-slate-100 border-b border-slate-200 text-slate-800">
+                <th className="py-3 px-4 text-left font-semibold text-sm">Created On</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">School Type</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">Zone</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">Town</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">School Name</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">Executive</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">Mobile</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">Products</th>
+                <th className="py-3 px-4 text-left font-semibold text-sm">PO</th>
+                <th className="py-3 px-4 font-semibold text-sm">Action</th>
               </tr>
             </thead>
             <tbody>
               {items.map((d) => (
-                <tr key={d._id} className="border-b last:border-0">
-                  <td className="py-2 px-3">
+                <tr key={d._id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
+                  <td className="py-3 px-4 text-slate-700">
                     {d.created_at ? new Date(d.created_at).toLocaleString() : 
                      d.createdAt ? new Date(d.createdAt).toLocaleString() : '-'}
                   </td>
-                  <td className="py-2 px-3">{d.school_type || '-'}</td>
-                  <td className="py-2 px-3">{d.zone || '-'}</td>
-                  <td className="py-2 px-3">{d.location || d.address?.split(',')[0] || '-'}</td>
-                  <td className="py-2 px-3">{d.school_name || '-'}</td>
-                  <td className="py-2 px-3">{d.assigned_to?.name || '-'}</td>
-                  <td className="py-2 px-3">{d.contact_mobile || '-'}</td>
-                  <td className="py-2 px-3">{getProductsDisplay(d)}</td>
-                  <td className="py-2 px-3">
-                    {/* PO thumbnail would go here if available */}
-                    <span className="text-xs text-gray-500">-</span>
+                  <td className="py-3 px-4 text-slate-700">{d.school_type || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700">{d.zone || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700">{d.location || d.address?.split(',')[0] || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{d.school_name || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700">{d.assigned_to?.name || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700">{d.contact_mobile || '-'}</td>
+                  <td className="py-3 px-4 text-slate-700 text-xs">{getProductsDisplay(d)}</td>
+                  <td className="py-3 px-4">
+                    {d.pod_proof_url ? (
+                      <div className="flex items-center justify-center">
+                        <img
+                          src={d.pod_proof_url}
+                          alt="PO Document"
+                          className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
+                          onClick={() => window.open(d.pod_proof_url!, '_blank')}
+                          title="Click to view full size"
+                          onError={(e) => {
+                            // If image fails to load, show a link instead
+                            const target = e.currentTarget
+                            target.style.display = 'none'
+                            const parent = target.parentElement
+                            if (parent) {
+                              const link = document.createElement('a')
+                              link.href = d.pod_proof_url!
+                              link.target = '_blank'
+                              link.className = 'text-xs text-slate-600 hover:text-slate-800 underline'
+                              link.textContent = 'View PO'
+                              parent.appendChild(link)
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-400">-</span>
+                    )}
                   </td>
-                  <td className="py-2 px-3">
-                    <div className="flex flex-col gap-1">
+                  <td className="py-3 px-4">
+                    <div className="flex flex-col gap-1.5">
                       {!isManager && (
                         <>
                           <Button
                             size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
+                            className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
                             onClick={() => openRaiseDC(d)}
                           >
                             {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
                           </Button>
                           <Button
                             size="sm"
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            variant="outline"
+                            className="border-slate-300 hover:bg-slate-50 text-slate-700"
                             onClick={() => openViewLocation(d)}
                           >
                             View Location
@@ -581,12 +609,12 @@ export default function ClosedSalesPage() {
 
       {/* Raise DC Modal */}
       <Dialog open={openRaiseDCDialog} onOpenChange={setOpenRaiseDCDialog}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto bg-white text-gray-900">
-          <DialogHeader>
-            <DialogTitle className="text-gray-900">
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto bg-white border-slate-200 shadow-xl">
+          <DialogHeader className="pb-4 border-b border-slate-200">
+            <DialogTitle className="text-slate-900 text-xl font-semibold">
               Viswam Edutech - {existingDC ? 'Update DC' : 'Raise DC'}
             </DialogTitle>
-            <DialogDescription className="text-gray-600">
+            <DialogDescription className="text-slate-600 text-sm mt-1">
               {existingDC ? 'Update DC details and submit to Manager' : 'Fill in DC details and submit to Manager'}
             </DialogDescription>
           </DialogHeader>
@@ -599,16 +627,16 @@ export default function ClosedSalesPage() {
                 </div>
               )}
               {/* Lead Information and More Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 {/* Lead Information */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-gray-900">Lead Information</h3>
+                  <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2">Lead Information</h3>
                   <div>
                     <Label>School Type</Label>
                     <Input 
                       value={selectedDeal.school_type || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="School Type"
                     />
                   </div>
@@ -617,7 +645,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.school_name || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="School Name"
                     />
                   </div>
@@ -626,7 +654,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.dc_code || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="School Code"
                     />
                   </div>
@@ -635,7 +663,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.contact_person || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="Contact Person Name"
                     />
                   </div>
@@ -644,7 +672,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.contact_mobile || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="Contact Mobile"
                     />
                   </div>
@@ -685,7 +713,7 @@ export default function ClosedSalesPage() {
                           <Input 
                             value={employeeName} 
                             disabled 
-                            className="bg-gray-100 text-gray-900" 
+                            className="bg-slate-50 text-slate-900 border-slate-200" 
                             placeholder="Assigned To"
                           />
                         )
@@ -694,12 +722,12 @@ export default function ClosedSalesPage() {
                         return (
                           <>
                             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId} required>
-                              <SelectTrigger className="bg-white text-gray-900">
+                              <SelectTrigger className="bg-white text-slate-900 border-slate-200">
                                 <SelectValue placeholder="Select Employee *" />
                               </SelectTrigger>
                               <SelectContent>
                                 {employees.length === 0 ? (
-                                  <div className="px-2 py-1.5 text-sm text-gray-500">Loading employees...</div>
+                                  <div className="px-2 py-1.5 text-sm text-slate-500">Loading employees...</div>
                                 ) : (
                                   employees.map((emp) => (
                                     <SelectItem key={emp._id} value={emp._id}>
@@ -721,13 +749,13 @@ export default function ClosedSalesPage() {
 
                 {/* More Information */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-gray-900">More Information</h3>
+                  <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2">More Information</h3>
                   <div>
                     <Label>Town</Label>
                     <Input 
                       value={selectedDeal.location || selectedDeal.address?.split(',')[0] || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="Town"
                     />
                   </div>
@@ -736,7 +764,7 @@ export default function ClosedSalesPage() {
                     <Textarea 
                       value={selectedDeal.address || selectedDeal.location || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       rows={3} 
                       placeholder="Address"
                     />
@@ -746,7 +774,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.zone || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="Zone"
                     />
                   </div>
@@ -755,7 +783,7 @@ export default function ClosedSalesPage() {
                     <Input 
                       value={selectedDeal.cluster || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       placeholder="Cluster"
                     />
                   </div>
@@ -764,7 +792,7 @@ export default function ClosedSalesPage() {
                     <Textarea 
                       value={selectedDeal.remarks || ''} 
                       disabled 
-                      className="bg-gray-100 text-gray-900" 
+                      className="bg-slate-50 text-slate-900 border-slate-200" 
                       rows={2} 
                       placeholder="Remarks"
                     />
@@ -773,13 +801,14 @@ export default function ClosedSalesPage() {
               </div>
 
               {/* Products Table - Where quantities are added */}
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <Label className="text-lg font-semibold text-gray-900">Products & Quantities</Label>
+              <div className="border-t border-slate-200 pt-6 mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <Label className="text-base font-semibold text-slate-900">Products & Quantities</Label>
                   <Button
                     type="button"
                     size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white"
+                    variant="outline"
+                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
                     onClick={() => {
                       setProductRows([...productRows, {
                         id: Date.now().toString(),
@@ -792,26 +821,26 @@ export default function ClosedSalesPage() {
                       }])
                     }}
                   >
-                    (+) Add
+                    (+) Add Row
                   </Button>
                 </div>
                 
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm border-collapse">
                     <thead>
-                      <tr className="bg-gray-100 border-b">
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Product Name</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Qty</th>
-                        <th className="py-2 px-3 text-left text-gray-900">Strength</th>
-                        <th className="py-2 px-3 text-center text-gray-900">Action</th>
+                      <tr className="bg-slate-100 border-b border-slate-200">
+                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Product</th>
+                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Class</th>
+                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Category</th>
+                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Product Name</th>
+                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Qty</th>
+                        <th className="py-2.5 px-3 text-left text-slate-800 font-semibold text-xs">Strength</th>
+                        <th className="py-2.5 px-3 text-center text-slate-800 font-semibold text-xs">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {productRows.map((row, idx) => (
-                        <tr key={row.id} className="border-b bg-white">
+                        <tr key={row.id} className="border-b border-slate-100 bg-white hover:bg-slate-50/50 transition-colors">
                           <td className="py-2 px-3 border-r">
                             <Select value={row.product} onValueChange={(v) => {
                               const updated = [...productRows]
@@ -924,8 +953,8 @@ export default function ClosedSalesPage() {
               </div>
 
               {/* DC Details */}
-              <div className="space-y-4 border-t pt-4">
-                <h3 className="font-semibold text-gray-900">DC Details</h3>
+              <div className="space-y-4 border-t border-slate-200 pt-6 mt-6">
+                <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2 mb-4">DC Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label>DC Date</Label>
@@ -970,12 +999,12 @@ export default function ClosedSalesPage() {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-between items-center border-t pt-4">
+              <div className="flex justify-between items-center border-t border-slate-200 pt-6 mt-4">
                 <div className="flex gap-2">
                   <Button 
                     type="button"
-                    variant="outline" 
-                    className="bg-red-600 text-white hover:bg-red-700"
+                    variant="outline"
+                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
                     onClick={() => window.print()}
                   >
                     Print
@@ -983,6 +1012,7 @@ export default function ClosedSalesPage() {
                   <Button
                     type="button"
                     variant="outline"
+                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
                     onClick={async () => {
                       // Save without submitting (optional feature)
                       alert('Save functionality can be implemented to save draft')
@@ -992,7 +1022,7 @@ export default function ClosedSalesPage() {
                   </Button>
                 </div>
                 <Button
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
                   onClick={handleSubmitToManager}
                   disabled={submitting}
                 >
@@ -1001,7 +1031,7 @@ export default function ClosedSalesPage() {
               </div>
             </div>
           ) : (
-            <div className="py-8 text-center text-gray-500">
+            <div className="py-8 text-center text-slate-500">
               <p>Loading deal details...</p>
             </div>
           )}
@@ -1010,10 +1040,10 @@ export default function ClosedSalesPage() {
 
       {/* View Location Modal */}
       <Dialog open={openLocationDialog} onOpenChange={setOpenLocationDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>View Location</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="sm:max-w-[600px] border-slate-200 shadow-xl">
+          <DialogHeader className="pb-4 border-b border-slate-200">
+            <DialogTitle className="text-slate-900 text-xl font-semibold">View Location</DialogTitle>
+            <DialogDescription className="text-slate-600 text-sm mt-1">
               Location details for {selectedDeal?.school_name || 'this deal'}
             </DialogDescription>
           </DialogHeader>
@@ -1036,7 +1066,7 @@ export default function ClosedSalesPage() {
               {selectedDeal.address && (
                 <div>
                   <Label>Map</Label>
-                  <div className="mt-2 p-4 bg-gray-100 rounded text-center text-sm text-gray-500">
+                  <div className="mt-2 p-4 bg-slate-100 rounded text-center text-sm text-slate-500 border border-slate-200">
                     Map view would be integrated here
                   </div>
                 </div>
@@ -1044,7 +1074,13 @@ export default function ClosedSalesPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenLocationDialog(false)}>Close</Button>
+            <Button 
+              variant="outline" 
+              className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
+              onClick={() => setOpenLocationDialog(false)}
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

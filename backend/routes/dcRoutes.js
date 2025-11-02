@@ -25,11 +25,13 @@ const {
   getMyDCs,
   updateDC,
   submitDCToManager,
+  exportSalesVisit,
 } = require('../controllers/dcController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 // Get all DCs with filtering
 router.get('/', authMiddleware, getDCs);
+router.get('/export-sales-visit', authMiddleware, exportSalesVisit);
 
 // Status-specific endpoints (new workflow)
 router.get('/po-submitted', authMiddleware, getPOSubmittedDCs);
