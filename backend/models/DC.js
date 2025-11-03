@@ -91,6 +91,10 @@ const dcSchema = new mongoose.Schema({
   deliveryNotes: {
     type: String,
   },
+  // Timestamp when DC was listed (available quantity > deliverable quantity)
+  listedAt: {
+    type: Date,
+  },
   deliveryProof: {
     type: String,
   },

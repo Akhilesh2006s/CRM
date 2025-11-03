@@ -70,6 +70,7 @@ export default function ClosedSalesPage() {
   const [openRaiseDCDialog, setOpenRaiseDCDialog] = useState(false)
   const [openLocationDialog, setOpenLocationDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [employees, setEmployees] = useState<{ _id: string; name: string }[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('')
   // Map to store existing DCs for each deal: dealId -> DC
@@ -79,6 +80,10 @@ export default function ClosedSalesPage() {
   // Get current user to check role
   const currentUser = getCurrentUser()
   const isManager = currentUser?.role === 'Manager'
+  const isSuperAdmin = currentUser?.role === 'Super Admin'
+  const isCoordinator = currentUser?.role === 'Coordinator'
+  const isEmployee = currentUser?.role === 'Employee'
+  const canUpdateDC = isSuperAdmin || isCoordinator || isEmployee
   
   // Form state for Raise DC modal
   const [dcDate, setDcDate] = useState('')
@@ -411,7 +416,7 @@ export default function ClosedSalesPage() {
 
     // Only require employee assignment if deal truly doesn't have one
     if (!employeeId) {
-      alert('Please assign an employee before submitting to Manager')
+      alert('Please assign an employee before submitting to Senior Coordinator')
       return
     }
 
@@ -480,14 +485,113 @@ export default function ClosedSalesPage() {
         }),
       })
 
-      alert(existingDC ? 'DC updated and submitted to Manager successfully!' : 'DC created and submitted to Manager successfully! It will appear in Pending DC list.')
+      alert(existingDC ? 'DC updated and submitted to Senior Coordinator successfully!' : 'DC created and submitted to Senior Coordinator successfully! It will appear in Pending DC list.')
       setOpenRaiseDCDialog(false)
       // Reload to refresh the DC map
       load()
     } catch (e: any) {
-      alert(e?.message || 'Failed to submit to Manager')
+      alert(e?.message || 'Failed to submit to Senior Coordinator')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleSaveDC = async () => {
+    if (!selectedDeal) return
+
+    // Check if employee is assigned - prioritize deal's assigned employee
+    let employeeId = null
+    
+    // First, check if deal already has an assigned employee
+    if (selectedDeal.assigned_to) {
+      if (typeof selectedDeal.assigned_to === 'object' && '_id' in selectedDeal.assigned_to) {
+        employeeId = selectedDeal.assigned_to._id
+      } else if (typeof selectedDeal.assigned_to === 'string') {
+        employeeId = selectedDeal.assigned_to
+      }
+    }
+    
+    // If no employee from deal, use the selected employee from dropdown (only if deal doesn't have one)
+    if (!employeeId && selectedEmployeeId) {
+      employeeId = selectedEmployeeId
+    }
+
+    // Only require employee assignment if deal truly doesn't have one
+    if (!employeeId) {
+      alert('Please assign an employee before saving DC')
+      return
+    }
+
+    setSaving(true)
+    try {
+      // First, raise DC (creates or gets existing DC)
+      const raisePayload: any = {
+        dcOrderId: selectedDeal._id,
+        dcDate: dcDate || undefined,
+        dcRemarks: dcRemarks || undefined,
+        dcNotes: dcNotes || undefined,
+      }
+      
+      // Only include employeeId if deal doesn't already have one assigned (backend will use deal's assigned_to if available)
+      if (!selectedDeal.assigned_to && employeeId) {
+        raisePayload.employeeId = employeeId
+      }
+
+      // Calculate requested quantity from product rows
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+      raisePayload.requestedQuantity = totalQuantity || 1
+      
+      // Include product details in payload
+      raisePayload.productDetails = productRows.map(row => ({
+        product: row.product,
+        class: row.class,
+        category: row.category,
+        productName: row.productName,
+        quantity: row.quantity,
+        strength: row.strength || 0,
+      }))
+
+      let dc: DC
+      
+      // If DC exists, update it; otherwise create new one
+      if (existingDC) {
+        // Update existing DC
+        await apiRequest(`/dc/${existingDC._id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            ...raisePayload,
+            financeRemarks: raisePayload.financeRemarks,
+            splApproval: raisePayload.splApproval,
+            dcDate: raisePayload.dcDate,
+            dcRemarks: raisePayload.dcRemarks,
+            dcCategory: raisePayload.dcCategory,
+            dcNotes: raisePayload.dcNotes,
+            productDetails: raisePayload.productDetails,
+          }),
+        })
+        dc = existingDC
+      } else {
+        // Create new DC
+        dc = await apiRequest<DC>(`/dc/raise`, {
+          method: 'POST',
+          body: JSON.stringify(raisePayload),
+        })
+      }
+
+      // Update DcOrder status to 'saved' so it appears in Saved DC page
+      await apiRequest(`/dc-orders/${selectedDeal._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'saved' }),
+      })
+
+      alert(existingDC ? 'DC updated and saved successfully! It will appear in Saved DC page.' : 'DC created and saved successfully! It will appear in Saved DC page.')
+      setOpenRaiseDCDialog(false)
+      // Reload to refresh the DC map
+      load()
+    } catch (e: any) {
+      alert(e?.message || 'Failed to save DC')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -579,24 +683,24 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
+                      {canUpdateDC && (
+                        <Button
+                          size="sm"
+                          className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                          onClick={() => openRaiseDC(d)}
+                        >
+                          {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
+                        </Button>
+                      )}
                       {!isManager && (
-                        <>
-                          <Button
-                            size="sm"
-                            className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
-                            onClick={() => openRaiseDC(d)}
-                          >
-                            {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-slate-300 hover:bg-slate-50 text-slate-700"
-                            onClick={() => openViewLocation(d)}
-                          >
-                            View Location
-                          </Button>
-                        </>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-slate-300 hover:bg-slate-50 text-slate-700"
+                          onClick={() => openViewLocation(d)}
+                        >
+                          View Location
+                        </Button>
                       )}
                     </div>
                   </td>
@@ -1021,13 +1125,23 @@ export default function ClosedSalesPage() {
                     Save
                   </Button>
                 </div>
-                <Button
-                  className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
-                  onClick={handleSubmitToManager}
-                  disabled={submitting}
-                >
-                  {submitting ? 'Submitting...' : 'Submit to Manager'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
+                    onClick={handleSaveDC}
+                    disabled={saving || submitting}
+                  >
+                    {saving ? 'Saving...' : 'Save DC'}
+                  </Button>
+                  <Button
+                    className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                    onClick={handleSubmitToManager}
+                    disabled={submitting || saving}
+                  >
+                    {submitting ? 'Submitting...' : 'Submit to Senior Coordinator'}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (

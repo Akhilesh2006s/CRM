@@ -514,9 +514,12 @@ const getCompletedDCs = async (req, res) => {
 // @access  Private
 const getHoldDCs = async (req, res) => {
   try {
-    const dcs = await DC.find({ status: 'Hold' })
+    const dcs = await DC.find({ status: 'hold' })
       .populate('saleId', 'customerName product quantity status')
+      .populate('dcOrderId', 'school_name school_type contact_person contact_mobile email address location zone products dc_code')
       .populate('employeeId', 'name email')
+      .populate('managerId', 'name email')
+      .populate('warehouseId', 'name email')
       .sort({ updatedAt: -1 });
 
     res.json(dcs);
@@ -777,6 +780,13 @@ const warehouseProcess = async (req, res) => {
     dc.warehouseId = req.user._id;
     dc.warehouseProcessedAt = new Date();
     dc.warehouseProcessedBy = req.user._id;
+    
+    // If available quantity > deliverable quantity, mark as listed
+    if (dc.availableQuantity !== undefined && dc.deliverableQuantity !== undefined && 
+        dc.availableQuantity > dc.deliverableQuantity) {
+      dc.listedAt = new Date();
+    }
+    
     if (remarks) {
       dc.deliveryNotes = remarks;
     }
@@ -900,6 +910,24 @@ const updateDC = async (req, res) => {
     if (req.body.smeRemarks !== undefined) dc.smeRemarks = req.body.smeRemarks;
     if (req.body.productDetails !== undefined) dc.productDetails = req.body.productDetails;
     if (req.body.requestedQuantity !== undefined) dc.requestedQuantity = req.body.requestedQuantity;
+    if (req.body.status !== undefined) dc.status = req.body.status;
+    if (req.body.listedAt !== undefined) {
+      dc.listedAt = req.body.listedAt ? new Date(req.body.listedAt) : undefined;
+    }
+    if (req.body.availableQuantity !== undefined) dc.availableQuantity = req.body.availableQuantity;
+    if (req.body.deliverableQuantity !== undefined) dc.deliverableQuantity = req.body.deliverableQuantity;
+    if (req.body.holdReason !== undefined) dc.holdReason = req.body.holdReason;
+    if (req.body.warehouseId !== undefined) dc.warehouseId = req.body.warehouseId;
+    if (req.body.warehouseProcessedAt !== undefined) {
+      dc.warehouseProcessedAt = req.body.warehouseProcessedAt ? new Date(req.body.warehouseProcessedAt) : undefined;
+    }
+    if (req.body.completedAt !== undefined) {
+      dc.completedAt = req.body.completedAt ? new Date(req.body.completedAt) : undefined;
+    }
+    // If status is being set to completed, set completedAt if not provided
+    if (req.body.status === 'completed' && !dc.completedAt) {
+      dc.completedAt = new Date();
+    }
     
     // Save without validating required fields that might not be present during update
     await dc.save({ validateBeforeSave: false });

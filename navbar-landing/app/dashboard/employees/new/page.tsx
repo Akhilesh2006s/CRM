@@ -131,6 +131,7 @@ export default function NewEmployeePage() {
                 <SelectItem value="Trainer">Trainer</SelectItem>
                 <SelectItem value="Finance Manager">Finance Manager</SelectItem>
                 <SelectItem value="Coordinator">Coordinator</SelectItem>
+                <SelectItem value="Senior Coordinator">Senior Coordinator</SelectItem>
                 <SelectItem value="Manager">Manager</SelectItem>
                 <SelectItem value="Executive">Executive</SelectItem>
                 <SelectItem value="Admin">Admin</SelectItem>

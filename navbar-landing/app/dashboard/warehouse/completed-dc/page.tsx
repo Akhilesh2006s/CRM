@@ -39,8 +39,32 @@ export default function CompletedDCPage() {
     // show only active (not on hold)
     qs.append('hold', 'false')
     try {
-      const data = await apiRequest<Row[]>(`/warehouse/dc/list?${qs.toString()}`)
-      setRows(data)
+      // Fetch from both DcOrder and DC model
+      const [dcOrderData, dcModelData] = await Promise.all([
+        apiRequest<Row[]>(`/warehouse/dc/list?${qs.toString()}`).catch(() => []),
+        apiRequest<any[]>(`/dc?status=completed`).catch(() => [])
+      ])
+
+      // Transform DC model entries to match Row format
+      const transformedDCs: Row[] = dcModelData.map((dc: any) => ({
+        _id: dc._id,
+        dcNo: dc.createdAt 
+          ? `${new Date(dc.createdAt).getFullYear().toString().slice(-2)}-${(new Date(dc.createdAt).getFullYear() + 1).toString().slice(-2)}/${dc._id.slice(-4)}`
+          : `DC-${dc._id.slice(-6)}`,
+        dcDate: dc.dcDate || dc.createdAt,
+        dcCategory: dc.dcCategory || 'Term 2',
+        dcFinYear: dc.createdAt 
+          ? `${new Date(dc.createdAt).getFullYear()}-${new Date(dc.createdAt).getFullYear() + 1}`
+          : '',
+        schoolName: dc.dcOrderId?.school_name || dc.customerName || '',
+        schoolCode: dc.dcOrderId?.dc_code || '',
+        zone: dc.dcOrderId?.zone || '',
+        executive: dc.employeeId?.name || dc.dcOrderId?.assigned_to?.name || '',
+      }))
+
+      // Combine both lists
+      const allData = [...dcOrderData, ...transformedDCs]
+      setRows(allData)
     } catch (err: any) {
       toast.error(err?.message || 'Failed to load DCs')
     } finally {

@@ -103,6 +103,7 @@ const NAV: NavItem[] = [
       { label: 'DC @ Warehouse', href: '/dashboard/warehouse/dc-at-warehouse' },
       { label: 'Completed DC', href: '/dashboard/warehouse/completed-dc' },
       { label: 'Hold DC', href: '/dashboard/warehouse/hold-dc' },
+      { label: 'DC listed', href: '/dashboard/warehouse/dc-listed' },
     ],
   },
   {
@@ -200,6 +201,7 @@ export function Sidebar() {
   const isEmployee = user?.role === 'Employee'
   const isManager = user?.role === 'Manager'
   const isCoordinator = user?.role === 'Coordinator'
+  const isSeniorCoordinator = user?.role === 'Senior Coordinator'
 
   // Add employee leave menu if employee, replace admin Leave Management
   const employeeLeavesMenu: NavItem = {
@@ -240,12 +242,13 @@ export function Sidebar() {
             )
           }
         }
-        // Filter Warehouse menu items to only show "Completed DC" for Manager
+        // Filter Warehouse menu items to show "DC @ Warehouse", "Completed DC", and "DC listed" for Manager
         if (item.label === 'Warehouse' && item.children) {
+          const allowedWarehouseItems = ['DC @ Warehouse', 'Completed DC', 'DC listed']
           return {
             ...item,
             children: item.children.filter(child => 
-              child.label === 'Completed DC'
+              allowedWarehouseItems.includes(child.label)
             )
           }
         }
@@ -293,9 +296,9 @@ export function Sidebar() {
             )
           }
         }
-        // Filter Warehouse menu items to only show "DC @ Warehouse" and "Completed DC" for Coordinator
+        // Filter Warehouse menu items to show "DC @ Warehouse", "Completed DC", "DC listed", and "Hold DC" for Coordinator
         if (item.label === 'Warehouse' && item.children) {
-          const allowedWarehouseItems = ['DC @ Warehouse', 'Completed DC']
+          const allowedWarehouseItems = ['DC @ Warehouse', 'Completed DC', 'DC listed', 'Hold DC']
           return {
             ...item,
             children: item.children.filter(child => 
@@ -324,9 +327,75 @@ export function Sidebar() {
         }
         return item
       })
+  } else if (isSeniorCoordinator) {
+    // For Senior Coordinator role, use the same menu as Coordinator
+    // Only show: Dashboard, DC, Users / Employees, Trainings & Services, Warehouse, Payments, Reports, Settings, Sign out
+    const allowedMenuItems = ['Dashboard', 'DC', 'Users / Employees', 'Trainings & Services', 'Warehouse', 'Payments', 'Reports', 'Settings', 'Sign out']
+    finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
+      .map(item => {
+        // Filter Users / Employees menu items to only show "Active Employees" for Senior Coordinator
+        if (item.label === 'Users / Employees' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label === 'Active Employees'
+            )
+          }
+        }
+        // Filter Trainings & Services menu items to exclude "Add Trainer" for Senior Coordinator
+        if (item.label === 'Trainings & Services' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label !== 'Add Trainer'
+            )
+          }
+        }
+        // Filter Warehouse menu items to only show "DC @ Warehouse" and "Completed DC" for Senior Coordinator
+        if (item.label === 'Warehouse' && item.children) {
+          const allowedWarehouseItems = ['DC @ Warehouse', 'Completed DC']
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              allowedWarehouseItems.includes(child.label)
+            )
+          }
+        }
+        // Filter Payments menu items to exclude "Add Payment" and "HOLD Payments" for Senior Coordinator
+        if (item.label === 'Payments' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              child.label !== 'Add Payment' && child.label !== 'HOLD Payments'
+            )
+          }
+        }
+        // Filter Reports menu items to only show: Leads, DC, Returns, All Expenses for Senior Coordinator
+        if (item.label === 'Reports' && item.children) {
+          const allowedReportItems = ['Leads', 'DC', 'Returns', 'All Expenses']
+          return {
+            ...item,
+            children: item.children.filter(child => 
+              allowedReportItems.includes(child.label)
+            )
+          }
+        }
+        return item
+      })
   } else {
-    // For all other roles (Admin, Super Admin, etc.), show all menu items
-    finalNav = NAV
+    // For all other roles (Admin, Super Admin, etc.), show all menu items except "DC listed" (only for Manager and Coordinator)
+    finalNav = NAV.map(item => {
+      // Filter Warehouse menu items to exclude "DC listed" for roles other than Manager and Coordinator
+      if (item.label === 'Warehouse' && item.children) {
+        return {
+          ...item,
+          children: item.children.filter(child => 
+            child.label !== 'DC listed'
+          )
+        }
+      }
+      return item
+    })
   }
 
   // Auto-expand menu sections based on current route
@@ -360,7 +429,7 @@ export function Sidebar() {
 
       return shouldUpdate ? newOpenState : currentOpen
     })
-  }, [pathname, isEmployee, isManager, isCoordinator])
+  }, [pathname, isEmployee, isManager, isCoordinator, isSeniorCoordinator])
 
   const signOut = () => {
     if (typeof window !== 'undefined') {

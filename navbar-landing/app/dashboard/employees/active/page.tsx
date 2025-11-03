@@ -18,6 +18,8 @@ export default function ActiveEmployeesPage() {
   // Get current user to check role
   const currentUser = getCurrentUser()
   const isCoordinator = currentUser?.role === 'Coordinator'
+  const isSeniorCoordinator = currentUser?.role === 'Senior Coordinator'
+  const shouldHideAction = isCoordinator || isSeniorCoordinator
 
   const load = async () => {
     setLoading(true)
@@ -60,7 +62,7 @@ export default function ActiveEmployeesPage() {
               <th className="py-2 px-3">Phone</th>
               <th className="py-2 px-3">Role</th>
               <th className="py-2 px-3">Department</th>
-              {!isCoordinator && <th className="py-2 px-3">Action</th>}
+              {!shouldHideAction && <th className="py-2 px-3">Action</th>}
             </tr>
           </thead>
           <tbody>
@@ -71,7 +73,7 @@ export default function ActiveEmployeesPage() {
                 <td className="py-2 px-3 text-center">{e.phone || '-'}</td>
                 <td className="py-2 px-3 text-center">{e.role}</td>
                 <td className="py-2 px-3 text-center">{e.department || '-'}</td>
-                {!isCoordinator && (
+                {!shouldHideAction && (
                   <td className="py-2 px-3 text-right">
                     <Button size="sm" variant="secondary" onClick={() => resetPassword(e._id, e.name)}>
                       Reset Password
