@@ -329,54 +329,62 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-2 md:p-6 max-w-7xl mx-auto space-y-7">
-      {/* STAT WIDGETS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="space-y-8">
+      {/* Premium Stat Cards - Minimal, elegant design */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {STAT_CONFIG.map((stat, i) => {
           const cls = accentToClasses[stat.accent]
           const grad = gradientMap[stat.accent]
           return (
             <div
               key={stat.label}
-              className={`relative overflow-hidden rounded-2xl text-white p-7 md:p-8 shadow-md border-0 bg-gradient-to-br ${grad} transition-transform hover:scale-[1.01] min-h-[148px]`}
+              className="group relative overflow-hidden rounded-xl border border-neutral-200/60 bg-white/90 backdrop-blur-sm p-6 shadow-sm hover:shadow-md transition-all duration-300 hover:border-neutral-300/60"
             >
               <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-[13px] uppercase tracking-wider opacity-95">{stat.label}</div>
-                  <div className="mt-2 text-[38px] md:text-[44px] leading-[1.1] font-extrabold drop-shadow-sm">{stats[i]?.value ?? '0'}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-2">{stat.label}</div>
+                  <div className="text-3xl md:text-4xl font-bold text-neutral-900 leading-none mb-1">{stats[i]?.value ?? '0'}</div>
                 </div>
-                <span className={`h-12 w-12 rounded-xl flex items-center justify-center bg-white/10 backdrop-blur-sm`}>
-                  <stat.icon className={`w-6 h-6 text-white`} />
-                </span>
+                <div className={`h-12 w-12 rounded-lg flex items-center justify-center bg-gradient-to-br ${grad} shadow-sm group-hover:shadow-md transition-shadow`}>
+                  <stat.icon className="w-5 h-5 text-white" />
+                </div>
               </div>
+              {/* Subtle gradient accent */}
+              <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${grad} opacity-60`} />
             </div>
           )
         })}
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex items-center gap-4 border-b border-neutral-200">
+      {/* Premium Tab Navigation */}
+      <div className="flex items-center gap-1 border-b border-neutral-200/60">
         <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'dashboard' | 'leads')} className="w-full">
-          <TabsList className="bg-transparent p-0 h-auto">
+          <TabsList className="bg-transparent p-0 h-auto gap-0">
             <TabsTrigger
               value="dashboard"
-              className={`px-6 py-3 rounded-t-lg font-medium transition-colors ${
+              className={`px-5 py-3 rounded-t-lg font-medium text-sm transition-all duration-200 relative ${
                 activeTab === 'dashboard'
-                  ? 'bg-white border-b-2 border-blue-600 text-blue-600'
-                  : 'text-neutral-600 hover:text-neutral-900'
+                  ? 'text-neutral-900 bg-white'
+                  : 'text-neutral-500 hover:text-neutral-700'
               }`}
             >
               Dashboard
+              {activeTab === 'dashboard' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
+              )}
             </TabsTrigger>
             <TabsTrigger
               value="leads"
-              className={`px-6 py-3 rounded-t-lg font-medium transition-colors ${
+              className={`px-5 py-3 rounded-t-lg font-medium text-sm transition-all duration-200 relative ${
                 activeTab === 'leads'
-                  ? 'bg-white border-b-2 border-blue-600 text-blue-600'
-                  : 'text-neutral-600 hover:text-neutral-900'
+                  ? 'text-neutral-900 bg-white'
+                  : 'text-neutral-500 hover:text-neutral-700'
               }`}
             >
               Leads Dashboard
+              {activeTab === 'leads' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
+              )}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -385,40 +393,43 @@ export default function DashboardPage() {
       {/* Dashboard Content */}
       {activeTab === 'dashboard' && (
         <>
-          {/* Charts Row */}
+          {/* Premium Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* BarChart: Chart.js */}
-        <Card className="shadow-sm rounded-xl bg-white text-neutral-900 p-6 flex flex-col gap-3 border border-neutral-200">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold text-neutral-900">Leads Volume</div>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="px-2 py-1 rounded bg-orange-100 text-orange-700 font-medium">24H</span>
-              <span className="px-2 py-1 rounded text-neutral-500 hover:bg-neutral-100 cursor-default">7D</span>
-              <span className="px-2 py-1 rounded text-neutral-500 hover:bg-neutral-100 cursor-default">30D</span>
+        {/* BarChart: Premium styling */}
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="font-semibold text-neutral-900 text-base mb-1">Leads Volume</div>
+              <div className="text-xs text-neutral-500">Last 24 hours activity</div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100">24H</span>
+              <span className="px-2.5 py-1 rounded-md text-neutral-400 hover:bg-neutral-50 hover:text-neutral-600 cursor-pointer transition-colors">7D</span>
+              <span className="px-2.5 py-1 rounded-md text-neutral-400 hover:bg-neutral-50 hover:text-neutral-600 cursor-pointer transition-colors">30D</span>
             </div>
           </div>
           <div className="h-[300px]">
             <BarGradient labels={volume.map(v=>v.hour)} values={volume.map(v=>v.value)} />
           </div>
         </Card>
-        {/* AreaChart with KPIs - Chart.js */}
-        <Card className="min-h-[360px] rounded-xl bg-white text-neutral-900 p-6 shadow-sm flex flex-col gap-4 border border-neutral-200">
+        {/* AreaChart with KPIs - Premium styling */}
+        <Card className="min-h-[360px] p-6 flex flex-col gap-6">
           <div>
-            <div className="text-lg font-semibold">Revenue Trend</div>
-            <div className="text-xs text-neutral-500">Week‑over‑week revenue progression (daily).</div>
+            <div className="text-base font-semibold text-neutral-900 mb-1">Revenue Trend</div>
+            <div className="text-xs text-neutral-500">Week-over-week revenue progression</div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="bg-neutral-50 rounded-md px-4 py-3 text-center border border-neutral-200">
-              <div className="text-orange-600 text-xl font-bold">{fmtINR(peak)}</div>
-              <div className="text-xs text-neutral-500">Peak day</div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-gradient-to-br from-orange-50 to-amber-50 rounded-lg px-4 py-3 border border-orange-100/50">
+              <div className="text-orange-600 text-xl font-bold mb-0.5">{fmtINR(peak)}</div>
+              <div className="text-xs text-orange-600/70 font-medium">Peak</div>
             </div>
-            <div className="bg-neutral-50 rounded-md px-4 py-3 text-center border border-neutral-200">
-              <div className="text-neutral-900 text-xl font-bold">{fmtINR(avg)}</div>
-              <div className="text-xs text-neutral-500">Average</div>
+            <div className="flex-1 bg-gradient-to-br from-neutral-50 to-neutral-100/50 rounded-lg px-4 py-3 border border-neutral-200/50">
+              <div className="text-neutral-900 text-xl font-bold mb-0.5">{fmtINR(avg)}</div>
+              <div className="text-xs text-neutral-600/70 font-medium">Average</div>
             </div>
-            <div className="bg-neutral-50 rounded-md px-4 py-3 text-center border border-neutral-200">
-              <div className="text-green-700 text-xl font-bold">{fmtINR(min)}</div>
-              <div className="text-xs text-neutral-500">Minimum</div>
+            <div className="flex-1 bg-gradient-to-br from-emerald-50 to-green-50 rounded-lg px-4 py-3 border border-emerald-100/50">
+              <div className="text-emerald-700 text-xl font-bold mb-0.5">{fmtINR(min)}</div>
+              <div className="text-xs text-emerald-700/70 font-medium">Minimum</div>
             </div>
           </div>
           <div className="flex-1 min-h-[240px]">
@@ -426,125 +437,128 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
-      {/* Donut chart row (Training & Service Status) */}
-      <div className="flex flex-col lg:flex-row w-full gap-6 mt-8">
-        <Card className="flex flex-col lg:flex-row items-center justify-between w-full shadow-sm rounded-xl bg-sky-50 border border-sky-100 p-8 md:p-10 text-neutral-900">
+      {/* Premium Donut chart row (Training & Service Status) */}
+      <div className="flex flex-col lg:flex-row w-full gap-6">
+        <Card className="flex flex-col lg:flex-row items-center justify-between w-full p-8 md:p-10">
           <div className="w-full lg:w-[350px] xl:w-[430px] h-[260px] flex items-center justify-center relative">
             <DoughnutStatus slices={PIE_DATA as any} />
             <div className="absolute text-center">
-              <div className="text-xs text-neutral-500">Total</div>
-              <div className="text-xl font-semibold">{PIE_DATA.reduce((s,d)=>s + (d.value as number),0)}</div>
+              <div className="text-xs text-neutral-500 font-medium">Total</div>
+              <div className="text-2xl font-bold text-neutral-900 mt-1">{PIE_DATA.reduce((s,d)=>s + (d.value as number),0)}</div>
             </div>
           </div>
-          {/* legend */}
-          <div className="flex flex-col mt-5 lg:mt-0 lg:ml-12 gap-3 min-w-[200px]">
-            <div className="font-semibold text-base mb-2">Training & Service Status</div>
+          {/* Premium legend */}
+          <div className="flex flex-col mt-6 lg:mt-0 lg:ml-12 gap-3 min-w-[220px]">
+            <div className="font-semibold text-base mb-1 text-neutral-900">Training & Service Status</div>
             {PIE_DATA.map((entry) => {
               const total = PIE_DATA.reduce((s,d)=>s + (d.value as number),0) || 1
               const pct = Math.round(((entry.value as number) / total) * 100)
               return (
-                <div key={entry.label} className="flex items-center gap-2 text-sm font-medium text-neutral-700">
-                  <span className="w-3.5 h-3.5 rounded-full block" style={{background: entry.color}}></span>
-                  <span className="truncate">{entry.label}</span>
-                  <span className="ml-auto text-neutral-500">{pct}%</span>
-                  <span className="font-semibold text-neutral-900 w-8 text-right">{entry.value}</span>
+                <div key={entry.label} className="flex items-center gap-3 text-sm font-medium text-neutral-700 group">
+                  <span className="w-3.5 h-3.5 rounded-full block ring-2 ring-white shadow-sm" style={{background: entry.color}}></span>
+                  <span className="truncate flex-1">{entry.label}</span>
+                  <span className="text-neutral-400 text-xs font-normal">{pct}%</span>
+                  <span className="font-bold text-neutral-900 w-8 text-right">{entry.value}</span>
                 </div>
               )
             })}
           </div>
         </Card>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        {/* Active Alerts - animated, colored stripe */}
-        <Card className="shadow rounded-xl bg-orange-50 p-6 flex flex-col gap-3 lg:col-span-1 border border-orange-100">
-          <div className="flex items-center justify-between mb-1">
-            <div className="font-semibold text-neutral-900">Active Alerts</div>
-            <button className="text-xs text-blue-600 hover:text-blue-700">View all</button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Premium Active Alerts */}
+        <Card className="p-6 lg:col-span-1">
+          <div className="flex items-center justify-between mb-4">
+            <div className="font-semibold text-neutral-900 text-base">Active Alerts</div>
+            <button className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">View all</button>
           </div>
-          {loading ? (
-            <div className="text-neutral-500 text-sm">Loading alerts...</div>
-          ) : alerts.length > 0 ? (
-            alerts.map((a, idx) => (
-              <div
-                key={idx}
-                className={`relative flex items-center gap-2 rounded-lg p-3 text-sm transition-all hover:translate-x-[1px] ${
-                  a.level === 'warning'
-                    ? 'bg-orange-50 text-orange-800 border border-orange-200'
-                    : 'bg-green-50 text-green-800 border border-green-200'
-                }`}
-                style={{ boxShadow: '0 1px 0 0 rgba(0,0,0,0.02) inset' }}
-              >
-                <span className={`absolute left-0 top-0 h-full w-1 ${a.level === 'warning' ? 'bg-orange-400' : 'bg-green-400'} rounded-l-lg`} />
-                <AlertTriangle size={18} />
-                <span className="pl-1">{a.text}</span>
-              </div>
-            ))
-          ) : (
-            <div className="text-neutral-500 text-sm">No active alerts</div>
-          )}
+          <div className="space-y-2">
+            {loading ? (
+              <div className="text-neutral-400 text-sm">Loading alerts...</div>
+            ) : alerts.length > 0 ? (
+              alerts.map((a, idx) => (
+                <div
+                  key={idx}
+                  className={`relative flex items-start gap-3 rounded-lg p-3 text-sm transition-all duration-200 hover:shadow-sm ${
+                    a.level === 'warning'
+                      ? 'bg-orange-50/80 text-orange-900 border border-orange-200/50'
+                      : 'bg-emerald-50/80 text-emerald-900 border border-emerald-200/50'
+                  }`}
+                >
+                  <span className={`absolute left-0 top-0 bottom-0 w-1 ${a.level === 'warning' ? 'bg-orange-500' : 'bg-emerald-500'} rounded-l-lg`} />
+                  <AlertTriangle size={16} className={`mt-0.5 flex-shrink-0 ${a.level === 'warning' ? 'text-orange-600' : 'text-emerald-600'}`} />
+                  <span className="leading-relaxed">{a.text}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-neutral-400 text-sm py-4 text-center">No active alerts</div>
+            )}
+          </div>
         </Card>
-        {/* Leads by Zone - zebra and hover */}
-        <Card className="bg-emerald-50 shadow rounded-xl p-6 lg:col-span-2 border border-emerald-100">
-          <div className="font-semibold text-neutral-900 mb-2">Leads by Zone</div>
-          <table className="w-full text-left text-sm overflow-hidden rounded-lg">
-            <thead>
-              <tr className="text-neutral-600 border-b bg-neutral-50">
-                <th className="py-2 font-medium px-2">Zone</th>
-                <th className="py-2 font-medium text-right px-2">Total Leads</th>
-                <th className="py-2 font-medium text-right px-2">Hot</th>
-                <th className="py-2 font-medium text-right px-2">Warm</th>
-                <th className="py-2 font-medium text-right px-2">Cold</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="py-4 px-2 text-center text-neutral-500">Loading zones...</td>
+        {/* Premium Leads by Zone table */}
+        <Card className="p-6 lg:col-span-2">
+          <div className="font-semibold text-neutral-900 mb-4 text-base">Leads by Zone</div>
+          <div className="overflow-hidden rounded-lg border border-neutral-200/60">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-neutral-600 border-b border-neutral-200/60 bg-neutral-50/50">
+                  <th className="py-3 font-semibold px-4 text-xs uppercase tracking-wider">Zone</th>
+                  <th className="py-3 font-semibold text-right px-4 text-xs uppercase tracking-wider">Total</th>
+                  <th className="py-3 font-semibold text-right px-4 text-xs uppercase tracking-wider">Hot</th>
+                  <th className="py-3 font-semibold text-right px-4 text-xs uppercase tracking-wider">Warm</th>
+                  <th className="py-3 font-semibold text-right px-4 text-xs uppercase tracking-wider">Cold</th>
                 </tr>
-              ) : zones.length > 0 ? (
-                zones.map((z, i) => (
-                  <tr key={z.zone} className={`border-b last:border-0 transition-colors hover:bg-neutral-50 ${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50/60'}`}>
-                    <td className="py-2 px-2 text-neutral-900">{z.zone}</td>
-                    <td className="py-2 px-2 text-right"><span className="inline-flex items-center justify-center min-w-8 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">{z.total}</span></td>
-                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-orange-50 text-orange-700">{z.hot}</span></td>
-                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-green-50 text-green-700">{z.warm}</span></td>
-                    <td className="py-2 px-2 text-right"><span className="inline-flex min-w-8 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{z.cold}</span></td>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 px-4 text-center text-neutral-400">Loading zones...</td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5} className="py-4 px-2 text-center text-neutral-500">No zone data available</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                ) : zones.length > 0 ? (
+                  zones.map((z, i) => (
+                    <tr key={z.zone} className={`border-b border-neutral-200/40 last:border-0 transition-colors hover:bg-neutral-50/50 ${i % 2 === 0 ? 'bg-white' : 'bg-neutral-50/30'}`}>
+                      <td className="py-3 px-4 text-neutral-900 font-medium">{z.zone}</td>
+                      <td className="py-3 px-4 text-right"><span className="inline-flex items-center justify-center min-w-8 px-2.5 py-1 rounded-md bg-orange-100 text-orange-700 font-semibold text-xs">{z.total}</span></td>
+                      <td className="py-3 px-4 text-right"><span className="inline-flex min-w-8 px-2.5 py-1 rounded-md bg-orange-50 text-orange-700 font-medium text-xs">{z.hot}</span></td>
+                      <td className="py-3 px-4 text-right"><span className="inline-flex min-w-8 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 font-medium text-xs">{z.warm}</span></td>
+                      <td className="py-3 px-4 text-right"><span className="inline-flex min-w-8 px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-700 font-medium text-xs">{z.cold}</span></td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 px-4 text-center text-neutral-400">No zone data available</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-        {/* Recent Activity - soft colored card */}
-        <Card className="bg-violet-50 shadow rounded-xl p-6 border border-violet-100">
-          <div className="font-semibold text-neutral-900 mb-3">Recent Activity</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Premium Recent Activity */}
+        <Card className="p-6">
+          <div className="font-semibold text-neutral-900 mb-4 text-base">Recent Activity</div>
           <div className="flex flex-col gap-3 text-sm">
             {loading ? (
-              <div className="text-neutral-500">Loading activities...</div>
+              <div className="text-neutral-400 py-4">Loading activities...</div>
             ) : activities.length > 0 ? (
               activities.slice(0, 5).map((activity) => {
                 const getColorClasses = () => {
-                  if (activity.type === 'lead_created') return { text: 'text-orange-700', bg: 'bg-orange-500' }
-                  if (activity.type === 'sale_made') return { text: 'text-green-700', bg: 'bg-green-500' }
-                  if (activity.type === 'training_completed') return { text: 'text-blue-700', bg: 'bg-blue-500' }
-                  return { text: 'text-neutral-700', bg: 'bg-neutral-500' }
+                  if (activity.type === 'lead_created') return { text: 'text-orange-700', bg: 'bg-orange-500', ring: 'ring-orange-200' }
+                  if (activity.type === 'sale_made') return { text: 'text-emerald-700', bg: 'bg-emerald-500', ring: 'ring-emerald-200' }
+                  if (activity.type === 'training_completed') return { text: 'text-blue-700', bg: 'bg-blue-500', ring: 'ring-blue-200' }
+                  return { text: 'text-neutral-700', bg: 'bg-neutral-500', ring: 'ring-neutral-200' }
                 }
                 const colors = getColorClasses()
                 return (
-                  <div key={activity.id} className={`flex items-center gap-2 ${colors.text}`}>
-                    <span className={`h-2 w-2 rounded-full ${colors.bg}`} />
-                    <span>{activity.message}</span>
+                  <div key={activity.id} className={`flex items-start gap-3 p-2.5 rounded-lg hover:bg-neutral-50/50 transition-colors ${colors.text}`}>
+                    <span className={`h-2 w-2 rounded-full ${colors.bg} mt-1.5 ring-2 ${colors.ring} flex-shrink-0`} />
+                    <span className="leading-relaxed">{activity.message}</span>
                   </div>
                 )
               })
             ) : (
-              <div className="text-neutral-500">No recent activities</div>
+              <div className="text-neutral-400 py-4">No recent activities</div>
             )}
           </div>
         </Card>
@@ -553,215 +567,223 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* Leads Dashboard Content */}
+      {/* Premium Leads Dashboard Content */}
       {activeTab === 'leads' && (
       <div className="mt-6 space-y-6">
-        <Card className="p-6 shadow-sm rounded-xl bg-white border border-neutral-200">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-neutral-900 mb-4">Dashboard</h2>
+        <Card className="p-6">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-neutral-900 mb-1">Leads Analytics</h2>
+            <p className="text-sm text-neutral-500">Filter and analyze leads by date range</p>
             
-            {/* Date Range Filter */}
-            <div className="flex flex-wrap items-center gap-4 mb-6">
+            {/* Premium Date Range Filter */}
+            <div className="flex flex-wrap items-center gap-3 mt-6 p-4 bg-neutral-50/50 rounded-lg border border-neutral-200/60">
               <div className="flex items-center gap-2">
                 <label htmlFor="fromDate" className="text-sm font-medium text-neutral-700 whitespace-nowrap">
-                  From Date:
+                  From:
                 </label>
                 <Input
                   id="fromDate"
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="w-[180px]"
+                  className="w-[160px] bg-white"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <label htmlFor="toDate" className="text-sm font-medium text-neutral-700 whitespace-nowrap">
-                  To Date:
+                  To:
                 </label>
                 <Input
                   id="toDate"
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="w-[180px]"
+                  className="w-[160px] bg-white"
                 />
               </div>
-              <Button onClick={handleSearch} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Button 
+                onClick={handleSearch} 
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-sm hover:shadow-md transition-all"
+              >
                 Search
               </Button>
             </div>
           </div>
 
           <div className="space-y-6">
-            {/* Zone wise Leads */}
-            <Card className="p-4 border border-neutral-200 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-neutral-900">Zone wise Leads</h3>
-                <div className="flex items-center gap-2">
-                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
-                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+            {/* Premium Zone wise Leads */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-neutral-900 text-base">Zone wise Leads</h3>
+                  <p className="text-xs text-neutral-500 mt-1">Lead distribution across zones</p>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-neutral-50">
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Leads</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Hot</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Warm</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Cold</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leadsLoading ? (
-                      <tr>
-                        <td colSpan={5} className="py-4 text-center text-neutral-500">Loading...</td>
+              <div className="overflow-hidden rounded-lg border border-neutral-200/60">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200/60 bg-neutral-50/50">
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Zone</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Total</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Hot</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Warm</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Cold</th>
                       </tr>
-                    ) : zoneWiseLeads.length > 0 ? (
-                      zoneWiseLeads.map((item, idx) => (
-                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
-                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-right">{item.total}</td>
-                          <td className="py-2 px-3 text-right">{item.hot}</td>
-                          <td className="py-2 px-3 text-right">{item.warm}</td>
-                          <td className="py-2 px-3 text-right">{item.cold}</td>
+                    </thead>
+                    <tbody>
+                      {leadsLoading ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-neutral-400">Loading...</td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="py-4 text-center text-neutral-500">No data available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      ) : zoneWiseLeads.length > 0 ? (
+                        zoneWiseLeads.map((item, idx) => (
+                          <tr key={idx} className={`border-b border-neutral-200/40 last:border-0 transition-colors hover:bg-neutral-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/30'}`}>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.zone || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-orange-100 text-orange-700 font-semibold text-xs">{item.total}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-orange-50 text-orange-700 font-medium text-xs">{item.hot}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 font-medium text-xs">{item.warm}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-700 font-medium text-xs">{item.cold}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-neutral-400">No data available</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </Card>
 
-            {/* Executive wise Leads */}
-            <Card className="p-4 border border-neutral-200 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-neutral-900">Executive wise Leads</h3>
-                <div className="flex items-center gap-2">
-                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
-                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+            {/* Premium Executive wise Leads */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-neutral-900 text-base">Executive wise Leads</h3>
+                  <p className="text-xs text-neutral-500 mt-1">Lead performance by executive</p>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-neutral-50">
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Executive Name</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Leads</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Hot</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Warm</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Cold</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leadsLoading ? (
-                      <tr>
-                        <td colSpan={6} className="py-4 text-center text-neutral-500">Loading...</td>
+              <div className="overflow-hidden rounded-lg border border-neutral-200/60">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200/60 bg-neutral-50/50">
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Zone</th>
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Executive</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Total</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Hot</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Warm</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Cold</th>
                       </tr>
-                    ) : executiveWiseLeads.length > 0 ? (
-                      executiveWiseLeads.map((item, idx) => (
-                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
-                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-neutral-900">{item.executiveName || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-right">{item.total}</td>
-                          <td className="py-2 px-3 text-right">{item.hot}</td>
-                          <td className="py-2 px-3 text-right">{item.warm}</td>
-                          <td className="py-2 px-3 text-right">{item.cold}</td>
+                    </thead>
+                    <tbody>
+                      {leadsLoading ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-neutral-400">Loading...</td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="py-4 text-center text-neutral-500">No data available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      ) : executiveWiseLeads.length > 0 ? (
+                        executiveWiseLeads.map((item, idx) => (
+                          <tr key={idx} className={`border-b border-neutral-200/40 last:border-0 transition-colors hover:bg-neutral-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/30'}`}>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.zone || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.executiveName || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-orange-100 text-orange-700 font-semibold text-xs">{item.total}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-orange-50 text-orange-700 font-medium text-xs">{item.hot}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 font-medium text-xs">{item.warm}</span></td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-700 font-medium text-xs">{item.cold}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-neutral-400">No data available</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </Card>
 
-            {/* Zone wise Closed Leads */}
-            <Card className="p-4 border border-neutral-200 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-neutral-900">Zone wise Closed Leads</h3>
-                <div className="flex items-center gap-2">
-                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
-                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+            {/* Premium Zone wise Closed Leads */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-neutral-900 text-base">Zone wise Closed Leads</h3>
+                  <p className="text-xs text-neutral-500 mt-1">Closed leads by zone</p>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-neutral-50">
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Closed Leads</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leadsLoading ? (
-                      <tr>
-                        <td colSpan={2} className="py-4 text-center text-neutral-500">Loading...</td>
+              <div className="overflow-hidden rounded-lg border border-neutral-200/60">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200/60 bg-neutral-50/50">
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Zone</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Closed Leads</th>
                       </tr>
-                    ) : zoneWiseClosedLeads.length > 0 ? (
-                      zoneWiseClosedLeads.map((item, idx) => (
-                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
-                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-right">{item.totalClosed}</td>
+                    </thead>
+                    <tbody>
+                      {leadsLoading ? (
+                        <tr>
+                          <td colSpan={2} className="py-8 text-center text-neutral-400">Loading...</td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={2} className="py-4 text-center text-neutral-500">No data available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      ) : zoneWiseClosedLeads.length > 0 ? (
+                        zoneWiseClosedLeads.map((item, idx) => (
+                          <tr key={idx} className={`border-b border-neutral-200/40 last:border-0 transition-colors hover:bg-neutral-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/30'}`}>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.zone || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-700 font-semibold text-xs">{item.totalClosed}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={2} className="py-8 text-center text-neutral-400">No data available</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </Card>
 
-            {/* Executive wise Closed Leads */}
-            <Card className="p-4 border border-neutral-200 rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-neutral-900">Executive wise Closed Leads</h3>
-                <div className="flex items-center gap-2">
-                  <Minimize2 className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
-                  <X className="h-4 w-4 text-neutral-400 cursor-pointer hover:text-neutral-600" />
+            {/* Premium Executive wise Closed Leads */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-neutral-900 text-base">Executive wise Closed Leads</h3>
+                  <p className="text-xs text-neutral-500 mt-1">Closed leads by executive</p>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-neutral-50">
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Zone</th>
-                      <th className="py-2 px-3 text-left font-semibold text-neutral-900">Executive Name</th>
-                      <th className="py-2 px-3 text-right font-semibold text-neutral-900">Total Closed Leads</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leadsLoading ? (
-                      <tr>
-                        <td colSpan={3} className="py-4 text-center text-neutral-500">Loading...</td>
+              <div className="overflow-hidden rounded-lg border border-neutral-200/60">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-neutral-200/60 bg-neutral-50/50">
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Zone</th>
+                        <th className="py-3 px-4 text-left font-semibold text-neutral-900 text-xs uppercase tracking-wider">Executive</th>
+                        <th className="py-3 px-4 text-right font-semibold text-neutral-900 text-xs uppercase tracking-wider">Closed Leads</th>
                       </tr>
-                    ) : executiveWiseClosedLeads.length > 0 ? (
-                      executiveWiseClosedLeads.map((item, idx) => (
-                        <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/50'}`}>
-                          <td className="py-2 px-3 text-neutral-900">{item.zone || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-neutral-900">{item.executiveName || 'Unassigned'}</td>
-                          <td className="py-2 px-3 text-right">{item.totalClosed}</td>
+                    </thead>
+                    <tbody>
+                      {leadsLoading ? (
+                        <tr>
+                          <td colSpan={3} className="py-8 text-center text-neutral-400">Loading...</td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} className="py-4 text-center text-neutral-500">No data available</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      ) : executiveWiseClosedLeads.length > 0 ? (
+                        executiveWiseClosedLeads.map((item, idx) => (
+                          <tr key={idx} className={`border-b border-neutral-200/40 last:border-0 transition-colors hover:bg-neutral-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-neutral-50/30'}`}>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.zone || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-neutral-900 font-medium">{item.executiveName || 'Unassigned'}</td>
+                            <td className="py-3 px-4 text-right"><span className="inline-flex px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-700 font-semibold text-xs">{item.totalClosed}</span></td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={3} className="py-8 text-center text-neutral-400">No data available</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </Card>
           </div>

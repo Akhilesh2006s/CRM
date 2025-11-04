@@ -69,6 +69,8 @@ export default function ClosedSalesPage() {
   const [selectedDeal, setSelectedDeal] = useState<DcOrder | null>(null)
   const [openRaiseDCDialog, setOpenRaiseDCDialog] = useState(false)
   const [openLocationDialog, setOpenLocationDialog] = useState(false)
+  const [openPOPhotoDialog, setOpenPOPhotoDialog] = useState(false)
+  const [selectedPOPhotoUrl, setSelectedPOPhotoUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [employees, setEmployees] = useState<{ _id: string; name: string }[]>([])
@@ -653,33 +655,49 @@ export default function ClosedSalesPage() {
                   <td className="py-3 px-4 text-slate-700">{d.contact_mobile || '-'}</td>
                   <td className="py-3 px-4 text-slate-700 text-xs">{getProductsDisplay(d)}</td>
                   <td className="py-3 px-4">
-                    {d.pod_proof_url ? (
-                      <div className="flex items-center justify-center">
-                        <img
-                          src={d.pod_proof_url}
-                          alt="PO Document"
-                          className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
-                          onClick={() => window.open(d.pod_proof_url!, '_blank')}
-                          title="Click to view full size"
-                          onError={(e) => {
-                            // If image fails to load, show a link instead
-                            const target = e.currentTarget
-                            target.style.display = 'none'
-                            const parent = target.parentElement
-                            if (parent) {
-                              const link = document.createElement('a')
-                              link.href = d.pod_proof_url!
-                              link.target = '_blank'
-                              link.className = 'text-xs text-slate-600 hover:text-slate-800 underline'
-                              link.textContent = 'View PO'
-                              parent.appendChild(link)
-                            }
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400">-</span>
-                    )}
+                    {(() => {
+                      // Check for PO photo in pod_proof_url or in associated DC
+                      const poUrl = d.pod_proof_url || (dealDCs[d._id]?.poPhotoUrl)
+                      
+                      if (poUrl) {
+                        return (
+                          <div className="flex items-center justify-center">
+                            <img
+                              src={poUrl}
+                              alt="PO Document"
+                              className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
+                              onClick={() => {
+                                setSelectedPOPhotoUrl(poUrl)
+                                setOpenPOPhotoDialog(true)
+                              }}
+                              title="Click to view full size"
+                              onError={(e) => {
+                                // If image fails to load, show a link instead
+                                const target = e.currentTarget
+                                target.style.display = 'none'
+                                const parent = target.parentElement
+                                if (parent) {
+                                  const link = document.createElement('a')
+                                  link.href = poUrl
+                                  link.target = '_blank'
+                                  link.className = 'text-xs text-slate-600 hover:text-slate-800 underline cursor-pointer'
+                                  link.textContent = 'View PO'
+                                  link.onclick = (ev) => {
+                                    ev.preventDefault()
+                                    setSelectedPOPhotoUrl(poUrl)
+                                    setOpenPOPhotoDialog(true)
+                                    return false
+                                  }
+                                  parent.appendChild(link)
+                                }
+                              }}
+                            />
+                          </div>
+                        )
+                      } else {
+                        return <span className="text-xs text-slate-400">-</span>
+                      }
+                    })()}
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
@@ -1190,11 +1208,71 @@ export default function ClosedSalesPage() {
           <DialogFooter>
             <Button 
               variant="outline" 
-              className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
+              className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm" 
               onClick={() => setOpenLocationDialog(false)}
             >
               Close
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PO Photo Modal */}
+      <Dialog open={openPOPhotoDialog} onOpenChange={setOpenPOPhotoDialog}>
+        <DialogContent className="sm:max-w-[90vw] max-w-[95vw] max-h-[90vh] overflow-auto bg-white border-slate-200 shadow-xl">
+          <DialogHeader className="pb-4 border-b border-slate-200">
+            <DialogTitle className="text-slate-900 text-xl font-semibold">
+              Purchase Order (PO) Document
+            </DialogTitle>
+            <DialogDescription className="text-slate-600 text-sm mt-1">
+              View full-size PO document
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPOPhotoUrl && (
+            <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
+              <img
+                src={selectedPOPhotoUrl}
+                alt="PO Document Full Size"
+                className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg border border-slate-200"
+                onError={(e) => {
+                  const target = e.currentTarget
+                  target.style.display = 'none'
+                  const parent = target.parentElement
+                  if (parent) {
+                    parent.innerHTML = `
+                      <div class="text-center p-8">
+                        <p class="text-red-600 mb-4">Failed to load image</p>
+                        <a href="${selectedPOPhotoUrl}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">
+                          Open in new tab
+                        </a>
+                      </div>
+                    `
+                  }
+                }}
+              />
+            </div>
+          )}
+          <DialogFooter className="pt-4 border-t border-slate-200">
+            <div className="flex gap-2 justify-between w-full">
+              <Button
+                variant="outline"
+                className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
+                onClick={() => {
+                  if (selectedPOPhotoUrl) {
+                    window.open(selectedPOPhotoUrl, '_blank')
+                  }
+                }}
+              >
+                Open in New Tab
+              </Button>
+              <Button
+                variant="outline"
+                className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
+                onClick={() => setOpenPOPhotoDialog(false)}
+              >
+                Close
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

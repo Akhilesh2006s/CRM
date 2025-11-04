@@ -113,14 +113,18 @@ export default function SavedDCPage() {
     try {
       const data = await apiRequest<DcOrder[]>(`/dc-orders?status=saved`)
 
-      // Load existing DCs for all deals
+      // Load existing DCs for all deals with poPhotoUrl
       const dcMap: Record<string, DC> = {}
       try {
         const allDealIds = data.map((d: any) => d._id)
         for (const dealId of allDealIds) {
           try {
             const dcs = await apiRequest<DC[]>(`/dc?dcOrderId=${dealId}`)
-            if (dcs && dcs.length > 0) dcMap[dealId] = dcs[0]
+            if (dcs && dcs.length > 0) {
+              // Get the DC with poPhotoUrl if available
+              const dcWithPO = dcs.find(dc => dc.poPhotoUrl) || dcs[0]
+              dcMap[dealId] = dcWithPO
+            }
           } catch (_) {}
         }
         setDealDCs(dcMap)
@@ -544,7 +548,42 @@ export default function SavedDCPage() {
                   <td className="py-3 px-4 text-slate-700">{d.assigned_to?.name || '-'}</td>
                   <td className="py-3 px-4 text-slate-700">{d.contact_mobile || '-'}</td>
                   <td className="py-3 px-4 text-slate-700 text-xs">{(d.products || []).map(p => `${p.product_name}${p.quantity ? ` - ${p.quantity}` : ''}`).join(', ') || '-'}</td>
-                  <td className="py-3 px-4 text-xs text-slate-500">-</td>
+                  <td className="py-3 px-4">
+                    {(() => {
+                      const dc = dealDCs[d._id]
+                      const poUrl = dc?.poPhotoUrl || (typeof dc?.dcOrderId === 'object' && dc.dcOrderId && 'poPhotoUrl' in dc.dcOrderId ? (dc.dcOrderId as any).poPhotoUrl : null)
+                      
+                      if (poUrl) {
+                        return (
+                          <div className="flex items-center justify-center">
+                            <img
+                              src={poUrl}
+                              alt="PO Document"
+                              className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
+                              onClick={() => window.open(poUrl, '_blank')}
+                              title="Click to view full size"
+                              onError={(e) => {
+                                // If image fails to load, show a link instead
+                                const target = e.currentTarget
+                                target.style.display = 'none'
+                                const parent = target.parentElement
+                                if (parent) {
+                                  const link = document.createElement('a')
+                                  link.href = poUrl
+                                  link.target = '_blank'
+                                  link.className = 'text-xs text-slate-600 hover:text-slate-800 underline'
+                                  link.textContent = 'View PO'
+                                  parent.appendChild(link)
+                                }
+                              }}
+                            />
+                          </div>
+                        )
+                      } else {
+                        return <span className="text-xs text-slate-400">-</span>
+                      }
+                    })()}
+                  </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
                       {canUpdateDC && (

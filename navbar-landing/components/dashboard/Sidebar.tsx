@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { getCurrentUser } from '@/lib/auth'
@@ -49,6 +49,72 @@ type NavItem = {
   children?: { label: string; href: string; icon?: any }[]
 }
 
+function HoverTooltip({ item, pathname, onClose }: { item: NavItem; pathname: string; onClose: () => void }) {
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ top: 0, left: 64 })
+
+  useEffect(() => {
+    const updatePosition = () => {
+      const element = document.querySelector(`[data-item="${item.label}"]`)
+      if (element && tooltipRef.current) {
+        const rect = element.getBoundingClientRect()
+        setPosition({
+          top: rect.top,
+          left: rect.right + 8
+        })
+      }
+    }
+
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+  }, [item.label])
+
+  if (!item.children) return null
+
+  return (
+    <div
+      ref={tooltipRef}
+      className="hover-tooltip-container fixed z-[9999] pointer-events-none"
+      style={{ top: `${position.top}px`, left: `${position.left}px` }}
+      onMouseEnter={() => {}} // Keep tooltip open
+      onMouseLeave={onClose}
+    >
+      <div className="pointer-events-auto bg-white rounded-lg shadow-2xl border border-neutral-200/60 py-2 min-w-[220px] overflow-hidden animate-in fade-in-0 zoom-in-95 slide-in-from-left-2 duration-200">
+        <div className="px-3 py-2.5 border-b border-neutral-200/60 bg-neutral-50">
+          <div className="text-xs font-semibold text-neutral-900 uppercase tracking-wider">{item.label}</div>
+        </div>
+        <ul className="py-1">
+          {item.children.map((c) => {
+            const isActive = pathname === c.href || (c.href !== '/dashboard' && pathname.startsWith(c.href))
+            return (
+              <li key={c.label}>
+                <Link 
+                  href={c.href}
+                  onClick={onClose}
+                  className={`flex items-center gap-2.5 text-sm px-3 py-2 font-normal transition-all duration-200 ${
+                    isActive 
+                      ? 'bg-blue-50 text-blue-700 border-l-2 border-blue-500' 
+                      : 'text-neutral-700 hover:bg-neutral-50 hover:text-neutral-900'
+                  }`}
+                >
+                  {c.icon && <c.icon size={14} className="flex-shrink-0" />}
+                  <span>{c.label}</span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 const NAV: NavItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
   {
@@ -60,7 +126,6 @@ const NAV: NavItem[] = [
       { label: 'Saved DC', href: '/dashboard/dc/saved', icon: Save },
       { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
       { label: 'EMP DC', href: '/dashboard/dc/emp', icon: UserCircle2 },
-      { label: 'My DC', href: '/dashboard/dc/my', icon: UserCircle2 },
     ],
   },
   {
@@ -168,6 +233,7 @@ export function Sidebar() {
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [user, setUser] = useState<{ name?: string; email?: string; role?: string } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null)
 
   // Load sidebar collapsed state from localStorage
   useEffect(() => {
@@ -248,12 +314,12 @@ export function Sidebar() {
     const allowedMenuItems = ['Dashboard', 'DC', 'Warehouse', 'Expenses', 'Reports', 'Settings', 'Sign out']
     finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
       .map(item => {
-        // Filter DC menu items to exclude "Create Sale" and "My DC"
+        // Filter DC menu items to exclude "Create Sale"
         if (item.label === 'DC' && item.children) {
           return {
             ...item,
             children: item.children.filter(child => 
-              child.label !== 'Create Sale' && child.label !== 'My DC'
+              child.label !== 'Create Sale'
             )
           }
         }
@@ -470,6 +536,8 @@ export function Sidebar() {
     setSidebarOpen(newState)
     if (typeof window !== 'undefined') {
       localStorage.setItem('sidebarCollapsed', JSON.stringify(!newState))
+      // Dispatch custom event to notify TopBar
+      window.dispatchEvent(new CustomEvent('sidebarToggle'))
       // Update main content margin
       const mainContent = document.getElementById('main-content')
       if (mainContent) {
@@ -490,118 +558,182 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-[#0a0d11] text-white min-h-screen fixed md:sticky top-0 left-0 z-40 border-r border-gray-800 transition-all duration-300 relative`}>
-        {/* User Profile Section */}
-        <div className={`py-4 border-b border-gray-800 ${sidebarOpen ? 'px-4' : 'px-0'} hidden md:block`}>
+      {/* Sidebar - Premium Linear-style design */}
+      <aside className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-[#0F0F0F] text-white min-h-screen fixed md:sticky top-0 left-0 z-50 border-r border-white/5 transition-all duration-300 ease-out relative backdrop-blur-xl`}>
+        {/* User Profile Section - Premium styling */}
+        <div className={`py-5 border-b border-white/5 ${sidebarOpen ? 'px-4' : 'px-0'} hidden md:block`}>
           {sidebarOpen ? (
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-lg font-bold text-white flex-shrink-0">
+              <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-sm font-semibold text-white flex-shrink-0 ring-1 ring-white/10">
                 {user?.name?.charAt(0).toUpperCase() || 'U'}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm truncate text-white">{user?.name || 'User'}</div>
-                <div className="text-xs text-white/80 flex items-center gap-1 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                  Online
+                <div className="font-medium text-sm truncate text-white/90">{user?.name || 'User'}</div>
+                <div className="text-xs text-white/50 flex items-center gap-1.5 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80 shadow-sm shadow-emerald-500/50"></span>
+                  <span className="font-normal">Active</span>
                 </div>
               </div>
             </div>
           ) : (
             <div className="flex justify-center">
-              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-lg font-bold text-white">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-sm font-semibold text-white ring-1 ring-white/10">
                 {user?.name?.charAt(0).toUpperCase() || 'U'}
               </div>
             </div>
           )}
         </div>
         
-        {/* Main Navigation Header with Hamburger */}
-        <div className={`py-3 border-b border-gray-800 hidden md:flex items-center ${sidebarOpen ? 'px-4 justify-between' : 'px-0 justify-center'} relative`}>
+        {/* Main Navigation Header with Hamburger - Minimal */}
+        <div className={`py-3.5 border-b border-white/5 hidden md:flex items-center ${sidebarOpen ? 'px-4 justify-between' : 'px-0 justify-center'} relative`}>
           {sidebarOpen && (
-            <div className="text-[11px] tracking-wider text-white/70 font-semibold uppercase">MAIN NAVIGATION</div>
+            <div className="text-[10px] tracking-widest text-white/40 font-medium uppercase">Navigation</div>
           )}
-          {/* Hamburger button */}
+          {/* Hamburger button - Premium styling */}
           <button
             onClick={toggleSidebar}
-            className={`bg-transparent text-white p-1.5 rounded hover:bg-gray-800 transition-all duration-300 flex-shrink-0 ${sidebarOpen ? '' : 'absolute top-1/2 -translate-y-1/2'}`}
+            className={`bg-transparent text-white/60 p-1.5 rounded-md hover:bg-white/5 hover:text-white transition-all duration-200 flex-shrink-0 ${sidebarOpen ? '' : 'absolute top-1/2 -translate-y-1/2'}`}
             aria-label="Toggle sidebar"
           >
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
         </div>
-      <nav className="py-1">
-        <ul className="flex md:block gap-0 overflow-x-auto">
+      <nav className="py-2">
+        <ul className="flex md:block gap-0 overflow-x-auto scrollbar-hide">
           {finalNav.map((item) => (
-            <li key={item.label} className="w-full">
+            <li key={item.label} className="w-full" data-item={item.label}>
               {item.children ? (
-                <div>
+                <div 
+                  className="relative"
+                  onMouseEnter={() => !sidebarOpen && setHoveredItem(item.label)}
+                  onMouseLeave={(e) => {
+                    // Only close if not moving to tooltip
+                    const relatedTarget = e.relatedTarget as HTMLElement
+                    if (!relatedTarget?.closest('.hover-tooltip-container')) {
+                      setHoveredItem(null)
+                    }
+                  }}
+                >
                   <button
                     onClick={() => {
                       if (!sidebarOpen) {
-                        // When collapsed, expand sidebar first, then toggle submenu
                         setSidebarOpen(true)
                         setTimeout(() => toggle(item.label), 100)
                       } else {
                         toggle(item.label)
                       }
                     }}
-                    className={`w-full flex items-center justify-center text-white py-3 rounded hover:bg-gray-800 font-semibold transition-colors ${
-                      sidebarOpen ? 'px-4 gap-3 justify-start' : 'px-0'
+                    className={`w-full flex items-center justify-center text-white/70 py-2.5 rounded-lg hover:bg-white/5 hover:text-white font-medium transition-all duration-200 group ${
+                      sidebarOpen ? 'px-3 gap-2.5 justify-start' : 'px-0'
                     }`}
                     title={!sidebarOpen ? item.label : ''}
                   >
-                    {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
+                    {item.icon && <item.icon size={18} className="text-white/60 group-hover:text-white flex-shrink-0 transition-colors" />}
                     {sidebarOpen && (
-                      <span className="text-sm text-white">{item.label}</span>
+                      <span className="text-[13px] text-white/70 group-hover:text-white transition-colors">{item.label}</span>
                     )}
                   </button>
+                  
+                  {/* Hover Tooltip for collapsed sidebar */}
+                  {!sidebarOpen && hoveredItem === item.label && (
+                    <HoverTooltip 
+                      item={item}
+                      pathname={pathname}
+                      onClose={() => setHoveredItem(null)}
+                    />
+                  )}
+                  
+                  {/* Expanded submenu */}
                   {sidebarOpen && (
-                    <div className={`overflow-hidden transition-all ${open[item.label] ? 'max-h-96' : 'max-h-0'}`}>
-                      <ul className="ml-8 mt-1 mb-2 space-y-1">
-                        {item.children.map((c) => (
-                          <li key={c.label}>
-                            <Link href={c.href} className="flex items-center gap-2 text-[13px] text-white px-3 py-2 rounded hover:bg-gray-800 font-medium">
-                              {c.icon && <c.icon size={16} className="text-white" />}
-                              {c.label}
-                            </Link>
-                          </li>
-                        ))}
+                    <div className={`overflow-hidden transition-all duration-300 ease-out ${open[item.label] ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                      <ul className="ml-6 mt-1 mb-2 space-y-0.5 border-l border-white/5 pl-3">
+                        {item.children.map((c) => {
+                          const isActive = pathname === c.href || (c.href !== '/dashboard' && pathname.startsWith(c.href))
+                          return (
+                            <li key={c.label}>
+                              <Link 
+                                href={c.href} 
+                                className={`flex items-center gap-2.5 text-[12.5px] px-2.5 py-2 rounded-md font-normal transition-all duration-200 ${
+                                  isActive 
+                                    ? 'bg-white/10 text-white border-l-2 border-white/30' 
+                                    : 'text-white/50 hover:bg-white/5 hover:text-white/80'
+                                }`}
+                              >
+                                {c.icon && <c.icon size={14} className="flex-shrink-0" />}
+                                <span>{c.label}</span>
+                              </Link>
+                            </li>
+                          )
+                        })}
                       </ul>
                     </div>
                   )}
                 </div>
               ) : (
                 item.label === 'Sign out' ? (
-                  <button 
-                    onClick={signOut} 
-                    className={`w-full flex items-center justify-center text-white py-3 rounded hover:bg-gray-800 font-semibold transition-colors ${
-                      sidebarOpen ? 'px-4 gap-3 justify-start' : 'px-0'
-                    }`}
-                    title={!sidebarOpen ? item.label : ''}
+                  <div 
+                    className="relative mt-2"
+                    onMouseEnter={() => !sidebarOpen && setHoveredItem(item.label)}
+                    onMouseLeave={() => setHoveredItem(null)}
                   >
-                    {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
-                    {sidebarOpen && (
-                      <span className="text-sm text-white">{item.label}</span>
+                    <button 
+                      onClick={signOut} 
+                      className={`w-full flex items-center justify-center text-red-400/70 py-2.5 rounded-lg hover:bg-red-500/10 hover:text-red-400 font-medium transition-all duration-200 group ${
+                        sidebarOpen ? 'px-3 gap-2.5 justify-start' : 'px-0'
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      {item.icon && <item.icon size={18} className="text-red-400/60 group-hover:text-red-400 flex-shrink-0 transition-colors" />}
+                      {sidebarOpen && (
+                        <span className="text-[13px] text-red-400/70 group-hover:text-red-400 transition-colors">{item.label}</span>
+                      )}
+                    </button>
+                    
+                    {/* Tooltip for sign out when collapsed */}
+                    {!sidebarOpen && hoveredItem === item.label && (
+                      <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 animate-in fade-in-0 zoom-in-95 slide-in-from-left-2 duration-200 whitespace-nowrap">
+                        <div className="bg-red-600 text-white text-xs font-medium px-3 py-1.5 rounded-md shadow-lg border border-red-700">
+                          {item.label}
+                        </div>
+                      </div>
                     )}
-                  </button>
+                  </div>
                 ) : (
-                  <Link 
-                    href={item.href || '#'} 
-                    className={`w-full flex items-center justify-center text-white py-3 rounded font-semibold transition-colors ${
-                      sidebarOpen ? 'px-4 gap-3 justify-start' : 'px-0'
-                    } ${
-                      pathname === item.href 
-                        ? 'bg-gray-800' 
-                        : 'hover:bg-gray-800'
-                    }`}
-                    title={!sidebarOpen ? item.label : ''}
+                  <div 
+                    className="relative"
+                    onMouseEnter={() => !sidebarOpen && setHoveredItem(item.label)}
+                    onMouseLeave={() => setHoveredItem(null)}
                   >
-                    {item.icon && <item.icon size={20} className="text-white flex-shrink-0" />}
-                    {sidebarOpen && (
-                      <span className="text-sm text-white">{item.label}</span>
+                    <Link 
+                      href={item.href || '#'} 
+                      className={`w-full flex items-center justify-center text-white/70 py-2.5 rounded-lg font-medium transition-all duration-200 group ${
+                        sidebarOpen ? 'px-3 gap-2.5 justify-start' : 'px-0'
+                      } ${
+                        pathname === item.href 
+                          ? 'bg-white/10 text-white shadow-sm' 
+                          : 'hover:bg-white/5 hover:text-white'
+                      }`}
+                      title={!sidebarOpen ? item.label : ''}
+                    >
+                      {item.icon && <item.icon size={18} className={`flex-shrink-0 transition-colors ${
+                        pathname === item.href ? 'text-white' : 'text-white/60 group-hover:text-white'
+                      }`} />}
+                      {sidebarOpen && (
+                        <span className={`text-[13px] transition-colors ${
+                          pathname === item.href ? 'text-white' : 'text-white/70 group-hover:text-white'
+                        }`}>{item.label}</span>
+                      )}
+                    </Link>
+                    
+                    {/* Simple tooltip for single items when collapsed */}
+                    {!sidebarOpen && hoveredItem === item.label && (
+                      <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 animate-in fade-in-0 zoom-in-95 slide-in-from-left-2 duration-200 whitespace-nowrap">
+                        <div className="bg-neutral-900 text-white text-xs font-medium px-3 py-1.5 rounded-md shadow-lg border border-neutral-800">
+                          {item.label}
+                        </div>
+                      </div>
                     )}
-                  </Link>
+                  </div>
                 )
               )}
             </li>

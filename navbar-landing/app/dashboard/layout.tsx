@@ -3,16 +3,18 @@ import { TopBar } from "@/components/dashboard/TopBar"
 import { Sidebar } from "@/components/dashboard/Sidebar"
 import { RequireAuth } from "@/components/require-auth"
 
-// Dashboard layout with blue top bar and dark sidebar, light content area
+// Premium Dashboard layout - Apple x Notion x Linear x Stripe inspired
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-neutral-50/50">
       <TopBar />
-      <div className="flex pt-2 md:pt-2">
+      <div className="flex pt-0">
         <Sidebar />
-        <main className="flex-1 transition-all duration-300 md:ml-64 ml-16 p-2 md:p-3 mt-12 md:mt-16" id="main-content">
+        <main className="flex-1 transition-all duration-300 ease-out md:ml-64 ml-16 p-6 md:p-8 pt-24 md:pt-24" id="main-content">
           <RequireAuth>
-            {children}
+            <div className="max-w-7xl mx-auto">
+              {children}
+            </div>
           </RequireAuth>
         </main>
       </div>

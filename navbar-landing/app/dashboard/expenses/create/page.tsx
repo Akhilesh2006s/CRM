@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,9 +11,23 @@ import { Textarea } from '@/components/ui/textarea'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 
+type DC = {
+  _id: string
+  dcOrderId?: {
+    school_name?: string
+    school_code?: string
+    zone?: string
+  }
+  saleId?: {
+    customerName?: string
+  }
+}
+
 export default function CreateExpensePage() {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
+  const [myDCs, setMyDCs] = useState<DC[]>([])
+  const [loadingDCs, setLoadingDCs] = useState(true)
 
   const [form, setForm] = useState({
     title: '',
@@ -24,7 +38,26 @@ export default function CreateExpensePage() {
     employeeRemarks: '',
     paymentMethod: '',
     pendingMonth: 'none',
+    dcId: '', // New field for selected DC
   })
+
+  // Fetch employee's assigned DCs
+  useEffect(() => {
+    const fetchMyDCs = async () => {
+      try {
+        setLoadingDCs(true)
+        const dcs = await apiRequest<DC[]>('/dc/employee/my')
+        setMyDCs(dcs || [])
+      } catch (error: any) {
+        console.error('Error fetching DCs:', error)
+        // Don't show error toast, just continue without DC selection
+      } finally {
+        setLoadingDCs(false)
+      }
+    }
+
+    fetchMyDCs()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,6 +67,12 @@ export default function CreateExpensePage() {
       // Validate required fields
       if (!form.title || !form.amount || !form.category || !form.date) {
         toast.error('Please fill in all required fields')
+        return
+      }
+      
+      // Validate DC selection if DCs are available
+      if (myDCs.length > 0 && (!form.dcId || form.dcId === 'none')) {
+        toast.error('Please select a School/DC for this expense')
         return
       }
 
@@ -46,6 +85,7 @@ export default function CreateExpensePage() {
         employeeRemarks: form.employeeRemarks || undefined,
         paymentMethod: form.paymentMethod && form.paymentMethod !== 'none' ? form.paymentMethod : undefined,
         pendingMonth: form.pendingMonth && form.pendingMonth !== 'none' ? form.pendingMonth : undefined,
+        dcId: form.dcId && form.dcId !== 'none' ? form.dcId : undefined,
         status: 'Pending',
       }
 
@@ -155,6 +195,49 @@ export default function CreateExpensePage() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div>
+            <Label htmlFor="dcId">
+              School / DC {myDCs.length > 0 && '*'}
+            </Label>
+            <Select
+              value={form.dcId}
+              onValueChange={(value) => setForm({ ...form, dcId: value })}
+              required={myDCs.length > 0}
+              disabled={loadingDCs || myDCs.length === 0}
+            >
+              <SelectTrigger className="bg-white">
+                <SelectValue placeholder={
+                  loadingDCs 
+                    ? "Loading assigned DCs..." 
+                    : myDCs.length === 0 
+                      ? "No assigned DCs available" 
+                      : "Select school/DC"
+                } />
+              </SelectTrigger>
+              <SelectContent>
+                {myDCs.length > 0 && (
+                  <SelectItem value="none">None</SelectItem>
+                )}
+                {myDCs.map((dc) => {
+                  const schoolName = dc.dcOrderId?.school_name || dc.saleId?.customerName || 'Unknown School'
+                  const schoolCode = dc.dcOrderId?.school_code || ''
+                  const zone = dc.dcOrderId?.zone || ''
+                  const displayName = schoolCode ? `${schoolCode} - ${schoolName}` : schoolName
+                  const displayText = zone ? `${displayName} (${zone})` : displayName
+                  
+                  return (
+                    <SelectItem key={dc._id} value={dc._id}>
+                      {displayText}
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+            {myDCs.length === 0 && !loadingDCs && (
+              <p className="text-sm text-neutral-500 mt-1">No assigned DCs found. You can still create an expense without selecting a DC.</p>
+            )}
           </div>
 
           <div>
