@@ -225,6 +225,21 @@ export function Sidebar() {
           { label: 'My DC', href: '/dashboard/dc/my', icon: UserCircle2 },
         ],
       },
+      {
+        label: 'Payments',
+        icon: CreditCard,
+        children: [
+          { label: 'Add Payment', href: '/dashboard/payments/add-payment', icon: PlusCircle },
+        ],
+      },
+      {
+        label: 'Expenses',
+        icon: Calculator,
+        children: [
+          { label: 'Create Expense', href: '/dashboard/expenses/create', icon: PlusCircle },
+          { label: 'My Expenses', href: '/dashboard/expenses/my', icon: FileText },
+        ],
+      },
       employeeLeavesMenu,
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]

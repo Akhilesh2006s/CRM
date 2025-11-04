@@ -27,12 +27,20 @@ type PaymentData = {
   refNo?: string
   status: string
   description?: string
+  adminRemarks?: string
+  rejectionReason?: string
   town?: string
   zone?: string
   cluster?: string
+  approvedBy?: { name?: string; email?: string }
+  rejectedBy?: { name?: string; email?: string }
+  heldBy?: { name?: string; email?: string }
+  approvedAt?: string
+  rejectedAt?: string
+  heldAt?: string
 }
 
-const STATUS_OPTIONS = ['Pending', 'hold/duplicate', 'Approved']
+const STATUS_OPTIONS = ['Pending', 'Approved', 'Hold', 'Rejected']
 
 export default function PaymentDetailPage() {
   const router = useRouter()
@@ -44,7 +52,7 @@ export default function PaymentDetailPage() {
   const [data, setData] = useState<PaymentData | null>(null)
   const [formData, setFormData] = useState({
     referenceNumber: '',
-    remarks: '',
+    adminRemarks: '',
     status: 'Pending',
   })
 
@@ -54,7 +62,7 @@ export default function PaymentDetailPage() {
       setData(payment)
       setFormData({
         referenceNumber: payment.referenceNumber || payment.refNo || '',
-        remarks: payment.description || '',
+        adminRemarks: (payment as any).adminRemarks || payment.rejectionReason || '',
         status: payment.status || 'Pending',
       })
     } catch (err: any) {
@@ -69,18 +77,24 @@ export default function PaymentDetailPage() {
     if (id) load()
   }, [id])
 
-  async function handleUpdate() {
+  async function handleApprove(statusToSet?: string) {
+    const status = statusToSet || formData.status
+    if (!formData.adminRemarks && (status === 'Hold' || status === 'Rejected')) {
+      toast.error('Please add remarks for Hold or Reject actions')
+      return
+    }
     setSaving(true)
     try {
-      await apiRequest(`/payments/${id}`, {
+      await apiRequest(`/payments/${id}/approve`, {
         method: 'PUT',
         body: JSON.stringify({
-          referenceNumber: formData.referenceNumber,
-          description: formData.remarks,
-          status: formData.status,
+          status: status,
+          adminRemarks: formData.adminRemarks || undefined,
+          rejectionReason: status === 'Rejected' ? formData.adminRemarks : undefined,
+          referenceNumber: formData.referenceNumber || undefined,
         }),
       })
-      toast.success('Payment updated successfully')
+      toast.success(`Payment ${status.toLowerCase()} successfully`)
       router.back()
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update payment')
@@ -102,7 +116,7 @@ export default function PaymentDetailPage() {
   return (
     <div className="container mx-auto px-4 md:px-6 lg:px-8 space-y-6">
       <Card className="p-6">
-        <h1 className="text-2xl font-semibold mb-6">DC Form Update</h1>
+        <h1 className="text-2xl font-semibold mb-6">Payment Review & Approval</h1>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* School Information */}
@@ -183,43 +197,133 @@ export default function PaymentDetailPage() {
                   placeholder="Enter reference number"
                 />
               </div>
+            <div>
+              <label className="text-sm text-neutral-500">Current Status</label>
+              <Input 
+                value={data.status || 'Pending'} 
+                readOnly 
+                className={`bg-neutral-50 font-semibold ${
+                  data.status === 'Approved' ? 'text-green-600' :
+                  data.status === 'Hold' ? 'text-yellow-600' :
+                  data.status === 'Rejected' ? 'text-red-600' :
+                  'text-blue-600'
+                }`}
+              />
+            </div>
+            {data.approvedBy && (
               <div>
-                <label className="text-sm text-neutral-500">Status *</label>
-                <select
-                  className="w-full border rounded px-2 py-2 bg-neutral-900 text-white"
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-sm text-neutral-500">Approved By</label>
+                <Input 
+                  value={`${data.approvedBy.name || ''} ${data.approvedAt ? new Date(data.approvedAt).toLocaleString() : ''}`} 
+                  readOnly 
+                  className="bg-neutral-50" 
+                />
               </div>
+            )}
+            {data.heldBy && (
+              <div>
+                <label className="text-sm text-neutral-500">Held By</label>
+                <Input 
+                  value={`${data.heldBy.name || ''} ${data.heldAt ? new Date(data.heldAt).toLocaleString() : ''}`} 
+                  readOnly 
+                  className="bg-neutral-50" 
+                />
+              </div>
+            )}
+            {data.rejectedBy && (
+              <div>
+                <label className="text-sm text-neutral-500">Rejected By</label>
+                <Input 
+                  value={`${data.rejectedBy.name || ''} ${data.rejectedAt ? new Date(data.rejectedAt).toLocaleString() : ''}`} 
+                  readOnly 
+                  className="bg-neutral-50" 
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-sm text-neutral-500">New Status</label>
+              <select
+                className="w-full border rounded px-2 py-2 bg-white text-neutral-900"
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              >
+                {STATUS_OPTIONS.filter(s => s !== data.status).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
               <div>
                 <label className="text-sm text-neutral-500">Executive Remarks</label>
-                <Input value={data.description || '-'} readOnly className="bg-neutral-50" />
+                <textarea
+                  value={data.description || '-'}
+                  readOnly
+                  className="w-full border rounded px-3 py-2 bg-neutral-50 min-h-[60px]"
+                />
               </div>
+              {(data.adminRemarks || data.rejectionReason) && (
+                <div>
+                  <label className="text-sm text-neutral-500">Previous Admin Remarks</label>
+                  <textarea
+                    value={data.adminRemarks || data.rejectionReason || '-'}
+                    readOnly
+                    className="w-full border rounded px-3 py-2 bg-neutral-50 min-h-[60px]"
+                  />
+                </div>
+              )}
               <div>
                 <label className="text-sm text-neutral-500">Amount</label>
                 <Input value={data.amount?.toFixed(2) || '0.00'} readOnly className="bg-neutral-50" />
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm text-neutral-500">Remarks *</label>
-                <Input
-                  value={formData.remarks}
-                  onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                  placeholder="Enter remarks"
+                <label className="text-sm text-neutral-500">Admin Remarks</label>
+                <textarea
+                  value={formData.adminRemarks}
+                  onChange={(e) => setFormData({ ...formData, adminRemarks: e.target.value })}
+                  placeholder="Enter remarks for your action (required for Hold/Reject, optional for Approve)"
+                  className="w-full border rounded px-3 py-2 bg-white text-neutral-900 min-h-[100px]"
                 />
+                <p className="text-xs text-neutral-500 mt-1">Remarks are required when holding or rejecting a payment.</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-6">
-          <Button onClick={handleUpdate} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
-            {saving ? 'Updating...' : 'Update'}
+        <div className="mt-6 flex gap-3 flex-wrap">
+          <Button 
+            onClick={() => handleApprove('Approved')} 
+            disabled={saving} 
+            className="bg-green-600 hover:bg-green-700"
+          >
+            {saving ? 'Processing...' : '✅ Approve'}
+          </Button>
+          <Button 
+            onClick={() => handleApprove('Hold')} 
+            disabled={saving} 
+            className="bg-yellow-600 hover:bg-yellow-700"
+          >
+            {saving ? 'Processing...' : '⏸️ Hold'}
+          </Button>
+          <Button 
+            onClick={() => handleApprove('Rejected')} 
+            disabled={saving} 
+            className="bg-red-600 hover:bg-red-700"
+          >
+            {saving ? 'Processing...' : '❌ Reject'}
+          </Button>
+          <Button 
+            onClick={() => handleApprove()} 
+            disabled={saving} 
+            variant="outline"
+          >
+            {saving ? 'Processing...' : 'Update Status'}
+          </Button>
+          <Button 
+            onClick={() => router.back()} 
+            variant="outline"
+          >
+            Cancel
           </Button>
         </div>
       </Card>

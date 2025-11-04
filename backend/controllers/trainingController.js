@@ -120,11 +120,90 @@ const cancelTraining = async (req, res) => {
   }
 };
 
+// @desc    Get training statistics
+// @route   GET /api/training/stats
+// @access  Private
+const getTrainingStats = async (req, res) => {
+  try {
+    const { fromDate, toDate, zone } = req.query;
+    const matchFilter = {};
+    
+    if (fromDate || toDate) {
+      matchFilter.trainingDate = {};
+      if (fromDate) matchFilter.trainingDate.$gte = new Date(fromDate);
+      if (toDate) matchFilter.trainingDate.$lte = new Date(toDate);
+    }
+    if (zone) matchFilter.zone = zone;
+
+    const stats = await Training.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const total = await Training.countDocuments(matchFilter);
+    const byStatus = {
+      Scheduled: 0,
+      Completed: 0,
+      Cancelled: 0,
+    };
+
+    stats.forEach((stat) => {
+      if (stat._id && byStatus.hasOwnProperty(stat._id)) {
+        byStatus[stat._id] = stat.count;
+      }
+    });
+
+    // Zone-wise distribution
+    const zoneStats = await Training.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$zone',
+          total: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', 'Completed'] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { total: -1 } },
+    ]);
+
+    // Subject-wise distribution
+    const subjectStats = await Training.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$subject',
+          total: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', 'Completed'] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    res.json({
+      total,
+      byStatus,
+      zoneStats,
+      subjectStats,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getTrainings,
   getTraining,
   createTraining,
   updateTraining,
   cancelTraining,
+  getTrainingStats,
 };
 

@@ -40,6 +40,8 @@ const getPayments = async (req, res) => {
     const payments = await Payment.find(filter)
       .populate('saleId')
       .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .populate('heldBy', 'name email')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 
@@ -77,8 +79,9 @@ const getPayment = async (req, res) => {
     const payment = await Payment.findById(req.params.id)
       .populate('saleId')
       .populate('approvedBy', 'name email')
-      .populate('createdBy', 'name email')
-      .populate('rejectedBy', 'name email');
+      .populate('rejectedBy', 'name email')
+      .populate('heldBy', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!payment) {
       return res.status(404).json({ message: 'Payment not found' });
@@ -120,8 +123,9 @@ const updatePayment = async (req, res) => {
     )
       .populate('saleId')
       .populate('approvedBy', 'name email')
-      .populate('createdBy', 'name email')
-      .populate('rejectedBy', 'name email');
+      .populate('rejectedBy', 'name email')
+      .populate('heldBy', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!payment) {
       return res.status(404).json({ message: 'Payment not found' });
@@ -133,24 +137,45 @@ const updatePayment = async (req, res) => {
   }
 };
 
-// @desc    Approve payment
+// @desc    Approve/Hold/Reject payment
 // @route   PUT /api/payments/:id/approve
 // @access  Private
 const approvePayment = async (req, res) => {
   try {
-    const { status, rejectionReason } = req.body;
+    const { status, rejectionReason, adminRemarks } = req.body;
 
     const updateData = {
       status,
+      adminRemarks: adminRemarks || null,
     };
 
     if (status === 'Approved') {
       updateData.approvedBy = req.user._id;
       updateData.approvedAt = new Date();
+      // Clear hold/reject fields if previously held/rejected
+      updateData.heldBy = null;
+      updateData.heldAt = null;
+      updateData.rejectedBy = null;
+      updateData.rejectedAt = null;
+      updateData.rejectionReason = null;
+    } else if (status === 'Hold') {
+      updateData.heldBy = req.user._id;
+      updateData.heldAt = new Date();
+      // Clear approve/reject fields
+      updateData.approvedBy = null;
+      updateData.approvedAt = null;
+      updateData.rejectedBy = null;
+      updateData.rejectedAt = null;
+      updateData.rejectionReason = null;
     } else if (status === 'Rejected') {
       updateData.rejectedBy = req.user._id;
       updateData.rejectedAt = new Date();
-      updateData.rejectionReason = rejectionReason;
+      updateData.rejectionReason = rejectionReason || adminRemarks || null;
+      // Clear approve/hold fields
+      updateData.approvedBy = null;
+      updateData.approvedAt = null;
+      updateData.heldBy = null;
+      updateData.heldAt = null;
     }
 
     const payment = await Payment.findByIdAndUpdate(
@@ -160,7 +185,9 @@ const approvePayment = async (req, res) => {
     )
       .populate('saleId')
       .populate('approvedBy', 'name email')
-      .populate('rejectedBy', 'name email');
+      .populate('rejectedBy', 'name email')
+      .populate('heldBy', 'name email')
+      .populate('createdBy', 'name email');
 
     if (!payment) {
       return res.status(404).json({ message: 'Payment not found' });
@@ -206,6 +233,8 @@ const exportPayments = async (req, res) => {
     const payments = await Payment.find(filter)
       .populate('saleId')
       .populate('approvedBy', 'name email')
+      .populate('rejectedBy', 'name email')
+      .populate('heldBy', 'name email')
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
 

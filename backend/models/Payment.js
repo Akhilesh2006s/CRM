@@ -15,7 +15,7 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['Cash', 'Bank Transfer', 'Credit Card', 'Debit Card', 'Online Payment', 'Other', 'Cheque'],
+    enum: ['Cash', 'UPI', 'NEFT/RTGS', 'Cheque', 'Bank Transfer', 'Credit Card', 'Debit Card', 'Online Payment', 'Other'],
     required: true,
   },
   paymentDate: {
@@ -24,7 +24,7 @@ const paymentSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Approved', 'Rejected', 'hold/duplicate'],
+    enum: ['Pending', 'Approved', 'Hold', 'Rejected'],
     default: 'Pending',
   },
   referenceNumber: {
@@ -93,6 +93,16 @@ const paymentSchema = new mongoose.Schema({
   },
   rejectionReason: {
     type: String,
+  },
+  adminRemarks: {
+    type: String,
+  },
+  heldBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  heldAt: {
+    type: Date,
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

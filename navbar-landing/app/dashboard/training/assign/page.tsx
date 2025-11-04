@@ -26,6 +26,7 @@ export default function AssignTrainingServicePage() {
     trainerId: '',
     employeeId: '',
     date: '',
+    status: 'Scheduled' as 'Scheduled' | 'Completed' | 'Cancelled',
   })
   const [trainers, setTrainers] = useState<Trainer[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -73,6 +74,7 @@ export default function AssignTrainingServicePage() {
       const payload = {
         ...form,
         [type === 'training' ? 'trainingDate' : 'serviceDate']: form.date,
+        status: form.status,
       }
       await apiRequest(endpoint, { method: 'POST', body: JSON.stringify(payload) })
       toast.success(`${type === 'training' ? 'Training' : 'Service'} assigned successfully`)
@@ -99,6 +101,21 @@ export default function AssignTrainingServicePage() {
       </div>
       <Card className="p-4 md:p-6">
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <Label className="mb-2 block">Search School</Label>
+            <Select onValueChange={(v) => onSchoolSelect(v)}>
+              <SelectTrigger className="bg-white text-neutral-900">
+                <SelectValue placeholder="Select school from completed DC orders" />
+              </SelectTrigger>
+              <SelectContent>
+                {schools.map((s) => (
+                  <SelectItem key={s._id} value={(s as any).school_code || s._id}>
+                    {s.school_name} - {(s as any).school_code || s._id} {s.zone ? `(${s.zone})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div>
             <Label>School Code *</Label>
             <Input className="bg-white text-neutral-900" value={form.schoolCode} onChange={(e) => {
@@ -158,6 +175,18 @@ export default function AssignTrainingServicePage() {
           <div>
             <Label>{type === 'training' ? 'Training' : 'Service'} Date *</Label>
             <Input className="bg-white text-neutral-900" type="date" value={form.date} onChange={(e) => setForm(f => ({ ...f, date: e.target.value }))} required />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={form.status} onValueChange={(v: any) => setForm(f => ({ ...f, status: v }))}>
+              <SelectTrigger className="bg-white text-neutral-900">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Scheduled">Scheduled</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="md:col-span-2 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>

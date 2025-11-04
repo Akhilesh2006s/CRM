@@ -82,6 +82,17 @@ export default function ServicesListPage() {
     }
   }
 
+  const markCompleted = async (id: string) => {
+    if (!confirm('Mark this service as completed?')) return
+    try {
+      await apiRequest(`/services/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'Completed' }) })
+      toast.success('Service marked as completed')
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to update')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Services List</h1>
@@ -163,9 +174,14 @@ export default function ServicesListPage() {
                     ) : '-'}
                   </td>
                   <td className="py-2 px-3 text-right">
-                    {s.status === 'Scheduled' && (
-                      <Button size="sm" variant="destructive" onClick={() => cancel(s._id)}>Cancel</Button>
-                    )}
+                    <div className="flex gap-2 justify-end">
+                      {s.status === 'Scheduled' && (
+                        <>
+                          <Button size="sm" variant="default" onClick={() => markCompleted(s._id)}>Mark Completed</Button>
+                          <Button size="sm" variant="destructive" onClick={() => cancel(s._id)}>Cancel</Button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

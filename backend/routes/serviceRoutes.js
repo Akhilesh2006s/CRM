@@ -6,9 +6,11 @@ const {
   createService,
   updateService,
   cancelService,
+  getServiceStats,
 } = require('../controllers/serviceController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
+router.get('/stats', authMiddleware, getServiceStats);
 router.get('/', authMiddleware, getServices);
 router.get('/:id', authMiddleware, getService);
 router.post('/create', authMiddleware, createService);
