@@ -201,6 +201,10 @@ const dcSchema = new mongoose.Schema({
     category: {
       type: String,
     },
+    productCategory: {
+      type: String,
+      enum: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],
+    },
     productName: {
       type: String,
     },
@@ -213,6 +217,18 @@ const dcSchema = new mongoose.Schema({
       default: 0,
     },
   }],
+  // Location tracking for mobile app
+  latitude: {
+    type: Number,
+  },
+  longitude: {
+    type: Number,
+  },
+  // Attendance record linked to this DC
+  attendanceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Attendance',
+  },
 }, {
   timestamps: true,
 });

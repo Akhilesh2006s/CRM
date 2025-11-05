@@ -43,6 +43,13 @@ const dcOrderSchema = new mongoose.Schema(
     assigned_to: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     follow_up_date: { type: Date },
     remarks: { type: String },
+    schoolCategory: {
+      type: String,
+      enum: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],
+    },
+    // Location tracking for mobile app
+    latitude: { type: Number },
+    longitude: { type: Number },
     total_amount: { type: Number, default: 0 },
     pod_proof_url: { type: String },
     completed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

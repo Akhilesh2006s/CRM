@@ -866,20 +866,20 @@ const getPendingWarehouseDCs = async (req, res) => {
 const getMyDCs = async (req, res) => {
   try {
     const employeeId = req.user._id;
-    const { status } = req.query;
+    const { status, limit = 50 } = req.query;
 
     const filter = { employeeId };
     if (status) filter.status = status;
 
-    console.log('Getting DCs for employee:', employeeId, 'with filter:', filter);
-
-    const dcs = await DC.find(filter)
+    // Optimize query - limit results and use lean() for better performance
+    const query = DC.find(filter)
       .populate('saleId', 'customerName product quantity status poDocument')
-      .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products')
+      .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products dc_code')
       .populate('employeeId', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
 
-    console.log(`Found ${dcs.length} DCs for employee ${employeeId}`);
+    const dcs = await query.lean();
 
     res.json(dcs);
   } catch (error) {

@@ -25,8 +25,17 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['Super Admin', 'Admin', 'Employee', 'Finance Manager', 'Trainer', 'Coordinator', 'Senior Coordinator', 'Manager', 'Executive'],
+    enum: ['Super Admin', 'Admin', 'Employee', 'Finance Manager', 'Trainer', 'Coordinator', 'Senior Coordinator', 'Manager', 'Executive', 'Sales BDE'],
     default: 'Employee',
+  },
+  // Support for multiple roles (for mobile app employees who can be both Sales BDE and Trainer)
+  roles: [{
+    type: String,
+    enum: ['Sales BDE', 'Trainer'],
+  }],
+  hasCompletedFirstTimeSetup: {
+    type: Boolean,
+    default: false,
   },
   firstName: { type: String },
   lastName: { type: String },

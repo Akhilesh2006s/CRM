@@ -104,6 +104,8 @@ const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        roles: user.roles || [],
+        hasCompletedFirstTimeSetup: user.hasCompletedFirstTimeSetup || false,
         token: generateToken(user._id),
       });
     } else {
@@ -128,6 +130,8 @@ const login = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          roles: user.roles || [],
+          hasCompletedFirstTimeSetup: user.hasCompletedFirstTimeSetup || false,
           token: generateToken(user._id),
         });
       } else {

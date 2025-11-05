@@ -21,6 +21,8 @@ const leaveRoutes = require('./routes/leaveRoutes');
 const schoolRoutes = require('./routes/schoolRoutes');
 const metadataRoutes = require('./routes/metadataRoutes');
 const stockReturnRoutes = require('./routes/stockReturnRoutes');
+const attendanceRoutes = require('./routes/attendanceRoutes');
+const locationRoutes = require('./routes/locationRoutes');
 
 dotenv.config();
 
@@ -56,6 +58,8 @@ app.use('/api/leaves', leaveRoutes);
 app.use('/api/schools', schoolRoutes);
 app.use('/api/metadata', metadataRoutes);
 app.use('/api/stock-returns', stockReturnRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/location', locationRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
