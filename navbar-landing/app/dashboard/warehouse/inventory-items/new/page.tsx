@@ -11,60 +11,52 @@ import { toast } from 'sonner'
 
 const DEFAULT_PRODUCT_OPTIONS = [
   'Abacus',
-  'EEL',
   'Vedic Maths',
-  'Brochure',
-  'Profile-Book',
-  'MathLab',
-  'FACE',
-  'NCERT',
-  'SCIENCE-LAB',
-  'BIOLOGY',
-  'PHYSICS',
-  'CHEMISTRY',
-  'SOCIAL',
-  'SCIENCE-LAB-OPERATORS',
-  'CHARTS',
-  'SY_CHARTS',
-  'DVD',
-  'SPORTS',
-  'PUZZLES',
-  'Senior_Math',
-  'Math_Lab_Charts',
-  'Stickers',
-  'Specimens',
-  'Jr_Math_Lab',
-  'Jr_Math_Lab_Cluster_Boxes_Card',
-  'SLIDES',
+  'EEL',
   'IIT',
-  'CodeChamp',
-  'Financial LE',
+  'Financial literacy',
+  'Brain bytes',
+  'Spelling bee',
+  'Skill pro',
+  'Maths lab',
+  'Codechamp',
 ]
-const DEFAULT_UOM_OPTIONS = ['Pieces (pcs)', 'boxes']
-const DEFAULT_ITEM_TYPE_OPTIONS = ['Books', 'Question Paper', 'Instruments']
+
+// Product levels mapping based on the image
+const productLevels: Record<string, string[]> = {
+  'Abacus': ['L1', 'L2'],
+  'Vedic Maths': ['L1', 'L2'],
+  'EEL': ['L1'],
+  'IIT': ['L1'],
+  'Financial literacy': ['L1'],
+  'Brain bytes': ['L1'],
+  'Spelling bee': ['L1'],
+  'Skill pro': ['L1'],
+  'Maths lab': ['L1'],
+  'Codechamp': ['L1'],
+}
+
+// Get available levels for a specific product
+const getAvailableLevels = (product: string): string[] => {
+  return productLevels[product] || ['L1']
+}
 
 export default function InventoryNewItemPage() {
   const router = useRouter()
   const [productName, setProductName] = useState<string>('')
   const [category, setCategory] = useState<string>('')
   const [level, setLevel] = useState<string>('')
-  const [unit, setUnit] = useState<string>('pcs')
   const [quantity, setQuantity] = useState<string>('')
-  const [itemType, setItemType] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [productOptions, setProductOptions] = useState<string[]>(DEFAULT_PRODUCT_OPTIONS)
-  const [uomOptions, setUomOptions] = useState<string[]>(DEFAULT_UOM_OPTIONS)
-  const [itemTypeOptions, setItemTypeOptions] = useState<string[]>(DEFAULT_ITEM_TYPE_OPTIONS)
 
   useEffect(() => {
     ;(async () => {
       try {
-        const opts = await apiRequest<{ products: string[]; uoms: string[]; itemTypes: string[] }>(
+        const opts = await apiRequest<{ products: string[] }>(
           '/metadata/inventory-options'
         )
         if (opts?.products?.length) setProductOptions(opts.products)
-        if (opts?.uoms?.length) setUomOptions(opts.uoms)
-        if (opts?.itemTypes?.length) setItemTypeOptions(opts.itemTypes)
       } catch (_) {}
     })()
   }, [])
@@ -76,7 +68,7 @@ export default function InventoryNewItemPage() {
       const qty = parseFloat(quantity) || 0
       await apiRequest('/warehouse', {
         method: 'POST',
-        body: JSON.stringify({ productName, category, level, unit, currentStock: qty, itemType }),
+        body: JSON.stringify({ productName, category, level, currentStock: qty }),
       })
       toast.success('Item added')
       router.push('/dashboard/warehouse/inventory-items')
@@ -96,7 +88,12 @@ export default function InventoryNewItemPage() {
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <div className="text-sm font-medium">Product *</div>
-            <Select onValueChange={setProductName} value={productName}>
+            <Select onValueChange={(value) => {
+              setProductName(value)
+              // Reset level and set to first available level for the selected product
+              const availableLevels = getAvailableLevels(value)
+              setLevel(availableLevels.length > 0 ? availableLevels[0] : '')
+            }} value={productName}>
               <SelectTrigger>
                 <SelectValue placeholder="Select Product" />
               </SelectTrigger>
@@ -115,18 +112,13 @@ export default function InventoryNewItemPage() {
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Level</div>
-            <Input placeholder="Choose Level" value={level} onChange={(e) => setLevel(e.target.value)} />
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium">UOM *</div>
-            <Select onValueChange={setUnit} value={unit}>
+            <Select onValueChange={setLevel} value={level} disabled={!productName}>
               <SelectTrigger>
-                <SelectValue placeholder="Select UOM" />
+                <SelectValue placeholder={productName ? "Select Level" : "Select Product first"} />
               </SelectTrigger>
               <SelectContent>
-                {uomOptions.map((u) => (
-                  <SelectItem key={u} value={u}>{u}</SelectItem>
+                {productName && getAvailableLevels(productName).map((lvl) => (
+                  <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -137,22 +129,8 @@ export default function InventoryNewItemPage() {
             <Input type="number" step="1" placeholder="Item Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
           </div>
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Item Type *</div>
-            <Select onValueChange={setItemType} value={itemType}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select Item Type" />
-              </SelectTrigger>
-              <SelectContent>
-                {itemTypeOptions.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="md:col-span-2">
-            <Button type="submit" disabled={saving || !productName || !category || !itemType || !quantity}>
+            <Button type="submit" disabled={saving || !productName || !category || !quantity}>
               {saving ? 'Adding…' : 'Add Item'}
             </Button>
           </div>

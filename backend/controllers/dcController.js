@@ -1,6 +1,7 @@
 const DC = require('../models/DC');
 const Sale = require('../models/Sale');
 const Warehouse = require('../models/Warehouse');
+const StockMovement = require('../models/StockMovement');
 const ExcelJS = require('exceljs');
 
 // @desc    Get all DCs with filtering
@@ -831,6 +832,81 @@ const warehouseProcess = async (req, res) => {
     }
     await dc.save();
 
+    // Automatically deduct stock from inventory for each product in productDetails
+    if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
+      for (const productDetail of dc.productDetails) {
+        try {
+          const deliverableQty = productDetail.deliverableQuantity || productDetail.quantity || 0;
+          if (deliverableQty <= 0) continue; // Skip if no quantity to deduct
+          
+          // Find matching warehouse item by productName, category, and level
+          const productName = productDetail.productName || productDetail.product || '';
+          const category = productDetail.category || '';
+          const level = productDetail.level || '';
+          
+          // Try to find exact match first
+          let warehouseItem = await Warehouse.findOne({
+            productName: { $regex: new RegExp(`^${productName}$`, 'i') },
+            category: category,
+            level: level
+          });
+          
+          // If no exact match, try productName and category only
+          if (!warehouseItem) {
+            warehouseItem = await Warehouse.findOne({
+              productName: { $regex: new RegExp(`^${productName}$`, 'i') },
+              category: category
+            });
+          }
+          
+          // If still no match, try productName only
+          if (!warehouseItem) {
+            warehouseItem = await Warehouse.findOne({
+              productName: { $regex: new RegExp(`^${productName}$`, 'i') }
+            });
+          }
+          
+          if (warehouseItem) {
+            // Get availableQty from productDetails or warehouse item
+            const availableQty = productDetail.availableQuantity !== undefined && productDetail.availableQuantity !== null
+              ? Number(productDetail.availableQuantity)
+              : warehouseItem.currentStock || 0;
+            
+            // Use remainingQuantity from productDetails if available (from form)
+            // Otherwise calculate it: available - deliverable
+            let remainingQty;
+            if (productDetail.remainingQuantity !== undefined && productDetail.remainingQuantity !== null) {
+              // Use the remaining qty from the form
+              remainingQty = Number(productDetail.remainingQuantity);
+            } else {
+              // Calculate remaining quantity (available - deliverable)
+              remainingQty = availableQty - deliverableQty;
+            }
+            
+            // Update warehouse stock with remaining quantity
+            warehouseItem.currentStock = Math.max(0, remainingQty); // Ensure non-negative
+            await warehouseItem.save();
+            
+            // Record stock movement
+            await StockMovement.create({
+              productId: warehouseItem._id,
+              movementType: 'Out',
+              quantity: deliverableQty,
+              reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
+              createdBy: req.user._id,
+            });
+            
+            console.log(`Updated stock for ${productName}: ${availableQty} -> ${remainingQty} (deducted ${deliverableQty})`);
+          } else {
+            console.warn(`No warehouse item found for product: ${productName}, category: ${category}, level: ${level}`);
+          }
+        } catch (err) {
+          console.error(`Error updating stock for product ${productDetail.productName}:`, err);
+          // Continue with other products even if one fails
+        }
+      }
+    }
+
     const populatedDC = await DC.findById(dc._id)
       .populate('saleId', 'customerName product quantity status poDocument')
       .populate('employeeId', 'name email')
@@ -1053,6 +1129,9 @@ const updateDC = async (req, res) => {
           price: Number(p.price) || 0,
           total: Number(p.total) || (Number(p.price) || 0) * (Number(p.strength) || 0),
           level: p.level || 'L2',
+          availableQuantity: p.availableQuantity !== undefined && p.availableQuantity !== null ? Number(p.availableQuantity) : undefined,
+          deliverableQuantity: p.deliverableQuantity !== undefined && p.deliverableQuantity !== null ? Number(p.deliverableQuantity) : undefined,
+          remainingQuantity: p.remainingQuantity !== undefined && p.remainingQuantity !== null ? Number(p.remainingQuantity) : undefined,
         }));
         // Also update requestedQuantity if productDetails are provided
         if (dc.productDetails.length > 0) {

@@ -251,29 +251,68 @@ export default function WarehouseDcAtWarehouse() {
   const processDC = async () => {
     if (!selectedDC) return
 
-    // Validate that available quantities are entered for all products
-    const productsWithoutAvailableQty = productRows.filter(p => 
-      p.availableQuantity === undefined || p.availableQuantity === null || p.availableQuantity === 0
-    )
-    
-    if (productsWithoutAvailableQty.length > 0) {
-      alert('Please enter available quantity for all products')
-      return
-    }
-
-    // Calculate deliverable quantity for each product (min of requested and available)
-    const updatedProductRows = productRows.map(p => ({
-      ...p,
-      deliverableQuantity: Math.min(p.quantity || 0, p.availableQuantity || 0),
-    }))
-
-    // Calculate totals
-    const totalRequestedQty = productRows.reduce((sum, p) => sum + (p.quantity || 0), 0)
-    const totalAvailableQty = productRows.reduce((sum, p) => sum + (p.availableQuantity || 0), 0)
-    const totalDeliverableQty = updatedProductRows.reduce((sum, p) => sum + (p.deliverableQuantity || 0), 0)
-
     setProcessing(true)
     try {
+      // Fetch latest warehouse inventory from database
+      const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
+      
+      // Helper function to find matching inventory item
+      const findInventoryItem = (productName: string, category?: string, level?: string): WarehouseItem | null => {
+        // Try exact match first (productName, category, level)
+        let match = inventory.find(item => 
+          item.productName?.toLowerCase() === productName?.toLowerCase() &&
+          item.category === category &&
+          item.level === level
+        )
+        
+        // If no exact match, try productName and category only
+        if (!match) {
+          match = inventory.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase() &&
+            item.category === category
+          )
+        }
+        
+        // If still no match, try productName only
+        if (!match) {
+          match = inventory.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase()
+          )
+        }
+        
+        return match || null
+      }
+
+      // Auto-fill available quantities from database for each product
+      const updatedProductRows = productRows.map(p => {
+        const inventoryItem = findInventoryItem(
+          p.productName || p.product || '',
+          p.category,
+          p.level
+        )
+        
+        // Get available qty from database (currentStock)
+        const availableQty = inventoryItem ? inventoryItem.currentStock : (p.availableQuantity || 0)
+        
+        // Calculate deliverable quantity and remaining quantity
+        const deliverableQty = Math.min(p.quantity || 0, availableQty)
+        const remainingQty = availableQty - deliverableQty
+        
+        return {
+          ...p,
+          availableQuantity: availableQty, // Auto-filled from database
+          deliverableQuantity: deliverableQty,
+          remainingQuantity: remainingQty,
+        }
+      })
+      
+      // Update the productRows state to reflect the auto-filled values
+      setProductRows(updatedProductRows)
+
+      // Calculate totals
+      const totalRequestedQty = updatedProductRows.reduce((sum, p) => sum + (p.quantity || 0), 0)
+      const totalAvailableQty = updatedProductRows.reduce((sum, p) => sum + (p.availableQuantity || 0), 0)
+      const totalDeliverableQty = updatedProductRows.reduce((sum, p) => sum + (p.deliverableQuantity || 0), 0)
       // Update DC with product details including available quantities
       await apiRequest(`/dc/${selectedDC._id}`, {
         method: 'PUT',
@@ -286,6 +325,7 @@ export default function WarehouseDcAtWarehouse() {
             quantity: p.quantity, // Requested quantity (original)
             availableQuantity: p.availableQuantity, // Available in warehouse
             deliverableQuantity: p.deliverableQuantity, // Final deliverable
+            remainingQuantity: p.remainingQuantity, // Remaining in warehouse after delivery
             strength: p.strength,
             price: p.price,
             total: p.total,
