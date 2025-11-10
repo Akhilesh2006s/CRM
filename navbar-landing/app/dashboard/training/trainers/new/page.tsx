@@ -160,7 +160,7 @@ export default function AddTrainerPage() {
           <div className="md:col-span-2">
             <Label className="mb-1">Products *</Label>
             <div className="flex flex-wrap gap-3 text-sm">
-              {['Abacus','Vedic Maths','EELL'].map(p=> (
+              {['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp'].map(p=> (
                 <label key={p} className="inline-flex items-center gap-2">
                   <input type="checkbox" checked={form.trainerProducts.includes(p)} onChange={()=>toggleProduct(p)} />
                   {p}

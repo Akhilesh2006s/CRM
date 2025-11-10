@@ -107,6 +107,7 @@ export default function PendingDCPage() {
   const currentUser = getCurrentUser()
   const isCoordinator = currentUser?.role === 'Coordinator'
   const isSeniorCoordinator = currentUser?.role === 'Senior Coordinator'
+  const isAdmin = currentUser?.role === 'Admin' || currentUser?.role === 'Super Admin'
   
   // DC Details form fields
   const [financeRemarks, setFinanceRemarks] = useState('')
@@ -122,7 +123,7 @@ export default function PendingDCPage() {
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EELL', 'IIT', 'CodeChamp', 'Math Lab']
+  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
   const availableDCCategories = ['Term 1', 'Term 2', 'Term 3', 'Full Year']
 
   const load = async () => {
@@ -194,34 +195,63 @@ export default function PendingDCPage() {
       // Populate product rows - prioritize DC.productDetails, then DcOrder.products
       if (mergedDC.productDetails && Array.isArray(mergedDC.productDetails) && mergedDC.productDetails.length > 0) {
         // Use existing productDetails from DC
-        setProductRows(mergedDC.productDetails.map((p, idx) => ({
-          id: String(idx + 1),
-          product: p.product || 'Abacus',
-          class: p.class || '1',
-          category: p.category || 'New Students',
-          productName: p.productName || '',
-          quantity: p.quantity || 0,
-          strength: p.strength || 0,
-        })))
+        setProductRows(mergedDC.productDetails.map((p, idx) => {
+          // Normalize product value to match dropdown options (case-insensitive matching)
+          const rawProduct = p.product ? String(p.product).trim() : ''
+          // Find matching product (case-insensitive)
+          const matchedProduct = availableProducts.find(ap => 
+            ap.toLowerCase() === rawProduct.toLowerCase() || 
+            rawProduct.toLowerCase().includes(ap.toLowerCase()) ||
+            ap.toLowerCase().includes(rawProduct.toLowerCase())
+          ) || (rawProduct || 'ABACUS')
+          
+          return {
+            id: String(idx + 1),
+            product: matchedProduct, // Use matched product for dropdown
+            class: p.class || '1',
+            category: p.category || 'New Students',
+            productName: p.productName || matchedProduct, // Use productName or matched product
+            quantity: p.quantity || 0,
+            strength: p.strength || 0,
+          }
+        }))
       } else if (dcOrderData?.products && Array.isArray(dcOrderData.products) && dcOrderData.products.length > 0) {
         // Import from DcOrder.products (like closed sales page)
-        setProductRows(dcOrderData.products.map((p: any, idx: number) => ({
-          id: String(idx + 1),
-          product: p.product_name || 'Abacus',
-          class: '1',
-          category: 'New Students',
-          productName: p.product_name || '',
-          quantity: p.quantity || 0,
-          strength: p.strength || 0,
-        })))
+        setProductRows(dcOrderData.products.map((p: any, idx: number) => {
+          const rawProduct = p.product_name || p.product || 'ABACUS'
+          // Find matching product (case-insensitive)
+          const matchedProduct = availableProducts.find(ap => 
+            ap.toLowerCase() === String(rawProduct).toLowerCase() || 
+            String(rawProduct).toLowerCase().includes(ap.toLowerCase()) ||
+            ap.toLowerCase().includes(String(rawProduct).toLowerCase())
+          ) || 'ABACUS'
+          
+          return {
+            id: String(idx + 1),
+            product: matchedProduct, // Use matched product for dropdown
+            class: '1',
+            category: 'New Students',
+            productName: matchedProduct, // Use matched product
+            quantity: p.quantity || 0,
+            strength: p.strength || 0,
+          }
+        }))
       } else {
         // Fallback: create from product string
+        const rawProduct = mergedDC.product || 'ABACUS'
+        // Find matching product (case-insensitive)
+        const matchedProduct = availableProducts.find(ap => 
+          ap.toLowerCase() === String(rawProduct).toLowerCase() || 
+          String(rawProduct).toLowerCase().includes(ap.toLowerCase()) ||
+          ap.toLowerCase().includes(String(rawProduct).toLowerCase())
+        ) || 'ABACUS'
+        
         setProductRows([{
           id: '1',
-          product: mergedDC.product || 'Abacus',
+          product: matchedProduct, // Use matched product for dropdown
           class: '1',
           category: 'New Students',
-          productName: mergedDC.product || '',
+          productName: matchedProduct, // Use matched product
           quantity: mergedDC.requestedQuantity || 0,
           strength: 0,
         }])
@@ -570,10 +600,10 @@ export default function PendingDCPage() {
                 onClick={() => {
                   setProductRows([...productRows, {
                     id: Date.now().toString(),
-                    product: 'Abacus',
+                    product: 'ABACUS',
                     class: '1',
                     category: 'New Students',
-                    productName: '',
+                    productName: 'ABACUS',
                     quantity: 0,
                     strength: 0
                   }])
@@ -602,6 +632,8 @@ export default function PendingDCPage() {
                         <Select value={row.product} onValueChange={(v) => {
                           const updated = [...productRows]
                           updated[idx].product = v
+                          // ALWAYS auto-fill product name when product changes
+                          updated[idx].productName = v
                           setProductRows(updated)
                         }}>
                           <SelectTrigger className="h-8 text-xs bg-white">
@@ -726,7 +758,7 @@ export default function PendingDCPage() {
               >
                 {saving ? 'Saving...' : 'Save'}
               </Button>
-              {isSeniorCoordinator && (
+              {(isSeniorCoordinator || isAdmin) && (
                 <Button
                   className="bg-red-600 hover:bg-red-700 text-white"
                   onClick={handleSubmitToWarehouse}

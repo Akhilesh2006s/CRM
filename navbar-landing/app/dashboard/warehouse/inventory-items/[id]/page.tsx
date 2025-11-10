@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 
 const DEFAULT_PRODUCT_OPTIONS = [
   'Abacus',
-  'EELL',
+  'EEL',
   'Vedic Maths',
   'Brochure',
   'Profile-Book',

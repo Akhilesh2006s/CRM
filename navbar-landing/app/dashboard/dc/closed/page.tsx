@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { X } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -33,6 +34,8 @@ type DcOrder = {
   createdAt?: string
   remarks?: string
   pod_proof_url?: string
+  status?: string
+  dcRequestData?: any
 }
 
 type DC = {
@@ -60,6 +63,9 @@ type DC = {
     productName: string
     quantity: number
     strength?: number
+    price?: number
+    total?: number
+    level?: string
   }>
 }
 
@@ -85,7 +91,10 @@ export default function ClosedSalesPage() {
   const isSuperAdmin = currentUser?.role === 'Super Admin'
   const isCoordinator = currentUser?.role === 'Coordinator'
   const isEmployee = currentUser?.role === 'Employee'
-  const canUpdateDC = isSuperAdmin || isCoordinator || isEmployee
+  const isAdmin = currentUser?.role === 'Admin'
+  // Employees can request DC, Coordinators/Admins can approve or send to senior
+  const canRequestDC = isEmployee
+  const canApproveDC = isSuperAdmin || isCoordinator || isAdmin
   
   // Form state for Raise DC modal
   const [dcDate, setDcDate] = useState('')
@@ -101,15 +110,40 @@ export default function ClosedSalesPage() {
     category: string
     productName: string
     quantity: number
-    strength?: number
+    strength: number
+    price: number
+    total: number
+    level: string
   }
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0 }
+    { id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }
   ])
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EELL', 'IIT', 'CodeChamp', 'Math Lab']
+  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
+  // Product levels mapping based on requirements
+  const productLevels: Record<string, string[]> = {
+    'Abacus': ['L1', 'L2'],
+    'Vedic Maths': ['L1', 'L2'],
+    'EEL': ['L1'],
+    'IIT': ['L1'],
+    'Codechamp': ['L1'],
+    'Maths lab': ['L1'],
+    'Financial literacy': ['L1'],
+    'Brain bytes': ['L1'],
+    'Skill pro': ['L1'],
+    'Spelling bee': ['L1'],
+  }
+  // Get available levels for a specific product, default to L1 if product not found
+  const getAvailableLevels = (product: string): string[] => {
+    return productLevels[product] || ['L1']
+  }
+  // Get default level for a product (first level in the array, usually L1)
+  const getDefaultLevel = (product: string): string => {
+    const levels = getAvailableLevels(product)
+    return levels[0] || 'L1'
+  }
 
   const load = async () => {
     setLoading(true)
@@ -118,38 +152,65 @@ export default function ClosedSalesPage() {
       // First try 'completed', then try all statuses to see what we have
       let data: DcOrder[] = []
       try {
-        data = await apiRequest<DcOrder[]>(`/dc-orders?status=completed`)
+        // Get all statuses in parallel for better performance
+        const [completed, saved, dcRequested, dcAccepted] = await Promise.all([
+          apiRequest<DcOrder[]>(`/dc-orders?status=completed`),
+          apiRequest<DcOrder[]>(`/dc-orders?status=saved`),
+          apiRequest<DcOrder[]>(`/dc-orders?status=dc_requested`),
+          apiRequest<DcOrder[]>(`/dc-orders?status=dc_accepted`)
+        ])
+        data = [...completed, ...saved, ...dcRequested, ...dcAccepted].filter((d: any) => 
+          d.status !== 'dc_approved' && d.status !== 'dc_sent_to_senior'
+        )
       } catch (e) {
         // If no completed deals, try getting all deals and filter client-side
         console.log('No completed deals found, trying all deals...')
         const allDeals = await apiRequest<DcOrder[]>(`/dc-orders`)
-        // Filter for deals that might be considered "closed"
+        // Filter for deals that might be considered "closed" - including saved (converted leads)
         data = allDeals.filter((d: any) => 
-          d.status === 'completed' || 
+          (d.status === 'completed' || 
+          d.status === 'saved' || // Include saved status for converted leads
           d.status === 'in_transit' || 
           d.lead_status === 'Hot' ||
-          d.status === 'hold'
+          d.status === 'hold' ||
+          d.status === 'dc_requested' || // Include DC requests from employees
+          d.status === 'dc_accepted') && // Include accepted DC requests (can be updated later)
+          d.status !== 'dc_approved' && // Exclude approved (already processed)
+          d.status !== 'dc_sent_to_senior' // Exclude sent to senior coordinator
         )
       }
       
       console.log('Loaded closed deals:', data)
       console.log('First deal sample:', data[0])
       
-      // Load existing DCs for all deals
+      // Load existing DCs for all deals in parallel (much faster)
       const dcMap: Record<string, DC> = {}
       try {
         const allDealIds = data.map((d: any) => d._id)
-        for (const dealId of allDealIds) {
+        // Make all API calls in parallel instead of sequentially
+        const dcPromises = allDealIds.map(async (dealId: string) => {
           try {
             const dcs = await apiRequest<DC[]>(`/dc?dcOrderId=${dealId}`)
             if (dcs && dcs.length > 0) {
-              // Get the most recent DC for this deal
-              dcMap[dealId] = dcs[0]
+              return { dealId, dc: dcs[0] }
             }
+            return null
           } catch (e) {
             console.warn(`Failed to load DC for deal ${dealId}:`, e)
+            return null
           }
-        }
+        })
+        
+        // Wait for all promises to resolve
+        const dcResults = await Promise.all(dcPromises)
+        
+        // Build the map from results
+        dcResults.forEach((result) => {
+          if (result) {
+            dcMap[result.dealId] = result.dc
+          }
+        })
+        
         setDealDCs(dcMap)
         console.log('Loaded DCs for deals:', dcMap)
       } catch (e) {
@@ -202,9 +263,16 @@ export default function ClosedSalesPage() {
         }
       })
       
-      setItems(normalizedData)
-      console.log('Normalized deals:', normalizedData)
-      console.log('First deal assigned_to:', normalizedData[0]?.assigned_to)
+      // Sort by creation date (most recent first)
+      const sortedData = normalizedData.sort((a: any, b: any) => {
+        const dateA = new Date(a.createdAt || a.created_at || 0).getTime()
+        const dateB = new Date(b.createdAt || b.created_at || 0).getTime()
+        return dateB - dateA // Most recent first
+      })
+      
+      setItems(sortedData)
+      console.log('Normalized deals:', sortedData)
+      console.log('First deal assigned_to:', sortedData[0]?.assigned_to)
     } catch (e: any) {
       console.error('Failed to load closed deals:', e)
       alert(`Error loading deals: ${e?.message || 'Unknown error'}`)
@@ -300,12 +368,60 @@ export default function ClosedSalesPage() {
       } else {
         setSelectedEmployeeId('')
       }
-      // If DC exists, load its data; otherwise start fresh
-      if (existingDCForDeal) {
+      // If deal has DC request data (status is 'dc_requested' or 'dc_accepted'), load it
+      if ((fullDeal.status === 'dc_requested' || fullDeal.status === 'dc_accepted') && (fullDeal as any).dcRequestData) {
+        const dcRequestData = (fullDeal as any).dcRequestData
+        console.log('Loading DC request data:', dcRequestData)
+        
+        // Load DC request data into form
+        setDcDate(dcRequestData.dcDate ? new Date(dcRequestData.dcDate).toISOString().split('T')[0] : '')
+        setDcRemarks(dcRequestData.dcRemarks || '')
+        setDcCategory(dcRequestData.dcCategory || '')
+        setDcNotes(dcRequestData.dcNotes || '')
+        
+        // Load product rows from request data
+        if (dcRequestData.productDetails && Array.isArray(dcRequestData.productDetails) && dcRequestData.productDetails.length > 0) {
+          setProductRows(dcRequestData.productDetails.map((p: any, idx: number) => ({
+            id: String(idx + 1),
+            product: p.product || '',
+            class: p.class || '1',
+            category: p.category || 'New Students',
+            productName: p.productName || p.product || '',
+            quantity: Number(p.quantity) || 0,
+            strength: Number(p.strength) || 0,
+            price: Number(p.price) || 0,
+            total: Number(p.total) || (Number(p.price) || 0) * (Number(p.strength) || 0),
+            level: p.level || getDefaultLevel(p.product || 'Abacus'),
+          })))
+        } else {
+          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
+        }
+      } else if (existingDCForDeal) {
         // Load full DC details to get all fields
         try {
           const fullDC = await apiRequest<DC>(`/dc/${existingDCForDeal._id}`)
           console.log('Loading existing DC data:', fullDC)
+          console.log('DC productDetails:', fullDC.productDetails)
+          console.log('DC productDetails type:', typeof fullDC.productDetails)
+          console.log('DC productDetails is array?', Array.isArray(fullDC.productDetails))
+          if (fullDC.productDetails && Array.isArray(fullDC.productDetails)) {
+            fullDC.productDetails.forEach((p: any, idx: number) => {
+              console.log(`Product ${idx + 1} RAW DATA:`, p)
+              console.log(`Product ${idx + 1} DETAILS:`, {
+                product: p.product,
+                price: p.price,
+                priceType: typeof p.price,
+                total: p.total,
+                totalType: typeof p.total,
+                level: p.level,
+                strength: p.strength,
+                quantity: p.quantity,
+                class: p.class,
+                category: p.category,
+                productName: p.productName,
+              })
+            })
+          }
           
           setDcDate(fullDC.dcDate ? new Date(fullDC.dcDate).toISOString().split('T')[0] : '')
           setDcRemarks(fullDC.dcRemarks || '')
@@ -313,28 +429,114 @@ export default function ClosedSalesPage() {
           setDcNotes(fullDC.dcNotes || '')
           
           // Load product rows from DC productDetails or DcOrder products
+          // This should match EXACTLY what the employee entered in Client DC page
           if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-            setProductRows(fullDC.productDetails.map((p, idx) => ({
+            console.log('=== LOADING PRODUCTS FOR CLOSED SALES ===')
+            console.log('Full productDetails from DC:', JSON.stringify(fullDC.productDetails, null, 2))
+            setProductRows(fullDC.productDetails.map((p: any, idx) => {
+              // Read all fields directly from the product object
+              // The productDetails array items should have price, total, strength, level directly on them
+              const rawPrice = p.price !== undefined && p.price !== null ? p.price : 0
+              const rawTotal = p.total !== undefined && p.total !== null ? p.total : 0
+              const rawLevel = p.level || getDefaultLevel(p.product || 'Abacus')
+              const rawStrength = p.strength !== undefined && p.strength !== null ? p.strength : 0
+              const rawQuantity = p.quantity !== undefined && p.quantity !== null ? p.quantity : rawStrength
+              
+              // Convert to numbers - preserve 0 values, only default to 0 if null/undefined
+              const priceNum = rawPrice !== null && rawPrice !== undefined ? Number(rawPrice) : 0
+              const strengthNum = rawStrength !== null && rawStrength !== undefined ? Number(rawStrength) : 0
+              const quantityNum = rawQuantity !== null && rawQuantity !== undefined ? Number(rawQuantity) : strengthNum
+              // Calculate total if not provided, or use provided total
+              const totalNum = rawTotal !== null && rawTotal !== undefined && rawTotal !== 0 
+                ? Number(rawTotal) 
+                : (priceNum * strengthNum)
+              
+              // Get product name - prioritize productName, then product, then default
+              const productNameValue = p.productName 
+                ? String(p.productName).trim() 
+                : (p.product ? String(p.product).trim() : '')
+              
+              // Normalize product value to match dropdown options (case-insensitive matching)
+              const rawProduct = p.product ? String(p.product).trim() : ''
+              // Use the same availableProducts array defined at component level
+              // Find matching product (case-insensitive)
+              const matchedProduct = availableProducts.find(ap => 
+                ap.toLowerCase() === rawProduct.toLowerCase() || 
+                rawProduct.toLowerCase().includes(ap.toLowerCase()) ||
+                ap.toLowerCase().includes(rawProduct.toLowerCase())
+              ) || (rawProduct || 'ABACUS')
+              
+              const productRow = {
               id: String(idx + 1),
-              product: p.product || 'Abacus',
+                product: matchedProduct, // Use matched product for dropdown
               class: p.class || '1',
               category: p.category || 'New Students',
-              productName: p.productName || '',
-              quantity: p.quantity || 0,
-              strength: p.strength || 0,
-            })))
+                // Use productName if available, otherwise use matched product
+                productName: productNameValue || matchedProduct,
+                quantity: quantityNum,
+                strength: strengthNum,
+                price: priceNum,
+                total: totalNum,
+                level: rawLevel,
+              }
+              
+              console.log(`Product ${idx + 1} - Product dropdown matching:`, {
+                'p.product (raw)': p.product,
+                'rawProduct': rawProduct,
+                'matchedProduct': matchedProduct,
+                'final product (dropdown value)': productRow.product,
+              })
+              
+              console.log(`Product ${idx + 1} - productName logic:`, {
+                'p.productName': p.productName,
+                'p.product': p.product,
+                'productNameValue': productNameValue,
+                'final productName': productRow.productName,
+              })
+              console.log(`Product ${idx + 1} RAW VALUES:`, {
+                'p.price': p.price,
+                'p.total': p.total,
+                'p.strength': p.strength,
+                'p.quantity': p.quantity,
+                'p.level': p.level,
+                'price type': typeof p.price,
+                'total type': typeof p.total,
+              })
+              console.log(`Product ${idx + 1} CONVERTED:`, {
+                priceNum,
+                totalNum,
+                strengthNum,
+                quantityNum,
+                level: rawLevel,
+              })
+              console.log(`Product ${idx + 1} FINAL ROW:`, JSON.stringify(productRow, null, 2))
+              return productRow
+            }))
           } else if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-            setProductRows(normalizedDeal.products.map((p: any, idx: number) => ({
+            setProductRows(normalizedDeal.products.map((p: any, idx: number) => {
+              const rawProduct = p.product_name || p.product || 'ABACUS'
+              // Find matching product (case-insensitive)
+              const matchedProduct = availableProducts.find(ap => 
+                ap.toLowerCase() === String(rawProduct).toLowerCase() || 
+                String(rawProduct).toLowerCase().includes(ap.toLowerCase()) ||
+                ap.toLowerCase().includes(String(rawProduct).toLowerCase())
+              ) || 'ABACUS'
+              
+              return {
               id: String(idx + 1),
-              product: p.product_name || 'Abacus',
+                product: matchedProduct, // Use matched product for dropdown
               class: '1',
               category: 'New Students',
-              productName: p.product_name || '',
+                productName: matchedProduct, // Ensure productName matches dropdown
               quantity: p.quantity || 0,
               strength: p.strength || 0,
-            })))
+                price: p.price || 0,
+                total: (p.price || 0) * (p.strength || 0),
+                level: p.level || getDefaultLevel(p.product || 'Abacus'),
+              }
+            }))
           } else {
-            setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0 }])
+            setProductRows([{ id: '1', product: 'ABACUS', class: '1', category: 'New Students', productName: 'ABACUS', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
           }
         } catch (e) {
           console.error('Failed to load existing DC:', e)
@@ -352,9 +554,12 @@ export default function ClosedSalesPage() {
               productName: p.product_name || '',
               quantity: p.quantity || 0,
               strength: p.strength || 0,
+              price: p.price || 0,
+              total: (p.price || 0) * (p.strength || 0),
+              level: p.level || 'L2',
             })))
           } else {
-            setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0 }])
+            setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
           }
         }
       } else {
@@ -373,9 +578,12 @@ export default function ClosedSalesPage() {
             productName: p.product_name || '',
             quantity: p.quantity || 0,
             strength: p.strength || 0,
+            price: p.price || 0,
+            total: (p.price || 0) * (p.strength || 0),
+            level: p.level || 'L2',
           })))
         } else {
-          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0 }])
+          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
         }
       }
       setOpenRaiseDCDialog(true)
@@ -448,7 +656,10 @@ export default function ClosedSalesPage() {
         category: row.category,
         productName: row.productName,
         quantity: row.quantity,
-        strength: row.strength || 0,
+        strength: Number(row.strength) || 0,
+        price: Number(row.price) || 0,
+        total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
+        level: row.level || 'L2',
       }))
 
       let dc: DC
@@ -498,7 +709,8 @@ export default function ClosedSalesPage() {
     }
   }
 
-  const handleSaveDC = async () => {
+  // Employee submits DC request (doesn't create DC, just requests it)
+  const handleRequestDC = async () => {
     if (!selectedDeal) return
 
     // Check if employee is assigned - prioritize deal's assigned employee
@@ -520,38 +732,128 @@ export default function ClosedSalesPage() {
 
     // Only require employee assignment if deal truly doesn't have one
     if (!employeeId) {
-      alert('Please assign an employee before saving DC')
+      alert('Please assign an employee before requesting DC')
       return
     }
 
     setSaving(true)
     try {
-      // First, raise DC (creates or gets existing DC)
-      const raisePayload: any = {
-        dcOrderId: selectedDeal._id,
+      // Calculate requested quantity from product rows
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+      
+      // Prepare DC request data to store in DcOrder
+      const dcRequestData = {
         dcDate: dcDate || undefined,
         dcRemarks: dcRemarks || undefined,
         dcNotes: dcNotes || undefined,
-      }
-      
-      // Only include employeeId if deal doesn't already have one assigned (backend will use deal's assigned_to if available)
-      if (!selectedDeal.assigned_to && employeeId) {
-        raisePayload.employeeId = employeeId
+        dcCategory: dcCategory || undefined,
+        requestedQuantity: totalQuantity || 1,
+        productDetails: productRows.map(row => ({
+          product: row.product,
+          class: row.class,
+          category: row.category,
+          productName: row.productName,
+          quantity: row.quantity,
+          strength: Number(row.strength) || 0,
+          price: Number(row.price) || 0,
+          total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
+          level: row.level || getDefaultLevel(row.product || 'Abacus'),
+        })),
+        employeeId: employeeId,
       }
 
-      // Calculate requested quantity from product rows
-      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
-      raisePayload.requestedQuantity = totalQuantity || 1
+      // Update DcOrder with DC request data and set status to 'dc_requested'
+      await apiRequest(`/dc-orders/${selectedDeal._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ 
+          status: 'dc_requested',
+          dcRequestData: dcRequestData, // Store request data for coordinator to review
+        }),
+      })
+
+      alert('DC request submitted successfully! Coordinator/Admin will review and approve it.')
+      setOpenRaiseDCDialog(false)
+      // Reload to refresh the list
+      load()
+    } catch (e: any) {
+      alert(e?.message || 'Failed to submit DC request')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Coordinator/Admin accepts DC request and creates/updates DC (but keeps it in Closed Sales for later updates)
+  const handleAcceptDC = async () => {
+    if (!selectedDeal) return
+
+    setSaving(true)
+    try {
+      // Get DC request data from DcOrder (or use current form data if it's an accepted request being updated)
+      const dcRequestData = (selectedDeal as any).dcRequestData || {}
       
-      // Include product details in payload
-      raisePayload.productDetails = productRows.map(row => ({
+      // Use current form data if available (for updates), otherwise use request data, otherwise use deal's products
+      const finalDcDate = dcDate || (dcRequestData.dcDate ? new Date(dcRequestData.dcDate).toISOString().split('T')[0] : undefined)
+      const finalDcRemarks = dcRemarks || dcRequestData.dcRemarks || undefined
+      const finalDcNotes = dcNotes || dcRequestData.dcNotes || undefined
+      const finalDcCategory = dcCategory || dcRequestData.dcCategory || undefined
+      
+      // Determine product details: use form data if available, otherwise request data, otherwise deal's products
+      let finalProductDetails: any[] = []
+      if (productRows.length > 0) {
+        finalProductDetails = productRows.map(row => ({
         product: row.product,
         class: row.class,
         category: row.category,
         productName: row.productName,
         quantity: row.quantity,
-        strength: row.strength || 0,
-      }))
+          strength: Number(row.strength) || 0,
+          price: Number(row.price) || 0,
+          total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
+          level: row.level || getDefaultLevel(row.product || 'Abacus'),
+        }))
+      } else if (dcRequestData.productDetails && Array.isArray(dcRequestData.productDetails) && dcRequestData.productDetails.length > 0) {
+        finalProductDetails = dcRequestData.productDetails
+      } else if (selectedDeal.products && Array.isArray(selectedDeal.products) && selectedDeal.products.length > 0) {
+        // Fallback to deal's products if no form data or request data
+        finalProductDetails = selectedDeal.products.map((p: any) => ({
+          product: p.product_name || 'Abacus',
+          class: '1',
+          category: 'New Students',
+          productName: p.product_name || 'Abacus',
+          quantity: p.quantity || 1,
+          strength: 0,
+          price: 0,
+          total: 0,
+          level: getDefaultLevel(p.product_name || 'Abacus'),
+        }))
+      }
+      
+      const finalRequestedQuantity = finalProductDetails.length > 0
+        ? finalProductDetails.reduce((sum: number, p: any) => sum + (Number(p.quantity) || 0), 0)
+        : 1
+      
+      // Prepare payload to create/update DC
+      const raisePayload: any = {
+        dcOrderId: selectedDeal._id,
+        dcDate: finalDcDate || undefined,
+        dcRemarks: finalDcRemarks,
+        dcNotes: finalDcNotes,
+        dcCategory: finalDcCategory,
+        requestedQuantity: finalRequestedQuantity,
+        productDetails: finalProductDetails,
+      }
+
+      // Include employeeId from request data or deal
+      if (dcRequestData.employeeId) {
+        raisePayload.employeeId = dcRequestData.employeeId
+      } else if (selectedDeal.assigned_to) {
+        const employeeId = typeof selectedDeal.assigned_to === 'object' 
+          ? selectedDeal.assigned_to._id 
+          : selectedDeal.assigned_to
+        if (employeeId) {
+          raisePayload.employeeId = employeeId
+        }
+      }
 
       let dc: DC
       
@@ -560,16 +862,7 @@ export default function ClosedSalesPage() {
         // Update existing DC
         await apiRequest(`/dc/${existingDC._id}`, {
           method: 'PUT',
-          body: JSON.stringify({
-            ...raisePayload,
-            financeRemarks: raisePayload.financeRemarks,
-            splApproval: raisePayload.splApproval,
-            dcDate: raisePayload.dcDate,
-            dcRemarks: raisePayload.dcRemarks,
-            dcCategory: raisePayload.dcCategory,
-            dcNotes: raisePayload.dcNotes,
-            productDetails: raisePayload.productDetails,
-          }),
+          body: JSON.stringify(raisePayload),
         })
         dc = existingDC
       } else {
@@ -580,18 +873,104 @@ export default function ClosedSalesPage() {
         })
       }
 
-      // Update DcOrder status to 'saved' so it appears in Saved DC page
+      // Update DcOrder status to 'dc_accepted' (keeps it in closed sales for later updates)
+      // Also update dcRequestData with current form data for future reference
       await apiRequest(`/dc-orders/${selectedDeal._id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'saved' }),
+          method: 'PUT',
+          body: JSON.stringify({
+          status: 'dc_accepted',
+          dcRequestData: {
+            dcDate: finalDcDate,
+            dcRemarks: finalDcRemarks,
+            dcNotes: finalDcNotes,
+            dcCategory: finalDcCategory,
+            requestedQuantity: finalRequestedQuantity,
+            productDetails: finalProductDetails,
+            employeeId: raisePayload.employeeId,
+          },
+        }),
       })
 
-      alert(existingDC ? 'DC updated and saved successfully! It will appear in Saved DC page.' : 'DC created and saved successfully! It will appear in Saved DC page.')
+      alert('DC request accepted! DC has been created/updated. You can update it later or submit to Senior Coordinator.')
       setOpenRaiseDCDialog(false)
-      // Reload to refresh the DC map
       load()
     } catch (e: any) {
-      alert(e?.message || 'Failed to save DC')
+      alert(e?.message || 'Failed to accept DC request')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Coordinator/Admin sends DC request to Senior Coordinator (Pending DC)
+  const handleSendToSeniorCoordinator = async () => {
+    if (!selectedDeal) return
+
+    setSaving(true)
+    try {
+      // Get DC request data from DcOrder
+      const dcRequestData = (selectedDeal as any).dcRequestData || {}
+      
+      // Prepare payload to create DC and submit to manager
+      const raisePayload: any = {
+        dcOrderId: selectedDeal._id,
+        dcDate: dcRequestData.dcDate || dcDate || undefined,
+        dcRemarks: dcRequestData.dcRemarks || dcRemarks || undefined,
+        dcNotes: dcRequestData.dcNotes || dcNotes || undefined,
+        dcCategory: dcRequestData.dcCategory || dcCategory || undefined,
+        requestedQuantity: dcRequestData.requestedQuantity || 1,
+        productDetails: dcRequestData.productDetails || productRows.map(row => ({
+          product: row.product,
+          class: row.class,
+          category: row.category,
+          productName: row.productName,
+          quantity: row.quantity,
+          strength: Number(row.strength) || 0,
+          price: Number(row.price) || 0,
+          total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
+          level: row.level || getDefaultLevel(row.product || 'Abacus'),
+        })),
+      }
+
+      // Include employeeId from request data
+      if (dcRequestData.employeeId) {
+        raisePayload.employeeId = dcRequestData.employeeId
+      }
+
+      // Create or update DC
+      let dc: DC
+      if (existingDC) {
+        await apiRequest(`/dc/${existingDC._id}`, {
+          method: 'PUT',
+          body: JSON.stringify(raisePayload),
+        })
+        dc = existingDC
+      } else {
+        dc = await apiRequest<DC>(`/dc/raise`, {
+          method: 'POST',
+          body: JSON.stringify(raisePayload),
+        })
+      }
+
+      // Submit DC to manager (moves to sent_to_manager, then appears in Pending DC)
+      await apiRequest(`/dc/${dc._id}/submit-to-manager`, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestedQuantity: raisePayload.requestedQuantity || 1,
+          remarks: raisePayload.dcRemarks || raisePayload.dcNotes || undefined,
+        }),
+      })
+
+      // Update DcOrder status to 'dc_sent_to_senior' (removes from closed sales)
+      await apiRequest(`/dc-orders/${selectedDeal._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'dc_sent_to_senior' }),
+      })
+
+      alert('DC request sent to Senior Coordinator! It will appear in Pending DC list.')
+      setOpenRaiseDCDialog(false)
+      load()
+    } catch (e: any) {
+      alert(e?.message || 'Failed to send to Senior Coordinator')
     } finally {
       setSaving(false)
     }
@@ -701,13 +1080,18 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
-                      {canUpdateDC && (
+                      {(canRequestDC || canApproveDC) && (
                         <Button
                           size="sm"
-                          className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                          variant={d.status === 'dc_accepted' ? 'default' : 'destructive'}
+                          className={
+                            d.status === 'dc_accepted' 
+                              ? '!bg-blue-600 hover:!bg-blue-700 !text-white !shadow-sm !from-blue-600 !to-blue-700 hover:!from-blue-700 hover:!to-blue-800' 
+                              : ''
+                          }
                           onClick={() => openRaiseDC(d)}
                         >
-                          {dealDCs[d._id] ? 'Update DC' : 'Raise DC'}
+                          {d.status === 'dc_requested' ? 'Review DC Request' : d.status === 'dc_accepted' ? 'Update DC' : 'Raise DC'}
                         </Button>
                       )}
                       {!isManager && (
@@ -731,17 +1115,30 @@ export default function ClosedSalesPage() {
 
       {/* Raise DC Modal */}
       <Dialog open={openRaiseDCDialog} onOpenChange={setOpenRaiseDCDialog}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto bg-white border-slate-200 shadow-xl">
+        <DialogContent 
+          className="sm:max-w-[95vw] lg:max-w-[1200px] max-h-[95vh] overflow-y-auto bg-white border-slate-200 shadow-xl"
+          showCloseButton={true}
+        >
           <DialogHeader className="pb-4 border-b border-slate-200">
             <DialogTitle className="text-slate-900 text-xl font-semibold">
-              Viswam Edutech - {existingDC ? 'Update DC' : 'Raise DC'}
+              {selectedDeal?.school_name || 'Client'} - {
+                selectedDeal?.status === 'dc_requested' ? 'Review DC Request' : 
+                selectedDeal?.status === 'dc_accepted' ? 'Update DC' : 
+                'Raise DC'
+              }
             </DialogTitle>
             <DialogDescription className="text-slate-600 text-sm mt-1">
-              {existingDC ? 'Update DC details and submit to Manager' : 'Fill in DC details and submit to Manager'}
+              {selectedDeal?.status === 'dc_requested' 
+                ? 'Review DC request from employee. You can accept it (to update later) or send to Senior Coordinator.'
+                : selectedDeal?.status === 'dc_accepted'
+                ? 'Update DC details. You can save changes or submit to Senior Coordinator.'
+                : canRequestDC 
+                  ? 'Fill in DC details and submit request for Coordinator/Admin approval'
+                  : 'Fill in DC details and submit to Manager'}
             </DialogDescription>
           </DialogHeader>
           {selectedDeal ? (
-            <div className="space-y-6 py-4">
+            <div className="space-y-6 py-6">
               {/* Debug info - remove in production */}
               {process.env.NODE_ENV === 'development' && (
                 <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
@@ -751,55 +1148,55 @@ export default function ClosedSalesPage() {
               {/* Lead Information and More Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 {/* Lead Information */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2">Lead Information</h3>
+                <div className="space-y-5">
+                  <h3 className="font-semibold text-slate-900 text-lg border-b border-slate-200 pb-3">Lead Information</h3>
                   <div>
-                    <Label>School Type</Label>
+                    <Label className="text-sm font-medium mb-2 block">School Type</Label>
                     <Input 
                       value={selectedDeal.school_type || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="School Type"
                     />
                   </div>
                   <div>
-                    <Label>School Name</Label>
+                    <Label className="text-sm font-medium mb-2 block">School Name</Label>
                     <Input 
                       value={selectedDeal.school_name || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="School Name"
                     />
                   </div>
                   <div>
-                    <Label>School Code</Label>
+                    <Label className="text-sm font-medium mb-2 block">School Code</Label>
                     <Input 
                       value={selectedDeal.dc_code || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="School Code"
                     />
                   </div>
                   <div>
-                    <Label>Contact Person Name</Label>
+                    <Label className="text-sm font-medium mb-2 block">Contact Person Name</Label>
                     <Input 
                       value={selectedDeal.contact_person || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="Contact Person Name"
                     />
                   </div>
                   <div>
-                    <Label>Contact Mobile</Label>
+                    <Label className="text-sm font-medium mb-2 block">Contact Mobile</Label>
                     <Input 
                       value={selectedDeal.contact_mobile || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="Contact Mobile"
                     />
                   </div>
                   <div>
-                    <Label>Assigned To</Label>
+                    <Label className="text-sm font-medium mb-2 block">Assigned To</Label>
                     {(() => {
                       // Check if deal has assigned employee - be more lenient with the check
                       const assignedTo = selectedDeal.assigned_to
@@ -835,7 +1232,7 @@ export default function ClosedSalesPage() {
                           <Input 
                             value={employeeName} 
                             disabled 
-                            className="bg-slate-50 text-slate-900 border-slate-200" 
+                            className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                             placeholder="Assigned To"
                           />
                         )
@@ -844,7 +1241,7 @@ export default function ClosedSalesPage() {
                         return (
                           <>
                             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId} required>
-                              <SelectTrigger className="bg-white text-slate-900 border-slate-200">
+                              <SelectTrigger className="bg-white text-slate-900 border-slate-200 h-11 text-sm">
                                 <SelectValue placeholder="Select Employee *" />
                               </SelectTrigger>
                               <SelectContent>
@@ -870,52 +1267,52 @@ export default function ClosedSalesPage() {
                 </div>
 
                 {/* More Information */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2">More Information</h3>
+                <div className="space-y-5">
+                  <h3 className="font-semibold text-slate-900 text-lg border-b border-slate-200 pb-3">More Information</h3>
                   <div>
-                    <Label>Town</Label>
+                    <Label className="text-sm font-medium mb-2 block">Town</Label>
                     <Input 
                       value={selectedDeal.location || selectedDeal.address?.split(',')[0] || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="Town"
                     />
                   </div>
                   <div>
-                    <Label>Address</Label>
+                    <Label className="text-sm font-medium mb-2 block">Address</Label>
                     <Textarea 
                       value={selectedDeal.address || selectedDeal.location || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
-                      rows={3} 
+                      className="bg-slate-50 text-slate-900 border-slate-200 text-sm" 
+                      rows={4} 
                       placeholder="Address"
                     />
                   </div>
                   <div>
-                    <Label>Zone</Label>
+                    <Label className="text-sm font-medium mb-2 block">Zone</Label>
                     <Input 
                       value={selectedDeal.zone || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="Zone"
                     />
                   </div>
                   <div>
-                    <Label>Cluster</Label>
+                    <Label className="text-sm font-medium mb-2 block">Cluster</Label>
                     <Input 
                       value={selectedDeal.cluster || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
+                      className="bg-slate-50 text-slate-900 border-slate-200 h-11 text-sm" 
                       placeholder="Cluster"
                     />
                   </div>
                   <div>
-                    <Label>Remarks</Label>
+                    <Label className="text-sm font-medium mb-2 block">Remarks</Label>
                     <Textarea 
                       value={selectedDeal.remarks || ''} 
                       disabled 
-                      className="bg-slate-50 text-slate-900 border-slate-200" 
-                      rows={2} 
+                      className="bg-slate-50 text-slate-900 border-slate-200 text-sm" 
+                      rows={3} 
                       placeholder="Remarks"
                     />
                   </div>
@@ -924,8 +1321,8 @@ export default function ClosedSalesPage() {
 
               {/* Products Table - Where quantities are added */}
               <div className="border-t border-slate-200 pt-6 mt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <Label className="text-base font-semibold text-slate-900">Products & Quantities</Label>
+                <div className="flex items-center justify-between mb-5">
+                  <Label className="text-lg font-semibold text-slate-900">Products & Quantities</Label>
                   <Button
                     type="button"
                     size="sm"
@@ -934,12 +1331,15 @@ export default function ClosedSalesPage() {
                     onClick={() => {
                       setProductRows([...productRows, {
                         id: Date.now().toString(),
-                        product: 'Abacus',
+                        product: 'ABACUS',
                         class: '1',
                         category: 'New Students',
-                        productName: '',
+                        productName: 'ABACUS', // Auto-fill with product name
                         quantity: 0,
-                        strength: 0
+                        strength: 0,
+                        price: 0,
+                        total: 0,
+                        level: 'L2'
                       }])
                     }}
                   >
@@ -951,25 +1351,32 @@ export default function ClosedSalesPage() {
                   <table className="w-full text-sm border-collapse">
                     <thead>
                       <tr className="bg-slate-100 border-b border-slate-200">
-                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Product</th>
-                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Class</th>
-                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Category</th>
-                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Product Name</th>
-                        <th className="py-2.5 px-3 text-left border-r border-slate-200 text-slate-800 font-semibold text-xs">Qty</th>
-                        <th className="py-2.5 px-3 text-left text-slate-800 font-semibold text-xs">Strength</th>
-                        <th className="py-2.5 px-3 text-center text-slate-800 font-semibold text-xs">Action</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Product</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Class</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Category</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Product Name</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Qty</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Strength</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Price</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Total</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Level</th>
+                        <th className="py-3 px-4 text-center text-slate-800 font-semibold text-sm">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {productRows.map((row, idx) => (
                         <tr key={row.id} className="border-b border-slate-100 bg-white hover:bg-slate-50/50 transition-colors">
-                          <td className="py-2 px-3 border-r">
+                          <td className="py-3 px-4 border-r">
                             <Select value={row.product} onValueChange={(v) => {
                               const updated = [...productRows]
                               updated[idx].product = v
+                              // ALWAYS auto-fill product name when product changes
+                              updated[idx].productName = v
+                              // Update level to default for the selected product
+                              updated[idx].level = getDefaultLevel(v)
                               setProductRows(updated)
                             }}>
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-10 text-sm">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -979,13 +1386,13 @@ export default function ClosedSalesPage() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="py-2 px-3 border-r">
+                          <td className="py-3 px-4 border-r">
                             <Select value={row.class} onValueChange={(v) => {
                               const updated = [...productRows]
                               updated[idx].class = v
                               setProductRows(updated)
                             }}>
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-10 text-sm">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -995,13 +1402,13 @@ export default function ClosedSalesPage() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="py-2 px-3 border-r">
+                          <td className="py-3 px-4 border-r">
                             <Select value={row.category} onValueChange={(v) => {
                               const updated = [...productRows]
                               updated[idx].category = v
                               setProductRows(updated)
                             }}>
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-10 text-sm">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1011,23 +1418,23 @@ export default function ClosedSalesPage() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="py-2 px-3 border-r">
+                          <td className="py-3 px-4 border-r">
                             <Input
                               type="text"
-                              className="h-8 text-xs"
-                              value={row.productName}
+                              className="h-10 text-sm"
+                              value={row.productName || row.product || ''}
                               onChange={(e) => {
                                 const updated = [...productRows]
                                 updated[idx].productName = e.target.value
                                 setProductRows(updated)
                               }}
-                              placeholder="Select Item"
+                              placeholder="Product Name"
                             />
                           </td>
-                          <td className="py-2 px-3 border-r">
+                          <td className="py-3 px-4 border-r">
                             <Input
                               type="number"
-                              className="h-8 text-xs"
+                              className="h-10 text-sm"
                               value={row.quantity || ''}
                               onChange={(e) => {
                                 const updated = [...productRows]
@@ -1038,27 +1445,70 @@ export default function ClosedSalesPage() {
                               min="0"
                             />
                           </td>
-                          <td className="py-2 px-3">
+                          <td className="py-3 px-4 border-r">
                             <Input
                               type="number"
-                              className="h-8 text-xs"
+                              className="h-10 text-sm"
                               value={row.strength || ''}
                               onChange={(e) => {
                                 const updated = [...productRows]
                                 updated[idx].strength = Number(e.target.value) || 0
+                                updated[idx].total = updated[idx].price * updated[idx].strength
                                 setProductRows(updated)
                               }}
                               placeholder="Enter Strength"
                               min="0"
                             />
                           </td>
-                          <td className="py-2 px-3 text-center">
+                          <td className="py-3 px-4 border-r">
+                            <Input
+                              type="number"
+                              className="h-10 text-sm"
+                              value={row.price !== undefined && row.price !== null ? String(row.price) : ''}
+                              onChange={(e) => {
+                                const updated = [...productRows]
+                                const newPrice = Number(e.target.value) || 0
+                                updated[idx].price = newPrice
+                                updated[idx].total = newPrice * (updated[idx].strength || 0)
+                                setProductRows(updated)
+                              }}
+                              placeholder="Enter Price"
+                              min="0"
+                              step="0.01"
+                            />
+                          </td>
+                          <td className="py-3 px-4 border-r">
+                            <Input
+                              type="number"
+                              className="h-10 text-sm bg-slate-50"
+                              value={row.total !== undefined && row.total !== null ? String(row.total) : '0'}
+                              disabled
+                              placeholder="Auto"
+                            />
+                          </td>
+                          <td className="py-3 px-4 border-r">
+                            <Select value={row.level || 'L2'} onValueChange={(v) => {
+                              const updated = [...productRows]
+                              updated[idx].level = v
+                              setProductRows(updated)
+                            }}>
+                              <SelectTrigger className="h-10 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getAvailableLevels(row.product).map(level => (
+                                  <SelectItem key={level} value={level}>{level}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="py-3 px-4 text-center">
                             {productRows.length > 1 && (
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50 h-10 w-10 p-0"
                                 onClick={() => {
                                   setProductRows(productRows.filter((_, i) => i !== idx))
                                 }}
@@ -1075,22 +1525,23 @@ export default function ClosedSalesPage() {
               </div>
 
               {/* DC Details */}
-              <div className="space-y-4 border-t border-slate-200 pt-6 mt-6">
-                <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2 mb-4">DC Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-5 border-t border-slate-200 pt-6 mt-6">
+                <h3 className="font-semibold text-slate-900 text-lg border-b border-slate-200 pb-3 mb-5">DC Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
-                    <Label>DC Date</Label>
+                    <Label className="text-sm font-medium mb-2 block">DC Date</Label>
                     <Input
                       type="date"
                       value={dcDate}
                       onChange={(e) => setDcDate(e.target.value)}
                       placeholder="mm/dd/yyyy"
+                      className="h-11 text-sm"
                     />
                   </div>
                   <div>
-                    <Label>DC Category</Label>
+                    <Label className="text-sm font-medium mb-2 block">DC Category</Label>
                     <Select value={dcCategory} onValueChange={setDcCategory}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 text-sm">
                         <SelectValue placeholder="Select DC Category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1101,66 +1552,115 @@ export default function ClosedSalesPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label>DC Remarks</Label>
+                    <Label className="text-sm font-medium mb-2 block">DC Remarks</Label>
                     <Input
                       value={dcRemarks}
                       onChange={(e) => setDcRemarks(e.target.value)}
                       placeholder="Remarks"
+                      className="h-11 text-sm"
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <Label>DC Notes</Label>
+                    <Label className="text-sm font-medium mb-2 block">DC Notes</Label>
                     <Textarea
                       value={dcNotes}
                       onChange={(e) => setDcNotes(e.target.value)}
                       placeholder="Notes"
-                      rows={3}
+                      rows={4}
+                      className="text-sm"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex justify-between items-center border-t border-slate-200 pt-6 mt-4">
+              <DialogFooter className="flex justify-between items-center border-t border-slate-200 pt-6 mt-4">
                 <div className="flex gap-2">
                   <Button 
                     type="button"
                     variant="outline"
                     className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
-                    onClick={() => window.print()}
+                    onClick={() => setOpenRaiseDCDialog(false)}
                   >
-                    Print
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
-                    onClick={async () => {
-                      // Save without submitting (optional feature)
-                      alert('Save functionality can be implemented to save draft')
-                    }}
-                  >
-                    Save
+                    Cancel
                   </Button>
                 </div>
                 <div className="flex gap-2">
+                  {/* Employee: Show "Raise DC" button to request DC */}
+                  {canRequestDC && selectedDeal?.status !== 'dc_requested' && selectedDeal?.status !== 'dc_accepted' && (
                   <Button
+                      variant="destructive"
+                      onClick={handleRequestDC}
+                      disabled={saving || submitting}
+                    >
+                      {saving ? 'Submitting...' : 'Raise DC'}
+                    </Button>
+                  )}
+                  
+                  {/* Coordinator/Admin: Show "Accept" and "Send to Senior Coordinator" buttons for DC requests */}
+                  {canApproveDC && selectedDeal?.status === 'dc_requested' && (
+                    <>
+                      <Button
                     variant="outline"
-                    className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
-                    onClick={handleSaveDC}
+                        className="border-green-600 text-green-700 hover:bg-green-50 shadow-sm"
+                        onClick={handleAcceptDC}
+                        disabled={saving || submitting}
+                      >
+                        {saving ? 'Processing...' : 'Accept'}
+                  </Button>
+                      <Button
+                        className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                        onClick={handleSendToSeniorCoordinator}
+                        disabled={submitting || saving}
+                      >
+                        {submitting ? 'Sending...' : 'Send to Senior Coordinator'}
+                      </Button>
+                    </>
+                  )}
+                  
+                  {/* Coordinator/Admin: Show "Update" and "Send to Senior Coordinator" buttons for accepted DCs */}
+                  {canApproveDC && selectedDeal?.status === 'dc_accepted' && (
+                    <>
+                  <Button
+                    variant="default"
+                        className="!bg-blue-600 hover:!bg-blue-700 !text-white !shadow-sm !from-blue-600 !to-blue-700 hover:!from-blue-700 hover:!to-blue-800"
+                        onClick={handleAcceptDC}
                     disabled={saving || submitting}
                   >
-                    {saving ? 'Saving...' : 'Save DC'}
+                        {saving ? 'Updating...' : 'Update DC'}
                   </Button>
                   <Button
                     className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
-                    onClick={handleSubmitToManager}
+                        onClick={handleSendToSeniorCoordinator}
                     disabled={submitting || saving}
                   >
-                    {submitting ? 'Submitting...' : 'Submit to Senior Coordinator'}
+                        {submitting ? 'Sending...' : 'Send to Senior Coordinator'}
                   </Button>
+                    </>
+                  )}
+                  
+                  {/* Coordinator/Admin: Show "Accept" and "Send to Senior Coordinator" buttons for other deals (not requested yet) */}
+                  {canApproveDC && selectedDeal?.status !== 'dc_requested' && selectedDeal?.status !== 'dc_accepted' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="border-green-600 text-green-700 hover:bg-green-50 shadow-sm"
+                        onClick={handleAcceptDC}
+                        disabled={saving || submitting}
+                      >
+                        {saving ? 'Processing...' : 'Accept'}
+                      </Button>
+                      <Button
+                        className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                        onClick={handleSendToSeniorCoordinator}
+                        disabled={submitting || saving}
+                      >
+                        {submitting ? 'Sending...' : 'Send to Senior Coordinator'}
+                      </Button>
+                    </>
+                  )}
                 </div>
-              </div>
+              </DialogFooter>
             </div>
           ) : (
             <div className="py-8 text-center text-slate-500">

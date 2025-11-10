@@ -8,15 +8,16 @@ import { Platform } from 'react-native';
 // To find your IP: Windows: ipconfig | Mac/Linux: ifconfig
 // Look for IPv4 Address (usually 192.168.x.x or 10.0.x.x)
 
-// For physical device testing, replace with your computer's IP:
-// Get your IP: Windows: ipconfig | Mac/Linux: ifconfig
+// Local development API URL
 const DEV_API_URL = Platform.OS === 'web' 
   ? 'http://localhost:5000/api'
-  : 'http://192.168.1.15:5000/api'; // Your computer's IP address
+  : 'http://localhost:5000/api'; // For emulator/simulator, use localhost
 
-const API_BASE_URL = __DEV__ 
-  ? DEV_API_URL
-  : 'https://your-backend-url.com/api';
+// Production API URL (currently set to localhost for development)
+const PROD_API_URL = 'http://localhost:5000/api';
+
+// Always use localhost for now
+const API_BASE_URL = DEV_API_URL;
 
 class ApiService {
   private baseURL: string;

@@ -22,7 +22,7 @@ type ProductSelection = {
 
 export default function CreateDealPage() {
   const router = useRouter()
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EELL', 'IIT', 'CodeChamp', 'Math Lab']
+  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
   
   const [form, setForm] = useState({
     school_type: '',
