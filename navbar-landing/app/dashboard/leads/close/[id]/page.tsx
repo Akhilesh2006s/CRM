@@ -372,7 +372,11 @@ export default function CloseLeadPage() {
       
       const assignedEmployeeId = currentUser._id
       
-      // First, update the lead with close form data and mark as completed/closed
+      // Determine if this is a DC Order or Lead based on what was loaded
+      // The lead state was set from loadLead which tries dc-orders first, then leads
+      const isDcOrder = lead && lead.dc_code !== undefined
+      
+      // Prepare update payload
       const updatePayload: any = {
         contact_person2: form.contact_person2 || undefined,
         contact_mobile2: form.contact_mobile2 || undefined,
@@ -381,7 +385,6 @@ export default function CloseLeadPage() {
         strength: form.strength ? Number(form.strength) : undefined,
         branches: form.branches ? Number(form.branches) : undefined,
         estimated_delivery_date: form.delivery_date ? new Date(form.delivery_date).toISOString() : undefined,
-        status: 'saved', // Mark as saved so it appears in employee's My Clients page
         assigned_to: assignedEmployeeId,
         products: productDetails.map(p => ({
           product_name: p.product,
@@ -390,39 +393,84 @@ export default function CloseLeadPage() {
         })),
       }
       
-      // Update the lead/dc-order
-      console.log('🔄 Updating DcOrder with payload:', {
+      // Update the lead/dc-order with appropriate status
+      console.log('🔄 Updating with payload:', {
         leadId,
-        status: updatePayload.status,
+        type: isDcOrder ? 'DcOrder' : 'Lead',
         assigned_to: updatePayload.assigned_to,
         hasProducts: !!updatePayload.products
       });
       
       try {
-        const updated = await apiRequest(`/dc-orders/${leadId}`, {
-          method: 'PUT',
-          body: JSON.stringify(updatePayload),
-        })
-        console.log('✅ DcOrder updated successfully:', {
-          id: updated._id,
-          status: updated.status,
-          assigned_to: updated.assigned_to
-        });
-      } catch (err: any) {
-        console.warn('⚠️ DcOrder update failed, trying leads API:', err?.message);
-        try {
+        if (isDcOrder) {
+          // DC Order status enum: 'saved', 'pending', 'in_transit', 'completed', 'hold', 'dc_requested', 'dc_accepted', 'dc_approved', 'dc_sent_to_senior'
+          // Don't set status to 'Closed' - use 'completed' or 'saved' instead
+          updatePayload.status = 'completed' // Use 'completed' for DC Orders when closing
+          
+          const updated = await apiRequest(`/dc-orders/${leadId}`, {
+            method: 'PUT',
+            body: JSON.stringify(updatePayload),
+          })
+          console.log('✅ DcOrder updated successfully:', {
+            id: updated._id,
+            status: updated.status,
+            assigned_to: updated.assigned_to
+          });
+          
+          // Also create/update Lead record with Closed status for reporting
+          try {
+            // Try to find existing lead by school name and mobile
+            const searchResponse = await apiRequest<any>(`/leads?schoolName=${encodeURIComponent(lead?.school_name || '')}&contactMobile=${lead?.contact_mobile || ''}`)
+            const allLeads = Array.isArray(searchResponse) ? searchResponse : (searchResponse?.data || [])
+            const existingLead = allLeads.find((l: any) => 
+              l.school_name === lead?.school_name && 
+              l.contact_mobile === lead?.contact_mobile
+            )
+            
+            if (existingLead) {
+              // Update existing lead to Closed
+              await apiRequest(`/leads/${existingLead._id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ status: 'Closed' }),
+              })
+              console.log('✅ Lead record updated to Closed for reporting')
+            } else {
+              // Create new lead record for reporting
+              await apiRequest('/leads/create', {
+                method: 'POST',
+                body: JSON.stringify({
+                  school_name: lead?.school_name || updated.school_name,
+                  contact_person: lead?.contact_person || updated.contact_person,
+                  contact_mobile: lead?.contact_mobile || updated.contact_mobile,
+                  zone: lead?.zone || updated.zone,
+                  location: lead?.location || updated.location,
+                  priority: lead?.priority || updated.priority || 'Hot',
+                  status: 'Closed',
+                  createdBy: assignedEmployeeId,
+                }),
+              })
+              console.log('✅ Lead record created with Closed status for reporting')
+            }
+          } catch (leadUpdateErr: any) {
+            console.warn('⚠️ Could not update/create Lead record for reporting:', leadUpdateErr?.message)
+            // Don't fail the whole operation - DC Order update succeeded
+          }
+        } else {
+          // Lead status enum: 'Pending', 'Processing', 'Saved', 'Closed'
+          updatePayload.status = 'Closed' // Use 'Closed' for Leads
+          
           const updated = await apiRequest(`/leads/${leadId}`, {
             method: 'PUT',
             body: JSON.stringify(updatePayload),
           })
-          console.log('✅ Lead updated successfully (via leads API):', {
+          console.log('✅ Lead updated successfully:', {
             id: updated._id,
             status: updated.status
           });
-        } catch (leadErr: any) {
-          console.error('❌ Both update attempts failed:', leadErr);
-          throw leadErr; // Re-throw to be caught by outer catch
         }
+      } catch (err: any) {
+        console.error('❌ Update failed:', err);
+        throw err; // Re-throw to be caught by outer catch
       }
       
       // Prepare product details for DC

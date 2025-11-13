@@ -69,7 +69,10 @@ export default function ReportsFollowUpLeadsPage() {
     setLoading(true)
     try {
       // Follow up leads are those with status 'Saved' or have a follow_up_date set
-      const allData = await apiRequest<Lead[]>('/leads')
+      const response = await apiRequest<any>('/leads')
+      
+      // Handle both array and paginated response formats
+      const allData = Array.isArray(response) ? response : (response?.data || [])
       
       // Filter leads that have follow_up_date or are Saved status
       const followUpLeads = (allData || []).filter((lead: Lead) => 
@@ -120,12 +123,6 @@ export default function ReportsFollowUpLeadsPage() {
   const handleExport = async () => {
     try {
       const qs = new URLSearchParams()
-      // Export all leads but we'll filter on saved status on backend
-      const allData = await apiRequest<Lead[]>('/leads')
-      const followUpLeads = (allData || []).filter((lead: Lead) => 
-        lead.status === 'Saved' || (lead.follow_up_date && new Date(lead.follow_up_date) >= new Date())
-      )
-      
       // For export, we'll send individual lead IDs or filter by Saved status
       qs.append('status', 'Saved')
       if (zone) qs.append('zone', zone)
@@ -306,7 +303,7 @@ export default function ReportsFollowUpLeadsPage() {
         ) : (
           <div className="w-full overflow-x-auto">
             <div className="min-w-full">
-              <Table className="w-full min-w-[1200px]">
+              <Table className="w-full min-w-[1400px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="cursor-pointer">
@@ -331,43 +328,64 @@ export default function ReportsFollowUpLeadsPage() {
                   <TableHead>Mobile</TableHead>
                   <TableHead>Follow-up On</TableHead>
                   <TableHead>School Strength</TableHead>
+                  <TableHead>Remarks</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {leads.map((lead, index) => (
-                  <TableRow key={lead._id}>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell>{formatDate(lead.createdAt)}</TableCell>
-                    <TableCell>{lead.zone || '-'}</TableCell>
-                    <TableCell>{getAssignedTo(lead)}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        lead.priority === 'Hot' 
-                          ? 'bg-red-100 text-red-800'
-                          : lead.priority === 'Warm'
-                          ? 'bg-orange-100 text-orange-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {lead.priority ? `${lead.priority} Lead` : '-'}
-                      </span>
-                    </TableCell>
-                    <TableCell>{lead.location || '-'}</TableCell>
-                    <TableCell className="font-medium">{lead.school_name || '-'}</TableCell>
-                    <TableCell>{lead.contact_person || '-'}</TableCell>
-                    <TableCell>{lead.contact_person || '-'}</TableCell>
-                    <TableCell>{lead.contact_mobile || '-'}</TableCell>
-                    <TableCell className={lead.follow_up_date && new Date(lead.follow_up_date) < new Date() ? 'text-red-600 font-medium' : ''}>
-                      {lead.follow_up_date ? formatDate(lead.follow_up_date) : '-'}
-                    </TableCell>
-                    <TableCell>{lead.strength || 0}</TableCell>
-                    <TableCell>
-                      <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                        {lead.status || 'Saved'}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {leads.map((lead, index) => {
+                  const getPriorityColor = (priority?: string) => {
+                    switch (priority?.toLowerCase()) {
+                      case 'hot':
+                        return 'bg-red-100 text-red-800'
+                      case 'warm':
+                        return 'bg-orange-100 text-orange-800'
+                      case 'cold':
+                        return 'bg-blue-100 text-blue-800'
+                      case 'visit again':
+                        return 'bg-yellow-100 text-yellow-800'
+                      case 'not met management':
+                        return 'bg-blue-100 text-blue-800'
+                      case 'not interested':
+                        return 'bg-gray-100 text-gray-800'
+                      default:
+                        return 'bg-gray-100 text-gray-800'
+                    }
+                  }
+                  
+                  return (
+                    <TableRow key={lead._id}>
+                      <TableCell>{index + 1}</TableCell>
+                      <TableCell>{formatDate(lead.createdAt)}</TableCell>
+                      <TableCell>{lead.zone || '-'}</TableCell>
+                      <TableCell>{getAssignedTo(lead)}</TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getPriorityColor(lead.priority)}`}>
+                          {lead.priority || 'Hot'}
+                        </span>
+                      </TableCell>
+                      <TableCell>{lead.location || '-'}</TableCell>
+                      <TableCell className="font-medium">{lead.school_name || '-'}</TableCell>
+                      <TableCell>{lead.contact_person || '-'}</TableCell>
+                      <TableCell>{lead.contact_person || '-'}</TableCell>
+                      <TableCell>{lead.contact_mobile || '-'}</TableCell>
+                      <TableCell className={lead.follow_up_date && new Date(lead.follow_up_date) < new Date() ? 'text-red-600 font-medium' : ''}>
+                        {lead.follow_up_date ? formatDate(lead.follow_up_date) : '-'}
+                      </TableCell>
+                      <TableCell>{lead.strength || 0}</TableCell>
+                      <TableCell className="max-w-xs">
+                        <div className="truncate" title={lead.remarks || '-'}>
+                          {lead.remarks || '-'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                          {lead.status || 'Saved'}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
               </Table>
             </div>

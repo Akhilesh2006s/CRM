@@ -1034,43 +1034,66 @@ export default function ClosedSalesPage() {
                   <td className="py-3 px-4">
                     {(() => {
                       // Check for PO photo in pod_proof_url or in associated DC
-                      const poUrl = d.pod_proof_url || (dealDCs[d._id]?.poPhotoUrl)
+                      const poUrl = d.pod_proof_url || (dealDCs[d._id]?.poPhotoUrl) || (dealDCs[d._id]?.poDocument)
                       
                       if (poUrl) {
-                        return (
-                          <div className="flex items-center justify-center">
-                            <img
-                              src={poUrl}
-                              alt="PO Document"
-                              className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
-                              onClick={() => {
-                                setSelectedPOPhotoUrl(poUrl)
-                                setOpenPOPhotoDialog(true)
-                              }}
-                              title="Click to view full size"
-                              onError={(e) => {
-                                // If image fails to load, show a link instead
-                                const target = e.currentTarget
-                                target.style.display = 'none'
-                                const parent = target.parentElement
-                                if (parent) {
-                                  const link = document.createElement('a')
-                                  link.href = poUrl
-                                  link.target = '_blank'
-                                  link.className = 'text-xs text-slate-600 hover:text-slate-800 underline cursor-pointer'
-                                  link.textContent = 'View PO'
-                                  link.onclick = (ev) => {
-                                    ev.preventDefault()
-                                    setSelectedPOPhotoUrl(poUrl)
-                                    setOpenPOPhotoDialog(true)
-                                    return false
+                        // Check if it's a PDF
+                        const isPDF = poUrl.toLowerCase().endsWith('.pdf') || 
+                                     poUrl.includes('application/pdf') ||
+                                     (poUrl.startsWith('data:') && poUrl.includes('application/pdf'))
+                        
+                        if (isPDF) {
+                          // Show PDF icon/button
+                          return (
+                            <div className="flex items-center justify-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() => {
+                                  setSelectedPOPhotoUrl(poUrl)
+                                  setOpenPOPhotoDialog(true)
+                                }}
+                              >
+                                View PO
+                              </Button>
+                            </div>
+                          )
+                        } else {
+                          // Show image thumbnail
+                          return (
+                            <div className="flex items-center justify-center">
+                              <img
+                                src={poUrl}
+                                alt="PO Document"
+                                className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
+                                onClick={() => {
+                                  setSelectedPOPhotoUrl(poUrl)
+                                  setOpenPOPhotoDialog(true)
+                                }}
+                                title="Click to view full size"
+                                onError={(e) => {
+                                  // If image fails to load, show a button instead
+                                  const target = e.currentTarget
+                                  target.style.display = 'none'
+                                  const parent = target.parentElement
+                                  if (parent) {
+                                    const button = document.createElement('button')
+                                    button.className = 'text-xs text-slate-600 hover:text-slate-800 underline cursor-pointer px-2 py-1 border rounded'
+                                    button.textContent = 'View PO'
+                                    button.onclick = (ev) => {
+                                      ev.preventDefault()
+                                      setSelectedPOPhotoUrl(poUrl)
+                                      setOpenPOPhotoDialog(true)
+                                      return false
+                                    }
+                                    parent.appendChild(button)
                                   }
-                                  parent.appendChild(link)
-                                }
-                              }}
-                            />
-                          </div>
-                        )
+                                }}
+                              />
+                            </div>
+                          )
+                        }
                       } else {
                         return <span className="text-xs text-slate-400">-</span>
                       }
@@ -1726,30 +1749,52 @@ export default function ClosedSalesPage() {
               View full-size PO document
             </DialogDescription>
           </DialogHeader>
-          {selectedPOPhotoUrl && (
-            <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
-              <img
-                src={selectedPOPhotoUrl}
-                alt="PO Document Full Size"
-                className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg border border-slate-200"
-                onError={(e) => {
-                  const target = e.currentTarget
-                  target.style.display = 'none'
-                  const parent = target.parentElement
-                  if (parent) {
-                    parent.innerHTML = `
-                      <div class="text-center p-8">
-                        <p class="text-red-600 mb-4">Failed to load image</p>
-                        <a href="${selectedPOPhotoUrl}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">
-                          Open in new tab
-                        </a>
-                      </div>
-                    `
-                  }
-                }}
-              />
-            </div>
-          )}
+          {selectedPOPhotoUrl && (() => {
+            // Check if it's a PDF
+            const isPDF = selectedPOPhotoUrl.toLowerCase().endsWith('.pdf') || 
+                         selectedPOPhotoUrl.includes('application/pdf') ||
+                         (selectedPOPhotoUrl.startsWith('data:') && selectedPOPhotoUrl.includes('application/pdf'))
+            
+            if (isPDF) {
+              // Display PDF in iframe
+              return (
+                <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
+                  <iframe
+                    src={selectedPOPhotoUrl}
+                    className="w-full h-[70vh] rounded-lg shadow-lg border border-slate-200"
+                    title="PO Document PDF"
+                    style={{ minHeight: '500px' }}
+                  />
+                </div>
+              )
+            } else {
+              // Display image
+              return (
+                <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
+                  <img
+                    src={selectedPOPhotoUrl}
+                    alt="PO Document Full Size"
+                    className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg border border-slate-200"
+                    onError={(e) => {
+                      const target = e.currentTarget
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        parent.innerHTML = `
+                          <div class="text-center p-8">
+                            <p class="text-red-600 mb-4">Failed to load document</p>
+                            <a href="${selectedPOPhotoUrl}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">
+                              Open in new tab
+                            </a>
+                          </div>
+                        `
+                      }
+                    }}
+                  />
+                </div>
+              )
+            }
+          })()}
           <DialogFooter className="pt-4 border-t border-slate-200">
             <div className="flex gap-2 justify-between w-full">
               <Button
@@ -1757,7 +1802,21 @@ export default function ClosedSalesPage() {
                 className="border-slate-300 hover:bg-slate-50 text-slate-700 shadow-sm"
                 onClick={() => {
                   if (selectedPOPhotoUrl) {
-                    window.open(selectedPOPhotoUrl, '_blank')
+                    // For data URLs, create a blob and open it
+                    if (selectedPOPhotoUrl.startsWith('data:')) {
+                      const byteString = atob(selectedPOPhotoUrl.split(',')[1])
+                      const mimeString = selectedPOPhotoUrl.split(',')[0].split(':')[1].split(';')[0]
+                      const ab = new ArrayBuffer(byteString.length)
+                      const ia = new Uint8Array(ab)
+                      for (let i = 0; i < byteString.length; i++) {
+                        ia[i] = byteString.charCodeAt(i)
+                      }
+                      const blob = new Blob([ab], { type: mimeString })
+                      const url = URL.createObjectURL(blob)
+                      window.open(url, '_blank')
+                    } else {
+                      window.open(selectedPOPhotoUrl, '_blank')
+                    }
                   }
                 }}
               >

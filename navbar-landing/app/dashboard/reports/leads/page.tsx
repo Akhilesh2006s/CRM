@@ -3,7 +3,7 @@
 import { Card } from '@/components/ui/card'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { FileText, TrendingUp, CheckCircle2 } from 'lucide-react'
+import { FileText, CheckCircle2 } from 'lucide-react'
 
 export default function ReportsLeadsPage() {
   const reportTypes = [
@@ -13,13 +13,6 @@ export default function ReportsLeadsPage() {
       href: '/dashboard/reports/leads/open-leads',
       icon: FileText,
       color: 'bg-blue-500',
-    },
-    {
-      title: 'Follow-up Leads',
-      description: 'Leads requiring follow-up or saved for later',
-      href: '/dashboard/reports/leads/follow-up-leads',
-      icon: TrendingUp,
-      color: 'bg-amber-500',
     },
     {
       title: 'Closed Leads',
@@ -37,7 +30,7 @@ export default function ReportsLeadsPage() {
         <p className="text-slate-600">Select a report type to view detailed lead information</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {reportTypes.map((report) => {
           const Icon = report.icon
           return (

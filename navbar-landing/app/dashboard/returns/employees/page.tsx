@@ -34,12 +34,21 @@ export default function EmployeeReturnsPage() {
       if (!user?._id) return
       setLoading(true)
       try {
-        const assignedLeads = await apiRequest<Lead[]>(`/leads?employee=${user._id}`)
+        const response = await apiRequest<any>(`/leads?employee=${user._id}`)
+        // Handle both array and paginated response formats
+        const assignedLeads = Array.isArray(response) 
+          ? response 
+          : (response?.data || [])
         setLeads(assignedLeads)
-        const mine = await apiRequest<ExecReturn[]>(`/stock-returns/executive/mine`)
+        const mineResponse = await apiRequest<any>(`/stock-returns/executive/mine`)
+        const mine = Array.isArray(mineResponse) 
+          ? mineResponse 
+          : (mineResponse?.data || [])
         setMyReturns(mine)
       } catch (e: any) {
         toast({ title: 'Error', description: e.message, variant: 'destructive' })
+        setLeads([]) // Ensure leads is always an array
+        setMyReturns([]) // Ensure myReturns is always an array
       } finally {
         setLoading(false)
       }
@@ -84,7 +93,7 @@ export default function EmployeeReturnsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm"><thead><tr className="text-left border-b"><th className="py-2 pr-2">School</th><th className="py-2 pr-2">Contact</th><th className="py-2 pr-2">Location</th><th className="py-2 pr-2">Action</th></tr></thead>
             <tbody>
-              {leads.map((lead) => (
+              {Array.isArray(leads) && leads.map((lead) => (
                 <tr key={lead._id} className="border-b">
                   <td className="py-2 pr-2">{lead.school_name}</td>
                   <td className="py-2 pr-2">{lead.contact_person || '-'}</td>
@@ -92,7 +101,7 @@ export default function EmployeeReturnsPage() {
                   <td className="py-2 pr-2"><Button size="sm" disabled={!!submittingId} onClick={() => submitReturn(lead._id)}>{submittingId === lead._id ? 'Submitting…' : 'Mark Returned'}</Button></td>
                 </tr>
               ))}
-              {leads.length === 0 && !loading && (<tr><td className="py-3 text-muted-foreground" colSpan={4}>No assigned leads</td></tr>)}
+              {(!Array.isArray(leads) || leads.length === 0) && !loading && (<tr><td className="py-3 text-muted-foreground" colSpan={4}>No assigned leads</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -103,7 +112,7 @@ export default function EmployeeReturnsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm"><thead><tr className="text-left border-b"><th className="py-2 pr-2">Return #</th><th className="py-2 pr-2">LR No</th><th className="py-2 pr-2">Fin Year</th><th className="py-2 pr-2">Lead</th><th className="py-2 pr-2">Return Date</th><th className="py-2 pr-2">Remarks</th><th className="py-2 pr-2">Created</th></tr></thead>
             <tbody>
-              {myReturns.map((r) => (
+              {Array.isArray(myReturns) && myReturns.map((r) => (
                 <tr key={r._id} className="border-b">
                   <td className="py-2 pr-2">{r.returnNumber}</td>
                   <td className="py-2 pr-2">{r.lrNumber || '-'}</td>
@@ -114,7 +123,7 @@ export default function EmployeeReturnsPage() {
                   <td className="py-2 pr-2">{new Date(r.createdAt).toLocaleString()}</td>
                 </tr>
               ))}
-              {myReturns.length === 0 && (<tr><td className="py-3 text-muted-foreground" colSpan={7}>No returns yet</td></tr>)}
+              {(!Array.isArray(myReturns) || myReturns.length === 0) && (<tr><td className="py-3 text-muted-foreground" colSpan={7}>No returns yet</td></tr>)}
             </tbody>
           </table>
         </div>
