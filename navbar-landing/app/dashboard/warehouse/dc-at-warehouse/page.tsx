@@ -13,6 +13,7 @@ import { Pencil } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useProducts } from '@/hooks/useProducts'
 
 type ProductDetail = {
   product: string
@@ -91,7 +92,7 @@ export default function WarehouseDcAtWarehouse() {
   const [insufficientQuantity, setInsufficientQuantity] = useState(false)
   const [warehouseInventory, setWarehouseInventory] = useState<WarehouseItem[]>([])
   
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
+  const { productNames: availableProducts } = useProducts()
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'NA']
   const availableCategories = ['New Students', 'Existing Students', 'Both', 'Training-Material']
 
@@ -103,7 +104,9 @@ export default function WarehouseDcAtWarehouse() {
   async function load() {
     try {
       const data = await apiRequest<DC[]>(`/dc/pending-warehouse`)
-      setRows(data)
+      // Ensure data is an array before setting
+      const dataArray = Array.isArray(data) ? data : []
+      setRows(dataArray)
     } catch (err: any) {
       console.error('Failed to load DC list:', err)
     } finally {
@@ -119,7 +122,9 @@ export default function WarehouseDcAtWarehouse() {
     try {
       // Fetch warehouse inventory first
       const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
-      setWarehouseInventory(inventory)
+      // Ensure inventory is an array before setting
+      const inventoryArray = Array.isArray(inventory) ? inventory : []
+      setWarehouseInventory(inventoryArray)
       
       // Fetch full DC details to get productDetails
       const fullDC = await apiRequest<DC>(`/dc/${dc._id}`)
@@ -128,7 +133,7 @@ export default function WarehouseDcAtWarehouse() {
       // Helper function to find matching inventory item
       const findInventoryItem = (productName: string, category?: string, level?: string): WarehouseItem | null => {
         // Try exact match first (productName, category, level)
-        let match = inventory.find(item => 
+        let match = inventoryArray.find(item => 
           item.productName?.toLowerCase() === productName?.toLowerCase() &&
           item.category === category &&
           item.level === level
@@ -136,7 +141,7 @@ export default function WarehouseDcAtWarehouse() {
         
         // If no exact match, try productName and category only
         if (!match) {
-          match = inventory.find(item => 
+          match = inventoryArray.find(item => 
             item.productName?.toLowerCase() === productName?.toLowerCase() &&
             item.category === category
           )
@@ -144,7 +149,7 @@ export default function WarehouseDcAtWarehouse() {
         
         // If still no match, try productName only
         if (!match) {
-          match = inventory.find(item => 
+          match = inventoryArray.find(item => 
             item.productName?.toLowerCase() === productName?.toLowerCase()
           )
         }
@@ -255,11 +260,13 @@ export default function WarehouseDcAtWarehouse() {
     try {
       // Fetch latest warehouse inventory from database
       const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
+      // Ensure inventory is an array before using
+      const inventoryArray = Array.isArray(inventory) ? inventory : []
       
       // Helper function to find matching inventory item
       const findInventoryItem = (productName: string, category?: string, level?: string): WarehouseItem | null => {
         // Try exact match first (productName, category, level)
-        let match = inventory.find(item => 
+        let match = inventoryArray.find(item => 
           item.productName?.toLowerCase() === productName?.toLowerCase() &&
           item.category === category &&
           item.level === level
@@ -267,7 +274,7 @@ export default function WarehouseDcAtWarehouse() {
         
         // If no exact match, try productName and category only
         if (!match) {
-          match = inventory.find(item => 
+          match = inventoryArray.find(item => 
             item.productName?.toLowerCase() === productName?.toLowerCase() &&
             item.category === category
           )
@@ -275,7 +282,7 @@ export default function WarehouseDcAtWarehouse() {
         
         // If still no match, try productName only
         if (!match) {
-          match = inventory.find(item => 
+          match = inventoryArray.find(item => 
             item.productName?.toLowerCase() === productName?.toLowerCase()
           )
         }
@@ -360,13 +367,18 @@ export default function WarehouseDcAtWarehouse() {
   const putOnHold = async () => {
     if (!selectedDC) return
 
-    // Validate that available quantities are entered
+    // Validate that available quantities exist (they're auto-filled from inventory)
     const productsWithoutAvailableQty = productRows.filter(p => 
-      p.availableQuantity === undefined || p.availableQuantity === null || p.availableQuantity === 0
+      p.availableQuantity === undefined || p.availableQuantity === null
     )
     
     if (productsWithoutAvailableQty.length > 0) {
-      alert('Please enter available quantity for all products before putting on hold')
+      alert('Available quantities are being loaded from inventory. Please wait or refresh the page.')
+      return
+    }
+    
+    if (productRows.length === 0) {
+      alert('No products found. Please refresh the page.')
       return
     }
 
@@ -625,7 +637,7 @@ export default function WarehouseDcAtWarehouse() {
               <Card className="p-4 border-t-4 border-t-blue-500">
                 <div className="mb-4">
                   <h3 className="font-semibold text-neutral-900">Products</h3>
-                  <p className="text-sm text-neutral-600 mt-1">Available quantity is auto-filled from inventory. You can adjust if needed. Deliverable and remaining quantities are calculated automatically.</p>
+                  <p className="text-sm text-neutral-600 mt-1">Available quantity is auto-filled from inventory and cannot be changed. Deliverable and remaining quantities are calculated automatically.</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm border-collapse">
@@ -677,21 +689,12 @@ export default function WarehouseDcAtWarehouse() {
                             <td className="py-2 px-3 border-r">
                 <Input
                   type="number"
-                                className="h-8 text-xs bg-white border-blue-300 focus:border-blue-500"
+                                className="h-8 text-xs bg-neutral-50 border-neutral-300 text-neutral-700 font-medium"
                                 value={row.availableQuantity !== undefined && row.availableQuantity !== null ? String(row.availableQuantity) : ''}
-                                onChange={(e) => {
-                                  const updated = [...productRows]
-                                  const availQty = Number(e.target.value) || 0
-                                  updated[idx].availableQuantity = availQty
-                                  // Auto-calculate deliverable quantity (min of requested and available)
-                                  updated[idx].deliverableQuantity = Math.min(updated[idx].quantity || 0, availQty)
-                                  // Calculate remaining quantity (available - deliverable)
-                                  updated[idx].remainingQuantity = availQty - updated[idx].deliverableQuantity
-                                  setProductRows(updated)
-                                }}
+                                readOnly
+                                disabled
                                 placeholder="Auto-filled from inventory"
                   min="0"
-                  required
                 />
                             </td>
                             <td className="py-2 px-3 border-r">
@@ -725,12 +728,20 @@ export default function WarehouseDcAtWarehouse() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenDialog(false)}>Cancel</Button>
-              <Button 
-                onClick={processDC} 
-              disabled={processing || productRows.length === 0}
-              >
+            <Button 
+              onClick={putOnHold} 
+              disabled={onHoldProcessing || processing || productRows.length === 0}
+              variant="destructive"
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {onHoldProcessing ? 'Putting on Hold...' : 'Hold DC'}
+            </Button>
+            <Button 
+              onClick={processDC} 
+              disabled={processing || onHoldProcessing || productRows.length === 0}
+            >
               {processing ? 'Processing...' : 'Update'}
-              </Button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

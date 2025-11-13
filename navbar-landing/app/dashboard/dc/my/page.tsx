@@ -61,7 +61,7 @@ export default function MyDCPage() {
     level: string
   }>>([])
   
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
+  const { productNames: availableProducts } = useProducts()
   const availableLevels = ['L1', 'L2', 'L3', 'L4', 'L5']
 
   const load = async () => {
@@ -70,10 +70,12 @@ export default function MyDCPage() {
       // Load all DCs (clients) for the employee - including converted leads
       const data = await apiRequest<DC[]>(`/dc/employee/my`)
       console.log('Loaded clients (all):', data)
-      console.log('Total clients loaded:', data.length)
+      // Ensure data is an array before using array methods
+      const dataArray = Array.isArray(data) ? data : []
+      console.log('Total clients loaded:', dataArray.length)
       // Show DCs with 'created' status (ready for PO submission) and 'po_submitted' status (PO already submitted)
       // Also include saved DcOrders (closed leads) that don't have a DC yet - these will have status 'created' from backend conversion
-      const clientDCs = data.filter(dc => {
+      const clientDCs = dataArray.filter(dc => {
         const status = dc.status
         const isCreated = status === 'created'
         const isPoSubmitted = status === 'po_submitted'
@@ -284,10 +286,10 @@ export default function MyDCPage() {
         alert('PO updated successfully!')
       } else {
         await apiRequest(`/dc/${dcId}/submit-po`, {
-          method: 'POST',
-          body: JSON.stringify({ poPhotoUrl, remarks }),
-        })
-        alert('PO submitted successfully!')
+        method: 'POST',
+        body: JSON.stringify({ poPhotoUrl, remarks }),
+      })
+      alert('PO submitted successfully!')
       }
       setOpenDialog(false)
       load()

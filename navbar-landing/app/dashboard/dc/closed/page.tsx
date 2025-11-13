@@ -11,6 +11,7 @@ import { X } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useProducts } from '@/hooks/useProducts'
 
 type DcOrder = {
   _id: string
@@ -90,7 +91,7 @@ export default function ClosedSalesPage() {
   const isManager = currentUser?.role === 'Manager'
   const isSuperAdmin = currentUser?.role === 'Super Admin'
   const isCoordinator = currentUser?.role === 'Coordinator'
-  const isEmployee = currentUser?.role === 'Employee'
+  const isEmployee = currentUser?.role === 'Executive'
   const isAdmin = currentUser?.role === 'Admin'
   // Employees can request DC, Coordinators/Admins can approve or send to senior
   const canRequestDC = isEmployee
@@ -121,28 +122,11 @@ export default function ClosedSalesPage() {
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const availableProducts = ['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp']
-  // Product levels mapping based on requirements
-  const productLevels: Record<string, string[]> = {
-    'Abacus': ['L1', 'L2'],
-    'Vedic Maths': ['L1', 'L2'],
-    'EEL': ['L1'],
-    'IIT': ['L1'],
-    'Codechamp': ['L1'],
-    'Maths lab': ['L1'],
-    'Financial literacy': ['L1'],
-    'Brain bytes': ['L1'],
-    'Skill pro': ['L1'],
-    'Spelling bee': ['L1'],
-  }
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel } = useProducts()
+  
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
-    return productLevels[product] || ['L1']
-  }
-  // Get default level for a product (first level in the array, usually L1)
-  const getDefaultLevel = (product: string): string => {
-    const levels = getAvailableLevels(product)
-    return levels[0] || 'L1'
+    return getProductLevels(product)
   }
 
   const load = async () => {
@@ -153,21 +137,29 @@ export default function ClosedSalesPage() {
       let data: DcOrder[] = []
       try {
         // Get all statuses in parallel for better performance
-        const [completed, saved, dcRequested, dcAccepted] = await Promise.all([
-          apiRequest<DcOrder[]>(`/dc-orders?status=completed`),
-          apiRequest<DcOrder[]>(`/dc-orders?status=saved`),
-          apiRequest<DcOrder[]>(`/dc-orders?status=dc_requested`),
-          apiRequest<DcOrder[]>(`/dc-orders?status=dc_accepted`)
+        // Note: API returns paginated response { data: [...], pagination: {...} }
+        const [completedRes, savedRes, dcRequestedRes, dcAcceptedRes] = await Promise.all([
+          apiRequest<any>(`/dc-orders?status=completed`),
+          apiRequest<any>(`/dc-orders?status=saved`),
+          apiRequest<any>(`/dc-orders?status=dc_requested`),
+          apiRequest<any>(`/dc-orders?status=dc_accepted`)
         ])
-        data = [...completed, ...saved, ...dcRequested, ...dcAccepted].filter((d: any) => 
+        // Extract data array from paginated response or use direct array
+        const completedArray = Array.isArray(completedRes) ? completedRes : (completedRes?.data || [])
+        const savedArray = Array.isArray(savedRes) ? savedRes : (savedRes?.data || [])
+        const dcRequestedArray = Array.isArray(dcRequestedRes) ? dcRequestedRes : (dcRequestedRes?.data || [])
+        const dcAcceptedArray = Array.isArray(dcAcceptedRes) ? dcAcceptedRes : (dcAcceptedRes?.data || [])
+        data = [...completedArray, ...savedArray, ...dcRequestedArray, ...dcAcceptedArray].filter((d: any) => 
           d.status !== 'dc_approved' && d.status !== 'dc_sent_to_senior'
         )
       } catch (e) {
         // If no completed deals, try getting all deals and filter client-side
         console.log('No completed deals found, trying all deals...')
-        const allDeals = await apiRequest<DcOrder[]>(`/dc-orders`)
+        const allDealsRes = await apiRequest<any>(`/dc-orders`)
+        // Extract data array from paginated response or use direct array
+        const dealsArray = Array.isArray(allDealsRes) ? allDealsRes : (allDealsRes?.data || [])
         // Filter for deals that might be considered "closed" - including saved (converted leads)
-        data = allDeals.filter((d: any) => 
+        data = dealsArray.filter((d: any) => 
           (d.status === 'completed' || 
           d.status === 'saved' || // Include saved status for converted leads
           d.status === 'in_transit' || 
@@ -275,7 +267,13 @@ export default function ClosedSalesPage() {
       console.log('First deal assigned_to:', sortedData[0]?.assigned_to)
     } catch (e: any) {
       console.error('Failed to load closed deals:', e)
-      alert(`Error loading deals: ${e?.message || 'Unknown error'}`)
+      const errorMessage = e?.message || 'Unknown error'
+      // Provide more context if it's a filter error
+      if (errorMessage.includes('filter is not a function')) {
+        alert(`Error loading deals: The API returned invalid data format. Please check the server response.`)
+      } else {
+        alert(`Error loading deals: ${errorMessage}`)
+      }
     } finally {
       setLoading(false)
     }
@@ -1642,21 +1640,21 @@ export default function ClosedSalesPage() {
                   {/* Coordinator/Admin: Show "Accept" and "Send to Senior Coordinator" buttons for other deals (not requested yet) */}
                   {canApproveDC && selectedDeal?.status !== 'dc_requested' && selectedDeal?.status !== 'dc_accepted' && (
                     <>
-                      <Button
-                        variant="outline"
+                  <Button
+                    variant="outline"
                         className="border-green-600 text-green-700 hover:bg-green-50 shadow-sm"
                         onClick={handleAcceptDC}
-                        disabled={saving || submitting}
-                      >
+                    disabled={saving || submitting}
+                  >
                         {saving ? 'Processing...' : 'Accept'}
-                      </Button>
-                      <Button
-                        className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
+                  </Button>
+                  <Button
+                    className="bg-slate-700 hover:bg-slate-800 text-white shadow-sm"
                         onClick={handleSendToSeniorCoordinator}
-                        disabled={submitting || saving}
-                      >
+                    disabled={submitting || saving}
+                  >
                         {submitting ? 'Sending...' : 'Send to Senior Coordinator'}
-                      </Button>
+                  </Button>
                     </>
                   )}
                 </div>

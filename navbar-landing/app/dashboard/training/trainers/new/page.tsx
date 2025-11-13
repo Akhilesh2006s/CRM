@@ -36,7 +36,9 @@ export default function AddTrainerPage() {
     setCheckingMobile(true)
     try {
       const trainers = await apiRequest<any[]>('/trainers')
-      const exists = trainers.some(t => t.mobile === mobile.trim())
+      // Ensure trainers is an array before using array methods
+      const trainersArray = Array.isArray(trainers) ? trainers : []
+      const exists = trainersArray.some(t => t.mobile === mobile.trim())
       if (exists) {
         setMobileError('Mobile number already exists. Please use a different mobile number.')
       } else {

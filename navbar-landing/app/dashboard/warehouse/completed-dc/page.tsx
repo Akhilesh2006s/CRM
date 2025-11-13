@@ -84,32 +84,98 @@ export default function CompletedDCPage() {
       }
       
       try {
-        dcModelData = await apiRequest<any[]>(`/dc?status=completed`)
-        console.log('Loaded DC model data:', dcModelData?.length || 0, 'entries')
+        // Try dedicated endpoint first, fallback to filtered endpoint
+        try {
+          const response = await apiRequest<any>(`/dc/completed`)
+          console.log('🔍 Raw API response from /dc/completed:', {
+            type: typeof response,
+            isArray: Array.isArray(response),
+            hasData: response?.data !== undefined,
+            responseKeys: response && typeof response === 'object' ? Object.keys(response) : null
+          })
+          
+          // Handle paginated response or direct array
+          if (Array.isArray(response)) {
+            dcModelData = response
+          } else if (response?.data && Array.isArray(response.data)) {
+            dcModelData = response.data
+          } else {
+            console.warn('⚠️ Unexpected response format, treating as empty')
+            dcModelData = []
+          }
+          
+          console.log('✅ Loaded DC model data from /dc/completed:', dcModelData?.length || 0, 'entries')
+        } catch (dedicatedErr) {
+          // Fallback to filtered endpoint
+          console.warn('Dedicated endpoint failed, trying filtered endpoint:', dedicatedErr)
+          const fallbackResponse = await apiRequest<any>(`/dc?status=completed`)
+          
+          if (Array.isArray(fallbackResponse)) {
+            dcModelData = fallbackResponse
+          } else if (fallbackResponse?.data && Array.isArray(fallbackResponse.data)) {
+            dcModelData = fallbackResponse.data
+          } else {
+            dcModelData = []
+          }
+          
+          console.log('✅ Loaded DC model data from /dc?status=completed:', dcModelData?.length || 0, 'entries')
+        }
+        
+        if (dcModelData && dcModelData.length > 0) {
+          console.log('Sample completed DC:', {
+            id: dcModelData[0]._id,
+            customerName: dcModelData[0].customerName,
+            status: dcModelData[0].status,
+            completedAt: dcModelData[0].completedAt
+          })
+        } else {
+          console.warn('⚠️ No completed DCs found in API response')
+        }
       } catch (err: any) {
-        console.warn('Failed to load completed DCs:', err)
+        console.error('❌ Failed to load completed DCs:', {
+          error: err?.message,
+          status: err?.status,
+          details: err
+        })
         dcModelData = []
+        toast.error(`Failed to load completed DCs: ${err?.message || 'Unknown error'}`)
       }
 
+      // Ensure dcModelData is an array
+      if (!Array.isArray(dcModelData)) {
+        console.error('❌ dcModelData is not an array:', typeof dcModelData, dcModelData)
+        dcModelData = []
+      }
+      
       // Transform DC model entries to match Row format
+      console.log('🔄 Transforming DC model data to Row format...', {
+        dcModelDataLength: dcModelData?.length || 0,
+        isArray: Array.isArray(dcModelData),
+        firstItem: dcModelData?.[0] ? {
+          _id: dcModelData[0]._id,
+          status: dcModelData[0].status,
+          customerName: dcModelData[0].customerName,
+          dcOrderId: dcModelData[0].dcOrderId
+        } : null
+      })
       const transformedDCs: Row[] = (dcModelData || []).map((dc: any) => {
         const dcId = dc._id?.toString() || dc._id
         return {
           _id: dcId,
           dcId: dcId, // This is a DC entry
           isDcOrder: false,
-          dcNo: dc.createdAt 
+        dcNo: dc.createdAt 
             ? `${new Date(dc.createdAt).getFullYear().toString().slice(-2)}-${(new Date(dc.createdAt).getFullYear() + 1).toString().slice(-2)}/${dcId.slice(-4)}`
             : `DC-${dcId.slice(-6)}`,
-          dcDate: dc.dcDate || dc.createdAt,
-          dcCategory: dc.dcCategory || 'Term 2',
-          dcFinYear: dc.createdAt 
-            ? `${new Date(dc.createdAt).getFullYear()}-${new Date(dc.createdAt).getFullYear() + 1}`
-            : '',
-          schoolName: dc.dcOrderId?.school_name || dc.customerName || '',
-          schoolCode: dc.dcOrderId?.dc_code || '',
-          zone: dc.dcOrderId?.zone || '',
-          executive: dc.employeeId?.name || dc.dcOrderId?.assigned_to?.name || '',
+        dcDate: dc.dcDate || dc.createdAt,
+        dcCategory: dc.dcCategory || 'Term 2',
+        dcFinYear: dc.createdAt 
+          ? `${new Date(dc.createdAt).getFullYear()}-${new Date(dc.createdAt).getFullYear() + 1}`
+          : '',
+        schoolName: dc.dcOrderId?.school_name || dc.customerName || '',
+        schoolCode: dc.dcOrderId?.dc_code || '',
+        zone: dc.dcOrderId?.zone || '',
+        executive: dc.employeeId?.name || dc.dcOrderId?.assigned_to?.name || '',
           transport: dc.transport || '',
           lrNo: dc.lrNo || '',
           lrDate: dc.lrDate || '',
@@ -173,6 +239,8 @@ export default function CompletedDCPage() {
         allDataMap.set(dc._id, dc)
       })
       
+      console.log('📦 Added DC entries to map:', transformedDCs.length)
+      
       // Then add DcOrder entries only if they don't have a corresponding DC or if DC doesn't exist
       dcOrderRows.forEach(dcOrder => {
         if (dcOrder.dcId) {
@@ -189,6 +257,29 @@ export default function CompletedDCPage() {
       })
       
       const allData = Array.from(allDataMap.values())
+      
+      console.log('✅ Final data to display:', {
+        totalRows: allData.length,
+        dcEntries: transformedDCs.length,
+        dcOrderEntries: dcOrderRows.length,
+        sampleRow: allData[0] ? {
+          id: allData[0]._id,
+          schoolName: allData[0].schoolName,
+          isDcOrder: allData[0].isDcOrder,
+          dcNo: allData[0].dcNo,
+          completedDate: allData[0].completedDate
+        } : null,
+        allRowIds: allData.slice(0, 5).map(r => r._id)
+      })
+      
+      if (allData.length === 0) {
+        console.warn('⚠️ No data to display! Check:')
+        console.warn('  - dcModelData length:', dcModelData?.length || 0)
+        console.warn('  - dcOrderData length:', dcOrderData?.length || 0)
+        console.warn('  - transformedDCs length:', transformedDCs.length)
+        console.warn('  - dcOrderRows length:', dcOrderRows.length)
+      }
+      
       setRows(allData)
       
       if (allData.length === 0) {

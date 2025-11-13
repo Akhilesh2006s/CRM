@@ -8,58 +8,26 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
-
-const DEFAULT_PRODUCT_OPTIONS = [
-  'Abacus',
-  'Vedic Maths',
-  'EEL',
-  'IIT',
-  'Financial literacy',
-  'Brain bytes',
-  'Spelling bee',
-  'Skill pro',
-  'Maths lab',
-  'Codechamp',
-]
-
-// Product levels mapping based on the image
-const productLevels: Record<string, string[]> = {
-  'Abacus': ['L1', 'L2'],
-  'Vedic Maths': ['L1', 'L2'],
-  'EEL': ['L1'],
-  'IIT': ['L1'],
-  'Financial literacy': ['L1'],
-  'Brain bytes': ['L1'],
-  'Spelling bee': ['L1'],
-  'Skill pro': ['L1'],
-  'Maths lab': ['L1'],
-  'Codechamp': ['L1'],
-}
-
-// Get available levels for a specific product
-const getAvailableLevels = (product: string): string[] => {
-  return productLevels[product] || ['L1']
-}
+import { useProducts } from '@/hooks/useProducts'
 
 export default function InventoryNewItemPage() {
   const router = useRouter()
+  const { productNames: productOptions, getProductLevels } = useProducts()
   const [productName, setProductName] = useState<string>('')
   const [category, setCategory] = useState<string>('')
   const [level, setLevel] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
   const [saving, setSaving] = useState(false)
-  const [productOptions, setProductOptions] = useState<string[]>(DEFAULT_PRODUCT_OPTIONS)
-
+  
+  // Update level options when product changes
   useEffect(() => {
-    ;(async () => {
-      try {
-        const opts = await apiRequest<{ products: string[] }>(
-          '/metadata/inventory-options'
-        )
-        if (opts?.products?.length) setProductOptions(opts.products)
-      } catch (_) {}
-    })()
-  }, [])
+    if (productName) {
+      const levels = getProductLevels(productName)
+      if (levels.length > 0 && !levels.includes(level)) {
+        setLevel(levels[0]) // Set to first available level
+      }
+    }
+  }, [productName, getProductLevels])
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -91,7 +59,7 @@ export default function InventoryNewItemPage() {
             <Select onValueChange={(value) => {
               setProductName(value)
               // Reset level and set to first available level for the selected product
-              const availableLevels = getAvailableLevels(value)
+              const availableLevels = getProductLevels(value)
               setLevel(availableLevels.length > 0 ? availableLevels[0] : '')
             }} value={productName}>
               <SelectTrigger>
@@ -117,7 +85,7 @@ export default function InventoryNewItemPage() {
                 <SelectValue placeholder={productName ? "Select Level" : "Select Product first"} />
               </SelectTrigger>
               <SelectContent>
-                {productName && getAvailableLevels(productName).map((lvl) => (
+                {productName && getProductLevels(productName).map((lvl) => (
                   <SelectItem key={lvl} value={lvl}>{lvl}</SelectItem>
                 ))}
               </SelectContent>
