@@ -1,16 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Pencil } from 'lucide-react'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 
 type Training = {
   _id: string
-  schoolCode: string
+  schoolCode?: string
   schoolName: string
   zone?: string
   town?: string
@@ -18,11 +20,15 @@ type Training = {
   trainerId: { _id: string; name: string; mobile?: string }
   employeeId?: { _id: string; name: string }
   trainingDate: string
+  term?: string
+  trainingLevel?: string
+  remarks?: string
   status: 'Scheduled' | 'Completed' | 'Cancelled'
   poImageUrl?: string
 }
 
 export default function TrainingsListPage() {
+  const router = useRouter()
   const [items, setItems] = useState<Training[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
@@ -37,6 +43,22 @@ export default function TrainingsListPage() {
   const [zones, setZones] = useState<string[]>([])
   const [trainers, setTrainers] = useState<{ _id: string; name: string }[]>([])
   const [employees, setEmployees] = useState<{ _id: string; name: string }[]>([])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      Object.entries(filters).forEach(([k, v]) => {
+        if (v) params.append(k, v)
+      })
+      const data = await apiRequest<Training[]>(`/training?${params.toString()}`)
+      setItems(data)
+    } catch (e) {
+      toast.error('Failed to load trainings')
+    } finally {
+      setLoading(false)
+    }
+  }, [filters])
 
   useEffect(() => {
     (async () => {
@@ -53,23 +75,28 @@ export default function TrainingsListPage() {
       } catch {}
     })()
     load()
-  }, [])
+  }, [load])
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      Object.entries(filters).forEach(([k, v]) => {
-        if (v) params.append(k, v)
-      })
-      const data = await apiRequest<Training[]>(`/training?${params.toString()}`)
-      setItems(data)
-    } catch (e) {
-      toast.error('Failed to load trainings')
-    } finally {
-      setLoading(false)
+  // Refresh data when page becomes visible (e.g., user navigates back to this page)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        load()
+      }
     }
-  }
+
+    const handleFocus = () => {
+      load()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [load])
 
   const cancel = async (id: string) => {
     if (!confirm('Cancel this training?')) return
@@ -142,17 +169,18 @@ export default function TrainingsListPage() {
                 <th className="py-2 px-3">Training Date</th>
                 <th className="py-2 px-3">Status</th>
                 <th className="py-2 px-3">PO Image</th>
-                <th className="py-2 px-3 text-right">Actions</th>
+                <th className="py-2 px-3 text-center">Action 1</th>
+                <th className="py-2 px-3 text-center">Action 2</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={11} className="py-4 px-3 text-center text-neutral-500">No trainings found</td></tr>
+                <tr><td colSpan={12} className="py-4 px-3 text-center text-neutral-500">No trainings found</td></tr>
               )}
               {items.map((t, idx) => (
                 <tr key={t._id} className="border-b last:border-0">
                   <td className="py-2 px-3 text-center">{idx + 1}</td>
-                  <td className="py-2 px-3">{t.schoolCode}</td>
+                  <td className="py-2 px-3">{t.schoolCode || '-'}</td>
                   <td className="py-2 px-3">{t.schoolName}</td>
                   <td className="py-2 px-3">{t.zone || '-'}</td>
                   <td className="py-2 px-3">{t.town || '-'}</td>
@@ -173,15 +201,28 @@ export default function TrainingsListPage() {
                       <a href={t.poImageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
                     ) : '-'}
                   </td>
-                  <td className="py-2 px-3 text-right">
-                    <div className="flex gap-2 justify-end">
-                      {t.status === 'Scheduled' && (
-                        <>
-                          <Button size="sm" variant="default" onClick={() => markCompleted(t._id)}>Mark Completed</Button>
-                          <Button size="sm" variant="destructive" onClick={() => cancel(t._id)}>Cancel</Button>
-                        </>
-                      )}
-                    </div>
+                  <td className="py-2 px-3 text-center">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => router.push(`/dashboard/training/edit/${t._id}`)}
+                      className="flex items-center gap-1"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  </td>
+                  <td className="py-2 px-3 text-center">
+                    {t.status === 'Scheduled' ? (
+                      <Button 
+                        size="sm" 
+                        variant="destructive" 
+                        onClick={() => cancel(t._id)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : (
+                      <span className="text-neutral-400">-</span>
+                    )}
                   </td>
                 </tr>
               ))}

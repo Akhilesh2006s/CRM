@@ -1,16 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Pencil } from 'lucide-react'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 
 type Service = {
   _id: string
-  schoolCode: string
+  schoolCode?: string
   schoolName: string
   zone?: string
   town?: string
@@ -18,11 +20,14 @@ type Service = {
   trainerId: { _id: string; name: string; mobile?: string }
   employeeId?: { _id: string; name: string }
   serviceDate: string
+  term?: string
+  remarks?: string
   status: 'Scheduled' | 'Completed' | 'Cancelled'
   poImageUrl?: string
 }
 
 export default function ServicesListPage() {
+  const router = useRouter()
   const [items, setItems] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
@@ -52,10 +57,9 @@ export default function ServicesListPage() {
         setEmployees(eData)
       } catch {}
     })()
-    load()
   }, [])
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
@@ -69,29 +73,32 @@ export default function ServicesListPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filters])
 
-  const cancel = async (id: string) => {
-    if (!confirm('Cancel this service?')) return
-    try {
-      await apiRequest(`/services/${id}/cancel`, { method: 'PUT', body: JSON.stringify({}) })
-      toast.success('Service cancelled')
-      load()
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to cancel')
-    }
-  }
+  useEffect(() => {
+    load()
+  }, [load])
 
-  const markCompleted = async (id: string) => {
-    if (!confirm('Mark this service as completed?')) return
-    try {
-      await apiRequest(`/services/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'Completed' }) })
-      toast.success('Service marked as completed')
-      load()
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to update')
+  // Refresh data when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        load()
+      }
     }
-  }
+
+    const handleFocus = () => {
+      load()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [load])
 
   return (
     <div className="space-y-6">
@@ -139,26 +146,30 @@ export default function ServicesListPage() {
                 <th className="py-2 px-3">Town</th>
                 <th className="py-2 px-3">Subject</th>
                 <th className="py-2 px-3">Trainer</th>
+                <th className="py-2 px-3">Term</th>
                 <th className="py-2 px-3">Service Date</th>
+                <th className="py-2 px-3">Remarks</th>
                 <th className="py-2 px-3">Status</th>
                 <th className="py-2 px-3">PO Image</th>
-                <th className="py-2 px-3 text-right">Actions</th>
+                <th className="py-2 px-3 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={11} className="py-4 px-3 text-center text-neutral-500">No services found</td></tr>
+                <tr><td colSpan={13} className="py-4 px-3 text-center text-neutral-500">No services found</td></tr>
               )}
               {items.map((s, idx) => (
                 <tr key={s._id} className="border-b last:border-0">
                   <td className="py-2 px-3 text-center">{idx + 1}</td>
-                  <td className="py-2 px-3">{s.schoolCode}</td>
+                  <td className="py-2 px-3">{s.schoolCode || '-'}</td>
                   <td className="py-2 px-3">{s.schoolName}</td>
                   <td className="py-2 px-3">{s.zone || '-'}</td>
                   <td className="py-2 px-3">{s.town || '-'}</td>
                   <td className="py-2 px-3">{s.subject}</td>
                   <td className="py-2 px-3">{s.trainerId?.name || '-'}</td>
+                  <td className="py-2 px-3">{s.term || '-'}</td>
                   <td className="py-2 px-3 text-center">{new Date(s.serviceDate).toLocaleDateString()}</td>
+                  <td className="py-2 px-3">{s.remarks || '-'}</td>
                   <td className="py-2 px-3">
                     <span className={`inline-flex px-2 py-1 rounded-full text-xs ${
                       s.status === 'Completed' ? 'bg-green-100 text-green-700' :
@@ -173,15 +184,15 @@ export default function ServicesListPage() {
                       <a href={s.poImageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View</a>
                     ) : '-'}
                   </td>
-                  <td className="py-2 px-3 text-right">
-                    <div className="flex gap-2 justify-end">
-                      {s.status === 'Scheduled' && (
-                        <>
-                          <Button size="sm" variant="default" onClick={() => markCompleted(s._id)}>Mark Completed</Button>
-                          <Button size="sm" variant="destructive" onClick={() => cancel(s._id)}>Cancel</Button>
-                        </>
-                      )}
-                    </div>
+                  <td className="py-2 px-3 text-center">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => router.push(`/dashboard/training/services/edit/${s._id}`)}
+                      className="flex items-center gap-1"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}

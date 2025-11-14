@@ -37,6 +37,7 @@ type DcOrder = {
   pod_proof_url?: string
   status?: string
   dcRequestData?: any
+  isLead?: boolean // Flag to identify if this is a converted lead
 }
 
 type DC = {
@@ -172,15 +173,53 @@ export default function ClosedSalesPage() {
         )
       }
       
+      // Also fetch leads with status "Closed" and convert them to DcOrder format
+      try {
+        const closedLeadsRes = await apiRequest<any>(`/leads?status=Closed&limit=1000`)
+        const closedLeadsArray = Array.isArray(closedLeadsRes) ? closedLeadsRes : (closedLeadsRes?.data || [])
+        
+        // Convert closed leads to DcOrder format for display
+        const closedLeadsAsDeals: DcOrder[] = closedLeadsArray.map((lead: any) => ({
+          _id: lead._id,
+          school_name: lead.school_name || '',
+          contact_person: lead.contact_person || '',
+          contact_mobile: lead.contact_mobile || '',
+          email: lead.email || '',
+          address: lead.address || lead.location || '',
+          location: lead.location || lead.address || '',
+          zone: lead.zone || '',
+          school_type: lead.school_type || '',
+          products: lead.products || [],
+          assigned_to: lead.managed_by || lead.assigned_by || lead.createdBy || undefined,
+          created_at: lead.createdAt,
+          createdAt: lead.createdAt,
+          remarks: lead.remarks || '',
+          status: 'Closed', // Mark as Closed to distinguish from DcOrders
+          dc_code: undefined, // Leads don't have DC codes
+          pod_proof_url: undefined, // Leads might have PO in associated DC
+          isLead: true, // Flag to identify this is a lead, not a DcOrder
+        }))
+        
+        // Merge closed leads with DcOrders
+        data = [...data, ...closedLeadsAsDeals]
+        console.log('Loaded closed leads:', closedLeadsAsDeals.length)
+      } catch (e) {
+        console.warn('Failed to load closed leads:', e)
+        // Continue without closed leads if API fails
+      }
+      
       console.log('Loaded closed deals:', data)
       console.log('First deal sample:', data[0])
       
       // Load existing DCs for all deals in parallel (much faster)
       const dcMap: Record<string, DC> = {}
       try {
-        const allDealIds = data.map((d: any) => d._id)
-        // Make all API calls in parallel instead of sequentially
-        const dcPromises = allDealIds.map(async (dealId: string) => {
+        // Filter out leads (they might have DCs associated via leadId, not dcOrderId)
+        const dealIds = data.filter((d: any) => !d.isLead).map((d: any) => d._id)
+        const leadIds = data.filter((d: any) => d.isLead).map((d: any) => d._id)
+        
+        // Load DCs for DcOrders
+        const dcPromises = dealIds.map(async (dealId: string) => {
           try {
             const dcs = await apiRequest<DC[]>(`/dc?dcOrderId=${dealId}`)
             if (dcs && dcs.length > 0) {
@@ -193,11 +232,38 @@ export default function ClosedSalesPage() {
           }
         })
         
+        // Load DCs for Leads (check by leadId or createdBy)
+        const leadDcPromises = leadIds.map(async (leadId: string) => {
+          try {
+            // Try to find DC associated with this lead
+            const dcs = await apiRequest<DC[]>(`/dc`)
+            const dcArray = Array.isArray(dcs) ? dcs : (dcs?.data || [])
+            // Find DC that might be related to this lead (check if DC has leadId or if lead was converted)
+            const relatedDC = dcArray.find((dc: any) => 
+              dc.dcOrderId?._id === leadId || 
+              (typeof dc.dcOrderId === 'string' && dc.dcOrderId === leadId) ||
+              dc.saleId?._id === leadId ||
+              (typeof dc.saleId === 'string' && dc.saleId === leadId)
+            )
+            if (relatedDC) {
+              return { dealId: leadId, dc: relatedDC }
+            }
+            return null
+          } catch (e) {
+            console.warn(`Failed to load DC for lead ${leadId}:`, e)
+            return null
+          }
+        })
+        
         // Wait for all promises to resolve
-        const dcResults = await Promise.all(dcPromises)
+        const [dcResults, leadDcResults] = await Promise.all([
+          Promise.all(dcPromises),
+          Promise.all(leadDcPromises)
+        ])
         
         // Build the map from results
-        dcResults.forEach((result) => {
+        const allResults = [...(dcResults || []), ...(leadDcResults || [])]
+        allResults.forEach((result) => {
           if (result) {
             dcMap[result.dealId] = result.dc
           }
@@ -1101,7 +1167,8 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
-                      {(canRequestDC || canApproveDC) && (
+                      {/* Only show Raise DC button for DcOrders, not for closed leads */}
+                      {!d.isLead && (canRequestDC || canApproveDC) && (
                         <Button
                           size="sm"
                           variant={d.status === 'dc_accepted' ? 'default' : 'destructive'}
@@ -1115,7 +1182,11 @@ export default function ClosedSalesPage() {
                           {d.status === 'dc_requested' ? 'Review DC Request' : d.status === 'dc_accepted' ? 'Update DC' : 'Raise DC'}
                         </Button>
                       )}
-                      {!isManager && (
+                      {/* Show indicator for closed leads */}
+                      {d.isLead && (
+                        <span className="text-xs text-slate-500 italic px-2 py-1">Closed Lead</span>
+                      )}
+                      {!isManager && !d.isLead && (
                         <Button
                           size="sm"
                           variant="outline"
