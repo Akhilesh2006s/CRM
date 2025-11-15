@@ -110,20 +110,20 @@ export default function ClosedSalesPage() {
     product: string
     class: string
     category: string
-    productName: string
-    quantity: number
+    specs: string
+    subject?: string
     strength: number
     price: number
     total: number
     level: string
   }
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }
+    { id: '1', product: 'Abacus', class: '1', category: 'New Students', specs: 'Regular', strength: 0, price: 0, total: 0, level: 'L1' }
   ])
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects } = useProducts()
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
@@ -450,15 +450,15 @@ export default function ClosedSalesPage() {
             product: p.product || '',
             class: p.class || '1',
             category: p.category || 'New Students',
-            productName: p.productName || p.product || '',
-            quantity: Number(p.quantity) || 0,
+            specs: p.specs || 'Regular',
+            subject: p.subject || undefined,
             strength: Number(p.strength) || 0,
             price: Number(p.price) || 0,
             total: Number(p.total) || (Number(p.price) || 0) * (Number(p.strength) || 0),
             level: p.level || getDefaultLevel(p.product || 'Abacus'),
           })))
         } else {
-          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
+          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', specs: 'Regular', strength: 0, price: 0, total: 0, level: 'L1' }])
         }
       } else if (existingDCForDeal) {
         // Load full DC details to get all fields
@@ -535,9 +535,8 @@ export default function ClosedSalesPage() {
                 product: matchedProduct, // Use matched product for dropdown
               class: p.class || '1',
               category: p.category || 'New Students',
-                // Use productName if available, otherwise use matched product
-                productName: productNameValue || matchedProduct,
-                quantity: quantityNum,
+                specs: p.specs || 'Regular',
+                subject: p.subject || undefined,
                 strength: strengthNum,
                 price: priceNum,
                 total: totalNum,
@@ -551,11 +550,10 @@ export default function ClosedSalesPage() {
                 'final product (dropdown value)': productRow.product,
               })
               
-              console.log(`Product ${idx + 1} - productName logic:`, {
-                'p.productName': p.productName,
+              console.log(`Product ${idx + 1} - product logic:`, {
                 'p.product': p.product,
-                'productNameValue': productNameValue,
-                'final productName': productRow.productName,
+                'matchedProduct': matchedProduct,
+                'final product': productRow.product,
               })
               console.log(`Product ${idx + 1} RAW VALUES:`, {
                 'p.price': p.price,
@@ -591,8 +589,8 @@ export default function ClosedSalesPage() {
                 product: matchedProduct, // Use matched product for dropdown
               class: '1',
               category: 'New Students',
-                productName: matchedProduct, // Ensure productName matches dropdown
-              quantity: p.quantity || 0,
+                specs: 'Regular',
+                subject: undefined,
               strength: p.strength || 0,
                 price: p.price || 0,
                 total: (p.price || 0) * (p.strength || 0),
@@ -600,7 +598,7 @@ export default function ClosedSalesPage() {
               }
             }))
           } else {
-            setProductRows([{ id: '1', product: 'ABACUS', class: '1', category: 'New Students', productName: 'ABACUS', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
+            setProductRows([{ id: '1', product: 'ABACUS', class: '1', category: 'New Students', specs: 'Regular', strength: 0, price: 0, total: 0, level: 'L1' }])
           }
         } catch (e) {
           console.error('Failed to load existing DC:', e)
@@ -615,15 +613,15 @@ export default function ClosedSalesPage() {
               product: p.product_name || 'Abacus',
               class: '1',
               category: 'New Students',
-              productName: p.product_name || '',
-              quantity: p.quantity || 0,
+              specs: 'Regular',
+              subject: undefined,
               strength: p.strength || 0,
               price: p.price || 0,
               total: (p.price || 0) * (p.strength || 0),
               level: p.level || 'L2',
             })))
           } else {
-            setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
+            setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', specs: 'Regular', strength: 0, price: 0, total: 0, level: 'L1' }])
           }
         }
       } else {
@@ -639,15 +637,15 @@ export default function ClosedSalesPage() {
             product: p.product_name || 'Abacus',
             class: '1',
             category: 'New Students',
-            productName: p.product_name || '',
-            quantity: p.quantity || 0,
+            specs: 'Regular',
+            subject: undefined,
             strength: p.strength || 0,
             price: p.price || 0,
             total: (p.price || 0) * (p.strength || 0),
             level: p.level || 'L2',
           })))
         } else {
-          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', productName: '', quantity: 0, strength: 0, price: 0, total: 0, level: 'L1' }])
+          setProductRows([{ id: '1', product: 'Abacus', class: '1', category: 'New Students', specs: 'Regular', strength: 0, price: 0, total: 0, level: 'L1' }])
         }
       }
       setOpenRaiseDCDialog(true)
@@ -709,8 +707,8 @@ export default function ClosedSalesPage() {
         raisePayload.employeeId = employeeId
       }
 
-      // Calculate requested quantity from product rows
-      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+      // Calculate requested quantity from product rows (using strength)
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.strength || 0), 0)
       raisePayload.requestedQuantity = totalQuantity || 1
       
       // Include product details in payload
@@ -718,8 +716,8 @@ export default function ClosedSalesPage() {
         product: row.product,
         class: row.class,
         category: row.category,
-        productName: row.productName,
-        quantity: row.quantity,
+        specs: row.specs || 'Regular',
+        subject: row.subject || undefined,
         strength: Number(row.strength) || 0,
         price: Number(row.price) || 0,
         total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
@@ -802,8 +800,8 @@ export default function ClosedSalesPage() {
 
     setSaving(true)
     try {
-      // Calculate requested quantity from product rows
-      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+      // Calculate requested quantity from product rows (using strength)
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.strength || 0), 0)
       
       // Prepare DC request data to store in DcOrder
       const dcRequestData = {
@@ -816,8 +814,8 @@ export default function ClosedSalesPage() {
           product: row.product,
           class: row.class,
           category: row.category,
-          productName: row.productName,
-          quantity: row.quantity,
+          specs: row.specs || 'Regular',
+          subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
           price: Number(row.price) || 0,
           total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
@@ -868,8 +866,8 @@ export default function ClosedSalesPage() {
         product: row.product,
         class: row.class,
         category: row.category,
-        productName: row.productName,
-        quantity: row.quantity,
+        specs: row.specs || 'Regular',
+        subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
           price: Number(row.price) || 0,
           total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
@@ -986,8 +984,8 @@ export default function ClosedSalesPage() {
           product: row.product,
           class: row.class,
           category: row.category,
-          productName: row.productName,
-          quantity: row.quantity,
+          specs: row.specs || 'Regular',
+          subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
           price: Number(row.price) || 0,
           total: Number(row.total) || (Number(row.price) || 0) * (Number(row.strength) || 0),
@@ -1167,8 +1165,8 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
-                      {/* Only show Raise DC button for DcOrders, not for closed leads */}
-                      {!d.isLead && (canRequestDC || canApproveDC) && (
+                      {/* Show Raise DC button for both DcOrders and closed leads */}
+                      {(canRequestDC || canApproveDC) && (
                         <Button
                           size="sm"
                           variant={d.status === 'dc_accepted' ? 'default' : 'destructive'}
@@ -1182,11 +1180,7 @@ export default function ClosedSalesPage() {
                           {d.status === 'dc_requested' ? 'Review DC Request' : d.status === 'dc_accepted' ? 'Update DC' : 'Raise DC'}
                         </Button>
                       )}
-                      {/* Show indicator for closed leads */}
-                      {d.isLead && (
-                        <span className="text-xs text-slate-500 italic px-2 py-1">Closed Lead</span>
-                      )}
-                      {!isManager && !d.isLead && (
+                      {!isManager && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -1426,8 +1420,8 @@ export default function ClosedSalesPage() {
                         product: 'ABACUS',
                         class: '1',
                         category: 'New Students',
-                        productName: 'ABACUS', // Auto-fill with product name
-                        quantity: 0,
+                        specs: 'Regular',
+                        subject: undefined,
                         strength: 0,
                         price: 0,
                         total: 0,
@@ -1446,8 +1440,8 @@ export default function ClosedSalesPage() {
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Product</th>
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Class</th>
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Category</th>
-                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Product Name</th>
-                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Qty</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Specs</th>
+                        <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Subject</th>
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Strength</th>
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Price</th>
                         <th className="py-3 px-4 text-left border-r border-slate-200 text-slate-800 font-semibold text-sm">Total</th>
@@ -1463,7 +1457,6 @@ export default function ClosedSalesPage() {
                               const updated = [...productRows]
                               updated[idx].product = v
                               // ALWAYS auto-fill product name when product changes
-                              updated[idx].productName = v
                               // Update level to default for the selected product
                               updated[idx].level = getDefaultLevel(v)
                               setProductRows(updated)
@@ -1511,31 +1504,40 @@ export default function ClosedSalesPage() {
                             </Select>
                           </td>
                           <td className="py-3 px-4 border-r">
-                            <Input
-                              type="text"
-                              className="h-10 text-sm"
-                              value={row.productName || row.product || ''}
-                              onChange={(e) => {
-                                const updated = [...productRows]
-                                updated[idx].productName = e.target.value
-                                setProductRows(updated)
-                              }}
-                              placeholder="Product Name"
-                            />
+                            <Select value={row.specs || 'Regular'} onValueChange={(v) => {
+                              const updated = [...productRows]
+                              updated[idx].specs = v
+                              setProductRows(updated)
+                            }}>
+                              <SelectTrigger className="h-10 text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getProductSpecs(row.product).map(spec => (
+                                  <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td className="py-3 px-4 border-r">
-                            <Input
-                              type="number"
-                              className="h-10 text-sm"
-                              value={row.quantity || ''}
-                              onChange={(e) => {
+                            {getProductSubjects(row.product).length > 0 ? (
+                              <Select value={row.subject || ''} onValueChange={(v) => {
                                 const updated = [...productRows]
-                                updated[idx].quantity = Number(e.target.value) || 0
+                                updated[idx].subject = v
                                 setProductRows(updated)
-                              }}
-                              placeholder="0"
-                              min="0"
-                            />
+                              }}>
+                                <SelectTrigger className="h-10 text-sm">
+                                  <SelectValue placeholder="Select Subject" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getProductSubjects(row.product).map(subject => (
+                                    <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-neutral-400">-</span>
+                            )}
                           </td>
                           <td className="py-3 px-4 border-r">
                             <Input
@@ -1569,14 +1571,8 @@ export default function ClosedSalesPage() {
                               step="0.01"
                             />
                           </td>
-                          <td className="py-3 px-4 border-r">
-                            <Input
-                              type="number"
-                              className="h-10 text-sm bg-slate-50"
-                              value={row.total !== undefined && row.total !== null ? String(row.total) : '0'}
-                              disabled
-                              placeholder="Auto"
-                            />
+                          <td className="py-3 px-4 border-r font-medium">
+                            {(row.total || 0).toFixed(2)}
                           </td>
                           <td className="py-3 px-4 border-r">
                             <Select value={row.level || 'L2'} onValueChange={(v) => {
@@ -1611,6 +1607,21 @@ export default function ClosedSalesPage() {
                           </td>
                         </tr>
                       ))}
+                      {/* Total Row */}
+                      <tr className="border-t-2 border-slate-300 bg-slate-100 font-semibold">
+                        <td colSpan={4} className="px-3 py-3 text-right">
+                          <span className="text-slate-700">Total:</span>
+                        </td>
+                        <td className="px-3 py-3"></td>
+                        <td className="px-3 py-3 text-right">
+                          {productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                        </td>
+                        <td className="px-3 py-3"></td>
+                        <td className="px-3 py-3 text-right font-bold text-lg">
+                          {productRows.reduce((sum, row) => sum + (Number(row.total) || 0), 0).toFixed(2)}
+                        </td>
+                        <td colSpan={2} className="px-3 py-3"></td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>

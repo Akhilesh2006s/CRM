@@ -19,15 +19,16 @@ type ProductDetail = {
   product: string
   class: string
   category: string
-  productName: string
+  specs: string
+  subject?: string
   quantity: number // Requested quantity (read-only)
-  availableQuantity?: number // Available quantity in warehouse (from inventory, auto-filled)
-  deliverableQuantity?: number // Final deliverable quantity (calculated)
-  remainingQuantity?: number // Remaining in warehouse after delivery (Available - Deliverable)
   strength?: number
   price?: number
   total?: number
   level?: string
+  availableQuantity?: number // Available quantity in warehouse (from inventory, auto-filled)
+  deliverableQuantity?: number // Final deliverable quantity (calculated)
+  remainingQuantity?: number // Remaining in warehouse after delivery (Available - Deliverable)
 }
 
 type WarehouseItem = {
@@ -35,6 +36,8 @@ type WarehouseItem = {
   productName: string
   category?: string
   level?: string
+  specs?: string
+  subject?: string
   currentStock: number
 }
 
@@ -131,13 +134,34 @@ export default function WarehouseDcAtWarehouse() {
       setSelectedDC(fullDC)
       
       // Helper function to find matching inventory item
-      const findInventoryItem = (productName: string, category?: string, level?: string): WarehouseItem | null => {
-        // Try exact match first (productName, category, level)
+      const findInventoryItem = (productName: string, category?: string, level?: string, specs?: string, subject?: string): WarehouseItem | null => {
+        // Try exact match first (productName, category, level, specs, subject)
         let match = inventoryArray.find(item => 
           item.productName?.toLowerCase() === productName?.toLowerCase() &&
           item.category === category &&
-          item.level === level
+          item.level === level &&
+          (item.specs || 'Regular') === (specs || 'Regular') &&
+          (item.subject || undefined) === (subject || undefined)
         )
+        
+        // If no exact match, try productName, category, level, and specs (without subject)
+        if (!match) {
+          match = inventoryArray.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase() &&
+            item.category === category &&
+            item.level === level &&
+            (item.specs || 'Regular') === (specs || 'Regular')
+          )
+        }
+        
+        // If no exact match, try productName, category, and level (without specs/subject)
+        if (!match) {
+          match = inventoryArray.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase() &&
+            item.category === category &&
+            item.level === level
+          )
+        }
         
         // If no exact match, try productName and category only
         if (!match) {
@@ -159,14 +183,53 @@ export default function WarehouseDcAtWarehouse() {
       
       // Load product details
       if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        console.log('Loading productDetails for DC @ Warehouse:', fullDC.productDetails)
+        console.log('Loading productDetails for DC @ Warehouse:', JSON.stringify(fullDC.productDetails, null, 2))
         setProductRows(fullDC.productDetails.map((p, idx) => {
-          // Find matching inventory item
+          const productName = p.product || 'ABACUS'
+          const category = p.category
+          const level = p.level
+          
+          // Use specs and subject DIRECTLY from DC productDetails (saved from pending DC stage)
+          // This is the actual data that was entered/edited by the employee/manager
+          // DO NOT override with inventory values - use what's in the DC
+          // Check for undefined/null explicitly, not just falsy (empty string is valid)
+          const specsValue = (p.specs !== undefined && p.specs !== null && p.specs !== '') 
+            ? p.specs 
+            : ((p as any).specs !== undefined && (p as any).specs !== null && (p as any).specs !== '')
+              ? (p as any).specs
+              : 'Regular'
+          const subjectValue = (p.subject !== undefined && p.subject !== null && p.subject !== '')
+            ? p.subject
+            : ((p as any).subject !== undefined && (p as any).subject !== null && (p as any).subject !== '')
+              ? (p as any).subject
+              : undefined
+          
+          // Find matching inventory item ONLY for getting available quantity
+          // Use the specs and subject from DC to find the correct inventory item
           const inventoryItem = findInventoryItem(
-            p.productName || p.product || 'ABACUS',
-            p.category,
-            p.level
+            productName,
+            category,
+            level,
+            specsValue,
+            subjectValue
           )
+          
+          console.log(`Product ${idx + 1} raw data from DC:`, {
+            product: productName,
+            category,
+            level,
+            specsFromDC: specsValue,
+            subjectFromDC: subjectValue,
+            fullProductDetail: p,
+            inventoryMatch: inventoryItem ? {
+              productName: inventoryItem.productName,
+              category: inventoryItem.category,
+              level: inventoryItem.level,
+              specs: inventoryItem.specs,
+              subject: inventoryItem.subject,
+              stock: inventoryItem.currentStock
+            } : null
+          })
           
           const requestedQty = p.quantity !== undefined && p.quantity !== null ? Number(p.quantity) : 0
           const availableQty = inventoryItem ? inventoryItem.currentStock : (p.availableQuantity !== undefined && p.availableQuantity !== null ? Number(p.availableQuantity) : 0)
@@ -174,10 +237,11 @@ export default function WarehouseDcAtWarehouse() {
           const remainingQty = availableQty - deliverableQty
           
           const productRow = {
-            product: p.product || 'ABACUS',
+            product: productName,
             class: p.class || 'NA',
             category: p.category || 'Training-Material',
-            productName: p.productName || p.product || 'ABACUS',
+            specs: specsValue, // Use specs from DC productDetails (saved from pending DC)
+            subject: subjectValue, // Use subject from DC productDetails (saved from pending DC)
             quantity: requestedQty, // Requested quantity (read-only)
             availableQuantity: availableQty, // Available in warehouse (from inventory, auto-filled)
             deliverableQuantity: deliverableQty, // Deliverable (calculated)
@@ -187,13 +251,13 @@ export default function WarehouseDcAtWarehouse() {
             total: p.total || 0,
             level: p.level || 'L2',
           }
-          console.log(`Product ${idx + 1} loaded:`, productRow, 'Inventory match:', inventoryItem)
+          console.log(`Product ${idx + 1} final row:`, productRow)
           return productRow
         }))
       } else {
         // Fallback: create from product string
         const productName = fullDC.product || 'ABACUS'
-        const inventoryItem = findInventoryItem(productName, 'Training-Material', undefined)
+        const inventoryItem = findInventoryItem(productName, 'Training-Material', undefined, undefined, undefined)
         const requestedQty = fullDC.requestedQuantity || 0
         const availableQty = inventoryItem ? inventoryItem.currentStock : 0
         const deliverableQty = Math.min(requestedQty, availableQty)
@@ -203,7 +267,8 @@ export default function WarehouseDcAtWarehouse() {
           product: productName,
           class: 'NA',
           category: 'Training-Material',
-          productName: productName,
+          specs: 'Regular',
+          subject: undefined,
           quantity: requestedQty, // Requested quantity
           availableQuantity: availableQty, // From inventory
           deliverableQuantity: deliverableQty, // Calculated
@@ -264,13 +329,34 @@ export default function WarehouseDcAtWarehouse() {
       const inventoryArray = Array.isArray(inventory) ? inventory : []
       
       // Helper function to find matching inventory item
-      const findInventoryItem = (productName: string, category?: string, level?: string): WarehouseItem | null => {
-        // Try exact match first (productName, category, level)
+      const findInventoryItem = (productName: string, category?: string, level?: string, specs?: string, subject?: string): WarehouseItem | null => {
+        // Try exact match first (productName, category, level, specs, subject)
         let match = inventoryArray.find(item => 
           item.productName?.toLowerCase() === productName?.toLowerCase() &&
           item.category === category &&
-          item.level === level
+          item.level === level &&
+          (item.specs || 'Regular') === (specs || 'Regular') &&
+          (item.subject || undefined) === (subject || undefined)
         )
+        
+        // If no exact match, try productName, category, level, and specs (without subject)
+        if (!match) {
+          match = inventoryArray.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase() &&
+            item.category === category &&
+            item.level === level &&
+            (item.specs || 'Regular') === (specs || 'Regular')
+          )
+        }
+        
+        // If no exact match, try productName, category, and level (without specs/subject)
+        if (!match) {
+          match = inventoryArray.find(item => 
+            item.productName?.toLowerCase() === productName?.toLowerCase() &&
+            item.category === category &&
+            item.level === level
+          )
+        }
         
         // If no exact match, try productName and category only
         if (!match) {
@@ -293,9 +379,11 @@ export default function WarehouseDcAtWarehouse() {
       // Auto-fill available quantities from database for each product
       const updatedProductRows = productRows.map(p => {
         const inventoryItem = findInventoryItem(
-          p.productName || p.product || '',
+          p.product || '',
           p.category,
-          p.level
+          p.level,
+          p.specs,
+          p.subject
         )
         
         // Get available qty from database (currentStock)
@@ -328,7 +416,8 @@ export default function WarehouseDcAtWarehouse() {
             product: p.product,
             class: p.class,
             category: p.category,
-            productName: p.productName,
+            specs: p.specs || 'Regular',
+            subject: p.subject || undefined,
             quantity: p.quantity, // Requested quantity (original)
             availableQuantity: p.availableQuantity, // Available in warehouse
             deliverableQuantity: p.deliverableQuantity, // Final deliverable
@@ -404,7 +493,8 @@ export default function WarehouseDcAtWarehouse() {
             product: p.product,
             class: p.class,
             category: p.category,
-            productName: p.productName,
+            specs: p.specs || 'Regular',
+            subject: p.subject || undefined,
             quantity: p.quantity,
             availableQuantity: p.availableQuantity,
             deliverableQuantity: p.deliverableQuantity,
@@ -646,8 +736,10 @@ export default function WarehouseDcAtWarehouse() {
                         <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
                         <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
                         <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Product Name</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Requested Qty</th>
+                        <th className="py-2 px-3 text-left border-r text-gray-900">Specs</th>
+                        <th className="py-2 px-3 text-left border-r text-gray-900">Subject</th>
+                        <th className="py-2 px-3 text-left border-r text-gray-900">Required Quantity</th>
+                        <th className="py-2 px-3 text-left border-r text-gray-900">Level</th>
                         <th className="py-2 px-3 text-left border-r text-gray-900">Available Qty</th>
                         <th className="py-2 px-3 text-left border-r text-gray-900">Deliverable Qty</th>
                         <th className="py-2 px-3 text-left border-r text-gray-900">Remaining Qty</th>
@@ -656,7 +748,7 @@ export default function WarehouseDcAtWarehouse() {
                     <tbody>
                       {productRows.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="text-center text-neutral-500 py-4">No products added</td>
+                          <td colSpan={10} className="text-center text-neutral-500 py-4">No products added</td>
                         </tr>
                       ) : (
                         productRows.map((row, idx) => (
@@ -678,13 +770,23 @@ export default function WarehouseDcAtWarehouse() {
                             </td>
                             <td className="py-2 px-3 border-r">
                               <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.productName}
+                                {row.specs || 'Regular'}
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 border-r">
+                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
+                                {row.subject || '-'}
                               </div>
                             </td>
                             <td className="py-2 px-3 border-r">
                               <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700 font-medium">
-                                {row.quantity || 0}
-              </div>
+                                {row.strength || 0}
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 border-r">
+                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
+                                {row.level || '-'}
+                              </div>
                             </td>
                             <td className="py-2 px-3 border-r">
                 <Input
@@ -720,6 +822,16 @@ export default function WarehouseDcAtWarehouse() {
                           </tr>
                         ))
                       )}
+                      {/* Total Row */}
+                      <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                        <td colSpan={5} className="px-3 py-3 text-right">
+                          <span className="text-gray-700">Total:</span>
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold text-lg">
+                          {productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                        </td>
+                        <td colSpan={4} className="px-3 py-3"></td>
+                      </tr>
                     </tbody>
                   </table>
               </div>

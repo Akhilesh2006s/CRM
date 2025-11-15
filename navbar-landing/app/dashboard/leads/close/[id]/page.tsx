@@ -51,10 +51,6 @@ export default function CloseLeadPage() {
   const [form, setForm] = useState({
     contact_person2: '',
     contact_mobile2: '',
-    decision_maker: '',
-    address: '',
-    strength: '',
-    branches: '',
     delivery_date: '',
     year: '2025-26',
   })
@@ -64,7 +60,9 @@ export default function CloseLeadPage() {
   const [productDetails, setProductDetails] = useState<Array<{
     id: string
     product: string
-    class: string
+    class: string // Single class for each row
+    fromClass?: string // Range start (only in parent row)
+    toClass?: string // Range end (only in parent row)
     category: string
     quantity: number
     strength: number
@@ -72,12 +70,16 @@ export default function CloseLeadPage() {
     total: number
     level: string
     specs: string
+    subject?: string // Subject name (if product has subjects)
+    isParentRow?: boolean // Flag to identify parent rows that generate child rows
+    sameRateForAllClasses?: boolean // Flag to apply same rate to all classes for this spec/level
+    selectedSubjects?: string[] // Selected subjects for parent row (multi-select)
   }>>([])
   const [poPhoto, setPoPhoto] = useState<File | null>(null)
   const [poPhotoUrl, setPoPhotoUrl] = useState<string>('')
   const [uploadingPO, setUploadingPO] = useState(false)
   
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, hasProductSubjects } = useProducts()
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
   const availableDCCategories = ['Term 1', 'Term 2', 'Term 3', 'Full Year']
@@ -107,12 +109,8 @@ export default function CloseLeadPage() {
           ? new Date(leadData.estimated_delivery_date).toISOString().split('T')[0]
           : ''
         setForm({
-          contact_person2: leadData.contact_person2 || '',
-          contact_mobile2: leadData.contact_mobile2 || '',
-          decision_maker: leadData.decision_maker || leadData.contact_person || '',
-          address: leadData.address || leadData.location || '',
-          strength: leadData.strength?.toString() || '',
-          branches: leadData.branches?.toString() || '',
+          contact_person2: leadData.decision_maker || leadData.contact_person2 || leadData.contact_person || '',
+          contact_mobile2: leadData.email || leadData.contact_mobile2 || '',
                 delivery_date: deliveryDate,
                 year: '2025-26',
         })
@@ -123,13 +121,15 @@ export default function CloseLeadPage() {
         let initialProductDetails: Array<{
           id: string
           product: string
-          class: string
+          fromClass: string
+          toClass: string
           category: string
           quantity: number
           strength: number
           price: number
           total: number
           level: string
+          specs: string
         }> = []
         
         if (leadData.products && Array.isArray(leadData.products) && leadData.products.length > 0) {
@@ -222,27 +222,38 @@ export default function CloseLeadPage() {
         // Only set products if we have valid matches
         setSelectedProducts(validProducts)
         
-          // Initialize product details for valid products
+          // Initialize product details for valid products - create parent rows
         if (validProducts.length > 0) {
-          const details = validProducts.map((product, idx) => {
+          const parentRows = validProducts.map((product, productIdx) => {
             const productData = leadData.products?.find((p: any) => 
               (p.product_name || p.product || p) === product
             )
-            const productSpecs = getProductSpecs(product)
             return {
-              id: Date.now().toString() + idx,
+              id: Date.now().toString() + productIdx,
               product: product,
-              class: productData?.class || '1',
+              class: '1',
+              fromClass: productData?.fromClass || productData?.class || '1',
+              toClass: productData?.toClass || '10',
               category: leadData.school_type === 'Existing' ? 'Existing Students' : 'New Students',
-              quantity: productData?.quantity || 1,
-              strength: productData?.strength || 0,
-              price: productData?.unit_price || productData?.price || 0,
-              total: (productData?.unit_price || productData?.price || 0) * (productData?.quantity || 1),
+              quantity: 1,
+              strength: 0,
+              price: 0,
+              total: 0,
               level: productData?.level || getDefaultLevel(product),
-              specs: productData?.specs || (productSpecs.length > 0 ? productSpecs[0] : 'Regular'),
+              specs: 'Regular',
+              isParentRow: true,
+              sameRateForAllClasses: false,
+              selectedSubjects: [],
             }
           })
-          setProductDetails(details)
+          setProductDetails(parentRows)
+          
+          // Auto-generate rows for each parent after a short delay
+          setTimeout(() => {
+            parentRows.forEach(parent => {
+              generateRowsFromRange(parent.id, parent.fromClass || '1', parent.toClass || '10')
+            })
+          }, 100)
         }
       }
     } catch (err: any) {
@@ -254,45 +265,163 @@ export default function CloseLeadPage() {
   }
 
   const addProductWithSpec = (product: string, spec: string) => {
-    // Add product with specific spec - allows multiple instances of same product with different specs
+    // Add product to selected products
+    if (!selectedProducts.includes(product)) {
     setSelectedProducts([...selectedProducts, product])
-    setProductDetails([...productDetails, {
-      id: Date.now().toString() + Math.random().toString(),
+    }
+    
+    // Create only ONE initial row (parent row) with From/To fields
+    const parentId = Date.now().toString() + Math.random().toString()
+    const newRow = {
+      id: parentId,
       product: product,
-      class: '1',
+      class: '1', // Default, will be replaced when range is set
+      fromClass: '1',
+      toClass: '10',
         category: lead?.school_type === 'Existing' ? 'Existing Students' : 'New Students',
       quantity: 1,
       strength: 0,
       price: 0,
       total: 0,
       level: getDefaultLevel(product),
-      specs: spec,
-    }])
+      specs: 'Regular', // Default, will be replaced when rows are generated
+      isParentRow: true, // Mark as parent row
+      sameRateForAllClasses: false, // Default: not enabled
+      selectedSubjects: [], // Selected subjects (multi-select)
+    }
+    
+    setProductDetails([...productDetails, newRow])
+    
+    // Auto-generate rows immediately after adding
+    setTimeout(() => {
+      generateRowsFromRange(parentId, '1', '10')
+    }, 0)
+  }
+  
+  // Function to generate rows when From/To class range changes
+  const generateRowsFromRange = (parentId: string, fromClass: string, toClass: string) => {
+    setProductDetails(currentDetails => {
+      const parentRow = currentDetails.find(p => p.id === parentId)
+      if (!parentRow || !parentRow.isParentRow) return currentDetails
+      
+      const from = parseInt(fromClass) || 1
+      const to = parseInt(toClass) || 10
+      const productSpecs = getProductSpecs(parentRow.product)
+      const specsToUse = productSpecs.length > 0 ? productSpecs : ['Regular']
+      const selectedSubjects = parentRow.selectedSubjects || []
+      const hasSubjects = hasProductSubjects(parentRow.product) && selectedSubjects.length > 0
+      const subjectsToUse = hasSubjects ? selectedSubjects : [undefined] // Use undefined if no subjects
+      
+      // Remove all child rows of this parent and other parent rows
+      const otherParentRows = currentDetails.filter(p => p.isParentRow && p.id !== parentId)
+      const otherChildRows = currentDetails.filter(p => !p.isParentRow && !p.id.startsWith(parentId + '_'))
+      
+      // Generate rows: for each class in range, create a row for each spec × subject combination
+      const newRows: Array<typeof parentRow> = []
+      for (let classNum = from; classNum <= to; classNum++) {
+        specsToUse.forEach((spec, specIdx) => {
+          subjectsToUse.forEach((subject, subjectIdx) => {
+            newRows.push({
+              id: parentId + '_' + classNum + '_' + specIdx + '_' + (subject || 'nosubj') + '_' + subjectIdx,
+              product: parentRow.product,
+              class: classNum.toString(),
+              category: parentRow.category,
+              quantity: 1,
+              strength: 0,
+              price: 0,
+              total: 0,
+              level: parentRow.level,
+              specs: spec,
+              subject: subject, // Include subject if product has subjects
+              isParentRow: false,
+              sameRateForAllClasses: false,
+            })
+          })
+        })
+      }
+      
+      // Update parent row and combine with other rows
+      const updatedParent = { ...parentRow, fromClass, toClass }
+      return [...otherParentRows, updatedParent, ...otherChildRows, ...newRows]
+    })
   }
   
   const updateProductDetail = (id: string, field: string, value: any) => {
-    setProductDetails(productDetails.map(p => {
-      if (p.id === id) {
-        const updated = { ...p, [field]: value }
-        // Auto-calculate total when price or quantity changes
-        if (field === 'price' || field === 'quantity') {
-          updated.total = (Number(updated.price) || 0) * (Number(updated.quantity) || 0)
+    setProductDetails(currentDetails => {
+      const rowToUpdate = currentDetails.find(p => p.id === id)
+      if (!rowToUpdate) return currentDetails
+      
+      const updated = { ...rowToUpdate, [field]: value }
+      
+      // Auto-calculate total when price or strength changes (strength * price)
+      if (field === 'price' || field === 'strength') {
+        updated.total = (Number(updated.strength) || 0) * (Number(updated.price) || 0)
+        
+        // If this is a child row and sameRateForAllClasses is enabled for this product/spec/level combo
+        // Only apply to PRICE, not strength (strength remains independent per class)
+        if (!rowToUpdate.isParentRow && field === 'price') {
+          const parentRow = currentDetails.find(p => 
+            p.isParentRow && 
+            p.product === rowToUpdate.product &&
+            p.id === rowToUpdate.id.split('_')[0]
+          )
+          
+          if (parentRow?.sameRateForAllClasses) {
+            // Update price for all rows with same product, spec, level, and subject
+            // But keep strength independent for each row
+            return currentDetails.map(p => {
+              if (!p.isParentRow && 
+                  p.product === updated.product && 
+                  p.specs === updated.specs && 
+                  p.level === updated.level &&
+                  p.subject === updated.subject) { // Also match subject
+                return {
+                  ...p,
+                  price: value, // Apply same price
+                  total: (Number(p.strength) || 0) * (Number(value) || 0) // Recalculate total with existing strength
+                }
+              }
+              if (p.id === id) return updated
+              return p
+            })
+          }
         }
-        return updated
+        // For strength, always update only the specific row (never apply to all)
       }
-      return p
-    }))
+      
+      // If From/To class or selectedSubjects changes on a parent row, regenerate all child rows
+      if (rowToUpdate.isParentRow && (field === 'fromClass' || field === 'toClass' || field === 'selectedSubjects')) {
+        setTimeout(() => {
+          generateRowsFromRange(id, updated.fromClass || '1', updated.toClass || '10')
+        }, 0)
+      }
+      
+      // Update the specific row
+      return currentDetails.map(p => p.id === id ? updated : p)
+    })
   }
   
   const removeProductDetail = (id: string) => {
-    // Remove only this specific product instance (by ID)
-    // Don't remove from selectedProducts array - same product can appear multiple times with different specs
+    // Check if it's a parent row or child row
+    const rowToRemove = productDetails.find(p => p.id === id)
+    
+    if (rowToRemove?.isParentRow) {
+      // Remove parent and all its child rows
+      setProductDetails(productDetails.filter(p => 
+        p.id !== id && !p.id.startsWith(id + '_')
+      ))
+      // Remove from selected products
+      setSelectedProducts(selectedProducts.filter(p => p !== rowToRemove.product))
+    } else {
+      // Remove only this specific child row
     setProductDetails(productDetails.filter(p => p.id !== id))
     // Update selectedProducts to match remaining productDetails
     const remainingProducts = productDetails
       .filter(p => p.id !== id)
       .map(p => p.product)
+        .filter((p, idx, arr) => arr.indexOf(p) === idx) // Remove duplicates
     setSelectedProducts(remainingProducts)
+    }
   }
   
   const handlePOPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -347,15 +476,18 @@ export default function CloseLeadPage() {
   const handleTurnToClient = async () => {
     if (!lead) return
     
-    if (productDetails.length === 0) {
-      toast.error('Please add at least one product with details')
+    // Filter out parent rows for validation
+    const actualProductDetails = productDetails.filter(pd => !pd.isParentRow)
+    
+    if (actualProductDetails.length === 0) {
+      toast.error('Please add at least one product and set class range to generate rows')
       return
     }
     
-    // Validate product details
-    const invalidProducts = productDetails.filter(p => !p.product || !p.quantity || !p.strength)
+    // Validate product details (excluding parent rows)
+    const invalidProducts = actualProductDetails.filter(p => !p.product || !p.strength || !p.price)
     if (invalidProducts.length > 0) {
-      toast.error('Please fill in Product, Quantity, and Strength for all products')
+      toast.error('Please fill in Product, Strength, and Price for all products')
       return
     }
     
@@ -378,17 +510,18 @@ export default function CloseLeadPage() {
       
       // Prepare update payload
       const updatePayload: any = {
-        contact_person2: form.contact_person2 || undefined,
-        contact_mobile2: form.contact_mobile2 || undefined,
-        decision_maker: form.decision_maker || undefined,
-        address: form.address || undefined,
-        strength: form.strength ? Number(form.strength) : undefined,
-        branches: form.branches ? Number(form.branches) : undefined,
+        school_name: lead?.school_name || undefined,
+        contact_person: lead?.contact_person || undefined,
+        contact_mobile: lead?.contact_mobile || undefined,
+        email: lead?.email || undefined,
+        contact_person2: form.contact_person2 || undefined, // Decision Maker name
+        contact_mobile2: form.contact_mobile2 || undefined, // Decision Maker email
+        decision_maker: form.contact_person2 || undefined, // Also set decision_maker field
         estimated_delivery_date: form.delivery_date ? new Date(form.delivery_date).toISOString() : undefined,
         assigned_to: assignedEmployeeId,
-        products: productDetails.map(p => ({
+        products: actualProductDetails.map(p => ({
           product_name: p.product,
-          quantity: p.quantity,
+          quantity: p.strength, // Use strength as quantity
           unit_price: p.price,
         })),
       }
@@ -473,20 +606,21 @@ export default function CloseLeadPage() {
         throw err; // Re-throw to be caught by outer catch
       }
       
-      // Prepare product details for DC
-      const dcProductDetails = productDetails.map(p => ({
+      // Prepare product details for DC (exclude parent rows)
+      const dcProductDetails = actualProductDetails.map(p => ({
         product: p.product,
-        class: p.class || '1',
+        class: p.class || '1', // Use actual class value
         category: p.category || (lead?.school_type === 'Existing' ? 'Existing Students' : 'New Students'),
-        quantity: Number(p.quantity) || 0,
+        quantity: Number(p.quantity) || 0, // Keep for backend compatibility
         strength: Number(p.strength) || 0,
         price: Number(p.price) || 0,
-        total: Number(p.total) || (Number(p.price) || 0) * (Number(p.quantity) || 0),
+        total: Number(p.total) || (Number(p.strength) || 0) * (Number(p.price) || 0),
         level: p.level || getDefaultLevel(p.product),
         specs: p.specs || 'Regular', // Include specs
+        subject: p.subject || undefined, // Include subject if present
       }))
       
-      const totalQuantity = dcProductDetails.reduce((sum, p) => sum + (p.quantity || 0), 0)
+      const totalQuantity = dcProductDetails.reduce((sum, p) => sum + (p.strength || 0), 0)
       
       // Create DC with all details
       const dcPayload: any = {
@@ -606,64 +740,43 @@ export default function CloseLeadPage() {
 
       <Card className="p-6">
         <div className="space-y-6">
-          {/* School Name (Read-only) */}
+          {/* School Name */}
           <div>
             <Label className="text-sm font-semibold text-neutral-700">School Name</Label>
             <Input
               value={lead?.school_name || ''}
-              disabled
-              className="bg-neutral-50 mt-1"
-            />
-          </div>
-
-          {/* Person 1 (Read-only) */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Person 1</Label>
-            <Input
-              value={lead?.contact_person || ''}
-              disabled
-              className="bg-neutral-50 mt-1"
-            />
-          </div>
-
-          {/* Email 1 (Read-only) */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Email 1</Label>
-            <Input
-              value={lead?.email || ''}
-              disabled
-              className="bg-neutral-50 mt-1"
-            />
-          </div>
-
-          {/* Mob 1 (Read-only) */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Mob 1</Label>
-            <Input
-              value={lead?.contact_mobile || ''}
-              disabled
-              className="bg-neutral-50 mt-1"
-            />
-          </div>
-
-          {/* Person 2 */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Person 2</Label>
-            <Input
-              value={form.contact_person2}
-              onChange={(e) => setForm({ ...form, contact_person2: e.target.value })}
-              placeholder="Enter second contact person"
+              onChange={(e) => setLead(lead ? { ...lead, school_name: e.target.value } : null)}
               className="mt-1"
             />
           </div>
 
-          {/* Mob 2 */}
+          {/* Person 1 */}
           <div>
-            <Label className="text-sm font-semibold text-neutral-700">Mob 2</Label>
+            <Label className="text-sm font-semibold text-neutral-700">Person 1</Label>
             <Input
-              value={form.contact_mobile2}
-              onChange={(e) => setForm({ ...form, contact_mobile2: e.target.value })}
-              placeholder="Enter second contact mobile"
+              value={lead?.contact_person || ''}
+              onChange={(e) => setLead(lead ? { ...lead, contact_person: e.target.value } : null)}
+              className="mt-1"
+            />
+          </div>
+
+          {/* Email 1 */}
+          <div>
+            <Label className="text-sm font-semibold text-neutral-700">Email 1</Label>
+            <Input
+              type="email"
+              value={lead?.email || ''}
+              onChange={(e) => setLead(lead ? { ...lead, email: e.target.value } : null)}
+              className="mt-1"
+            />
+          </div>
+
+          {/* Mob 1 */}
+          <div>
+            <Label className="text-sm font-semibold text-neutral-700">Mob 1</Label>
+            <Input
+              value={lead?.contact_mobile || ''}
+              onChange={(e) => setLead(lead ? { ...lead, contact_mobile: e.target.value } : null)}
               className="mt-1"
             />
           </div>
@@ -672,45 +785,21 @@ export default function CloseLeadPage() {
           <div>
             <Label className="text-sm font-semibold text-neutral-700">Decision Maker</Label>
             <Input
-              value={form.decision_maker}
-              onChange={(e) => setForm({ ...form, decision_maker: e.target.value })}
+              value={form.contact_person2}
+              onChange={(e) => setForm({ ...form, contact_person2: e.target.value })}
               placeholder="Enter decision maker name"
               className="mt-1"
             />
           </div>
 
-          {/* Address */}
+          {/* Email */}
           <div>
-            <Label className="text-sm font-semibold text-neutral-700">Address</Label>
-            <Textarea
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
-              placeholder="Enter full address"
-              rows={3}
-              className="mt-1"
-            />
-          </div>
-
-          {/* Strength */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Strength</Label>
+            <Label className="text-sm font-semibold text-neutral-700">Email</Label>
             <Input
-              type="number"
-              value={form.strength}
-              onChange={(e) => setForm({ ...form, strength: e.target.value })}
-              placeholder="Enter student strength"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Branches */}
-          <div>
-            <Label className="text-sm font-semibold text-neutral-700">Branches</Label>
-            <Input
-              type="number"
-              value={form.branches}
-              onChange={(e) => setForm({ ...form, branches: e.target.value })}
-              placeholder="Enter number of branches"
+              type="email"
+              value={form.contact_mobile2}
+              onChange={(e) => setForm({ ...form, contact_mobile2: e.target.value })}
+              placeholder="Enter decision maker email"
               className="mt-1"
             />
           </div>
@@ -803,7 +892,7 @@ export default function CloseLeadPage() {
               onClick={() => setProductDialogOpen(true)}
             >
               <Package className="w-4 h-4 mr-2" />
-              ADD PRODUCTS {productDetails.length > 0 && `(${productDetails.length})`}
+              ADD PRODUCTS {productDetails.filter(pd => !pd.isParentRow).length > 0 && `(${productDetails.filter(pd => !pd.isParentRow).length})`}
             </Button>
           </div>
 
@@ -850,55 +939,162 @@ export default function CloseLeadPage() {
             {/* Product Selection */}
             <div>
               <Label className="text-sm font-semibold mb-2 block">Add Products</Label>
-              <p className="text-xs text-neutral-500 mb-2">You can add the same product multiple times with different specs</p>
+              <p className="text-xs text-neutral-500 mb-2">Click to add product - rows will be created automatically for each spec</p>
               <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded p-3">
                 {availableProducts.map((product) => {
                   const productSpecs = getProductSpecs(product)
                   const hasSpecs = productSpecs.length > 0
+                  const specCount = hasSpecs ? productSpecs.length : 1
                   
                   return (
                     <div key={product} className="flex items-center justify-between p-2 border rounded hover:bg-neutral-50">
                       <div className="flex items-center space-x-2 flex-1">
                         <span className="text-sm font-medium">{product}</span>
                         {hasSpecs && (
-                          <span className="text-xs text-neutral-500">(Has Specs)</span>
+                          <span className="text-xs text-neutral-500">({specCount} specs - {productSpecs.join(', ')})</span>
                         )}
                       </div>
-                      {hasSpecs ? (
-                        <div className="flex gap-1">
-                          {productSpecs.map(spec => (
                             <Button
-                              key={spec}
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => addProductWithSpec(product, spec)}
+                        onClick={() => addProductWithSpec(product, 'Regular')}
                               className="text-xs"
                             >
                               <PlusCircle className="w-3 h-3 mr-1" />
-                              {spec}
+                        Add Product
                             </Button>
-                          ))}
-                        </div>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => addProductWithSpec(product, 'Regular')}
-                        >
-                          <PlusCircle className="w-3 h-3 mr-1" />
-                          Add
-                        </Button>
-                      )}
                     </div>
                   )
                 })}
               </div>
             </div>
 
+            {/* Product Range Configuration */}
+            {productDetails.filter(pd => pd.isParentRow).length > 0 && (
+              <div className="mb-4">
+                <Label className="text-sm font-semibold mb-2 block">Set Class Range for Products</Label>
+                <div className="space-y-3 border rounded p-3">
+                  {productDetails
+                    .filter(pd => pd.isParentRow)
+                    .map((pd) => {
+                      const productSubjects = getProductSubjects(pd.product)
+                      const hasSubjects = hasProductSubjects(pd.product)
+                      const selectedSubjects = pd.selectedSubjects || []
+                      
+                      return (
+                        <div key={pd.id} className="space-y-2 p-3 border rounded bg-neutral-50">
+                          <div className="flex items-center gap-4">
+                            <span className="font-medium min-w-[150px]">{pd.product}</span>
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs">From:</Label>
+                              <Select 
+                                value={pd.fromClass || '1'} 
+                                onValueChange={(v) => updateProductDetail(pd.id, 'fromClass', v)}
+                              >
+                                <SelectTrigger className="w-20 h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableClasses.map(c => (
+                                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs">To:</Label>
+                              <Select 
+                                value={pd.toClass || '10'} 
+                                onValueChange={(v) => updateProductDetail(pd.id, 'toClass', v)}
+                              >
+                                <SelectTrigger className="w-20 h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableClasses.map(c => (
+                                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`same-rate-${pd.id}`}
+                                checked={pd.sameRateForAllClasses || false}
+                                onCheckedChange={(checked) => updateProductDetail(pd.id, 'sameRateForAllClasses', checked)}
+                              />
+                              <Label htmlFor={`same-rate-${pd.id}`} className="text-xs cursor-pointer">
+                                Same rate for all classes
+                              </Label>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                // Remove parent and all its child rows
+                                setProductDetails(productDetails.filter(p => 
+                                  p.id !== pd.id && !p.id.startsWith(pd.id + '_')
+                                ))
+                                setSelectedProducts(selectedProducts.filter(p => p !== pd.product))
+                              }}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          
+                          {/* Subjects Multi-Select (only if product has subjects) */}
+                          {hasSubjects && productSubjects.length > 0 && (
+                            <div className="mt-2 pt-2 border-t">
+                              <Label className="text-xs font-semibold mb-2 block">Select Subjects:</Label>
+                              <div className="flex flex-wrap gap-2">
+                                {productSubjects.map((subject) => (
+                                  <div key={subject} className="flex items-center space-x-1">
+                                    <Checkbox
+                                      id={`subject-${pd.id}-${subject}`}
+                                      checked={selectedSubjects.includes(subject)}
+                                      onCheckedChange={(checked) => {
+                                        const newSubjects = checked
+                                          ? [...selectedSubjects, subject]
+                                          : selectedSubjects.filter(s => s !== subject)
+                                        // Update parent row with new subjects
+                                        setProductDetails(currentDetails => {
+                                          const updated = currentDetails.map(p => 
+                                            p.id === pd.id ? { ...p, selectedSubjects: newSubjects } : p
+                                          )
+                                          // Regenerate rows after update
+                                          setTimeout(() => {
+                                            const updatedParent = updated.find(p => p.id === pd.id)
+                                            if (updatedParent) {
+                                              generateRowsFromRange(pd.id, updatedParent.fromClass || '1', updatedParent.toClass || '10')
+                                            }
+                                          }, 0)
+                                          return updated
+                                        })
+                                      }}
+                                    />
+                                    <Label 
+                                      htmlFor={`subject-${pd.id}-${subject}`} 
+                                      className="text-xs cursor-pointer"
+                                    >
+                                      {subject}
+                                    </Label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Product Details Table */}
-            {productDetails.length > 0 && (
+            {productDetails.filter(pd => !pd.isParentRow).length > 0 && (
               <div>
                 <Label className="text-sm font-semibold mb-2 block">Product Details</Label>
                 <div className="border rounded overflow-x-auto">
@@ -908,31 +1104,22 @@ export default function CloseLeadPage() {
                         <th className="px-3 py-2 text-left">Product</th>
                         <th className="px-3 py-2 text-left">Class</th>
                         <th className="px-3 py-2 text-left">Category</th>
-                        <th className="px-3 py-2 text-left">Qty</th>
+                        <th className="px-3 py-2 text-left">Specs</th>
+                        <th className="px-3 py-2 text-left">Subject</th>
                         <th className="px-3 py-2 text-left">Strength</th>
                         <th className="px-3 py-2 text-left">Price</th>
                         <th className="px-3 py-2 text-left">Total</th>
                         <th className="px-3 py-2 text-left">Level</th>
-                        <th className="px-3 py-2 text-left">Specs</th>
                         <th className="px-3 py-2 text-left">Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {productDetails.map((pd) => (
+                      {productDetails
+                        .filter(pd => !pd.isParentRow) // Only show child rows, not parent rows
+                        .map((pd) => (
                         <tr key={pd.id} className="border-t">
-                          <td className="px-3 py-2">{pd.product}</td>
-                          <td className="px-3 py-2">
-                            <Select value={pd.class} onValueChange={(v) => updateProductDetail(pd.id, 'class', v)}>
-                              <SelectTrigger className="w-20 h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableClasses.map(c => (
-                                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
+                          <td className="px-3 py-2 font-medium">{pd.product}</td>
+                          <td className="px-3 py-2">{pd.class}</td>
                           <td className="px-3 py-2">
                             <Select value={pd.category} onValueChange={(v) => updateProductDetail(pd.id, 'category', v)}>
                               <SelectTrigger className="w-32 h-8">
@@ -945,15 +1132,8 @@ export default function CloseLeadPage() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-3 py-2">
-                            <Input
-                              type="number"
-                              value={pd.quantity}
-                              onChange={(e) => updateProductDetail(pd.id, 'quantity', Number(e.target.value))}
-                              className="w-20 h-8"
-                              min="0"
-                            />
-                          </td>
+                          <td className="px-3 py-2">{pd.specs}</td>
+                          <td className="px-3 py-2">{pd.subject || '-'}</td>
                           <td className="px-3 py-2">
                             <Input
                               type="number"
@@ -961,6 +1141,7 @@ export default function CloseLeadPage() {
                               onChange={(e) => updateProductDetail(pd.id, 'strength', Number(e.target.value))}
                               className="w-20 h-8"
                               min="0"
+                              placeholder="0"
                             />
                           </td>
                           <td className="px-3 py-2">
@@ -970,9 +1151,10 @@ export default function CloseLeadPage() {
                               onChange={(e) => updateProductDetail(pd.id, 'price', Number(e.target.value))}
                               className="w-24 h-8"
                               min="0"
+                              placeholder="0"
                             />
                           </td>
-                          <td className="px-3 py-2">{pd.total.toFixed(2)}</td>
+                          <td className="px-3 py-2 font-medium">{pd.total.toFixed(2)}</td>
                           <td className="px-3 py-2">
                             <Select value={pd.level} onValueChange={(v) => updateProductDetail(pd.id, 'level', v)}>
                               <SelectTrigger className="w-20 h-8">
@@ -981,18 +1163,6 @@ export default function CloseLeadPage() {
                               <SelectContent>
                                 {getProductLevels(pd.product).map(l => (
                                   <SelectItem key={l} value={l}>{l}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Select value={pd.specs || 'Regular'} onValueChange={(v) => updateProductDetail(pd.id, 'specs', v)}>
-                              <SelectTrigger className="w-32 h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {getProductSpecs(pd.product).map(spec => (
-                                  <SelectItem key={spec} value={spec}>{spec}</SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -1009,6 +1179,25 @@ export default function CloseLeadPage() {
                           </td>
                         </tr>
                       ))}
+                      {/* Total Row */}
+                      <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
+                        <td colSpan={4} className="px-3 py-3 text-right">
+                          <span className="text-neutral-700">Total:</span>
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {productDetails
+                            .filter(pd => !pd.isParentRow)
+                            .reduce((sum, pd) => sum + (Number(pd.strength) || 0), 0)}
+                        </td>
+                        <td className="px-3 py-3"></td>
+                        <td className="px-3 py-3 text-right font-bold text-lg">
+                          {productDetails
+                            .filter(pd => !pd.isParentRow)
+                            .reduce((sum, pd) => sum + (Number(pd.total) || 0), 0)
+                            .toFixed(2)}
+                        </td>
+                        <td colSpan={2} className="px-3 py-3"></td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>

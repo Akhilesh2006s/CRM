@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { apiRequest } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -45,7 +45,7 @@ type Lead = {
   follow_up_date?: string
   estimated_delivery_date?: string
   average_fee?: number
-  products?: Array<{ product_name: string }>
+  products?: Array<{ product_name: string }> | string
 }
 
 export default function EditLeadPage() {
@@ -84,18 +84,78 @@ export default function EditLeadPage() {
   })
   
   const [products, setProducts] = useState<ProductSelection[]>([])
-  
-  // Initialize products when availableProducts are loaded
-  useEffect(() => {
-    if (availableProducts.length > 0 && products.length === 0) {
-      setProducts(availableProducts.map(p => ({ name: p, checked: false })))
-    }
-  }, [availableProducts])
+  const [loadedLead, setLoadedLead] = useState<Lead | null>(null)
+  const productsProcessedRef = useRef<string>('')
   
   const [loadingPincode, setLoadingPincode] = useState(false)
   const [areas, setAreas] = useState<Array<{ name: string; district: string; block?: string; branchType?: string }>>([])
 
+  // Set products when both availableProducts and loadedLead are ready
   useEffect(() => {
+    // Only proceed if we have available products
+    if (availableProducts.length === 0) return
+    
+    // Create a unique key for this combination to prevent reprocessing
+    const leadId = loadedLead?._id || ''
+    const productsKey = loadedLead?.products 
+      ? (Array.isArray(loadedLead.products) 
+          ? JSON.stringify(loadedLead.products.map((p: any) => typeof p === 'string' ? p : (p.product_name || p.product || p)))
+          : String(loadedLead.products))
+      : ''
+    const currentKey = `${leadId}-${productsKey}-${availableProducts.join(',')}`
+    
+    // Skip if we've already processed this combination
+    if (productsProcessedRef.current === currentKey) return
+    
+    if (loadedLead) {
+      let productNames: string[] = []
+      
+      // Handle both array and string formats (for backward compatibility)
+      if (loadedLead.products) {
+        if (Array.isArray(loadedLead.products)) {
+          productNames = loadedLead.products.map((p: any) => {
+            if (typeof p === 'string') return p
+            return p.product_name || p.product || p
+          })
+        } else if (typeof loadedLead.products === 'string') {
+          // Handle old string format - try to parse as comma-separated or JSON
+          const productsStr = loadedLead.products.trim()
+          if (productsStr) {
+            try {
+              const parsed = JSON.parse(productsStr)
+              if (Array.isArray(parsed)) {
+                productNames = parsed.map((p: any) => typeof p === 'string' ? p : (p.product_name || p.product || p))
+              } else {
+                productNames = productsStr.split(',').map(p => p.trim()).filter(p => p)
+              }
+            } catch {
+              // If not JSON, treat as comma-separated string
+              productNames = productsStr.split(',').map(p => p.trim()).filter(p => p)
+            }
+          }
+        }
+      }
+      
+      const newProducts = availableProducts.map(p => ({
+        name: p,
+        checked: productNames.includes(p),
+      }))
+      
+      setProducts(newProducts)
+      productsProcessedRef.current = currentKey
+    } else {
+      // Initialize with all unchecked if no lead loaded yet
+      const noLeadKey = `no-lead-${availableProducts.join(',')}`
+      if (productsProcessedRef.current !== noLeadKey) {
+        setProducts(availableProducts.map(p => ({ name: p, checked: false })))
+        productsProcessedRef.current = noLeadKey
+      }
+    }
+  }, [availableProducts, loadedLead])
+
+  useEffect(() => {
+    // Reset the processed ref when leadId changes
+    productsProcessedRef.current = ''
     loadLead()
   }, [leadId])
 
@@ -130,6 +190,10 @@ export default function EditLeadPage() {
         })
         console.log('Location (landmark) value:', lead.location)
         console.log('Strength value:', lead.strength)
+        console.log('Products value:', lead.products, 'Type:', typeof lead.products, 'IsArray:', Array.isArray(lead.products))
+        
+        // Store the loaded lead so products can be set when availableProducts are ready
+        setLoadedLead(lead)
         
         setForm({
           school_name: lead.school_name || '',
@@ -182,18 +246,14 @@ export default function EditLeadPage() {
           }
         }
         
-        // Set products
-        if (lead.products && lead.products.length > 0) {
-          const productNames = lead.products.map(p => p.product_name || p)
-          setProducts(availableProducts.map(p => ({
-            name: p,
-            checked: productNames.includes(p),
-          })))
-        }
+        // Products will be set by the useEffect that watches availableProducts and loadedLead
+      } else {
+        setLoadedLead(null)
       }
     } catch (err: any) {
       toast.error('Failed to load lead details')
       console.error(err)
+      setLoadedLead(null)
     } finally {
       setLoading(false)
     }

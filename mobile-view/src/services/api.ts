@@ -13,11 +13,11 @@ const DEV_API_URL = Platform.OS === 'web'
   ? 'http://localhost:5000/api'
   : 'http://localhost:5000/api'; // For emulator/simulator, use localhost
 
-// Production API URL (currently set to localhost for development)
-const PROD_API_URL = 'http://localhost:5000/api';
+// Production API URL (Railway backend)
+const PROD_API_URL = 'https://crm-backend-production-2ffd.up.railway.app/api';
 
-// Always use localhost for now
-const API_BASE_URL = DEV_API_URL;
+// Use production URL
+const API_BASE_URL = PROD_API_URL;
 
 class ApiService {
   private baseURL: string;

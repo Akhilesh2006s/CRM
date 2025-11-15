@@ -16,6 +16,7 @@ type WarehouseItem = {
   // Some deployments store level under location or a custom field; treat both as possible sources
   location?: string
   level?: string
+  specs?: string
   itemType?: string
   currentStock?: number
 }
@@ -84,6 +85,7 @@ export default function WarehouseInventoryItems() {
               <TableHead>Product</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Level</TableHead>
+              <TableHead>Specs</TableHead>
               <TableHead>Item Type</TableHead>
               <TableHead>Quantity</TableHead>
               <TableHead className="w-12"></TableHead>
@@ -92,7 +94,7 @@ export default function WarehouseInventoryItems() {
           <TableBody>
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-neutral-500">No items found.</TableCell>
+                <TableCell colSpan={8} className="text-center text-neutral-500">No items found.</TableCell>
               </TableRow>
             )}
             {filtered.map((row, idx) => (
@@ -101,6 +103,7 @@ export default function WarehouseInventoryItems() {
                 <TableCell className="font-medium text-neutral-900">{row.productName}</TableCell>
                 <TableCell>{row.category || '-'}</TableCell>
                 <TableCell>{row.level || row.location || '-'}</TableCell>
+                <TableCell>{row.specs || 'Regular'}</TableCell>
                 <TableCell>{row.itemType || '—'}</TableCell>
                 <TableCell>{row.currentStock !== undefined && row.currentStock !== null ? row.currentStock : 0}</TableCell>
                 <TableCell>

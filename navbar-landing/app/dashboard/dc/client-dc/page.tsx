@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { apiRequest } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Pencil, Package, Plus, Upload, X } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Pencil, Package, Plus, Upload, X, Search } from 'lucide-react'
 import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
@@ -31,6 +32,7 @@ type DC = {
     products?: any
     status?: string // Status of the DcOrder (e.g., 'saved' for closed leads)
     school_type?: string // 'Existing' for renewal leads, otherwise 'New School'
+    createdAt?: string // Date when lead was turned to client
   }
   customerName?: string
   customerPhone?: string
@@ -47,6 +49,9 @@ export default function ClientDCPage() {
   const [items, setItems] = useState<DC[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDC, setSelectedDC] = useState<DC | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [viewingPoUrl, setViewingPoUrl] = useState<string | null>(null)
+  const [viewingPoOpen, setViewingPoOpen] = useState(false)
   
   // Client DC Dialog (Full DC Management)
   const [clientDCDialogOpen, setClientDCDialogOpen] = useState(false)
@@ -55,6 +60,8 @@ export default function ClientDCPage() {
     product: string
     class: string
     category: string
+    specs: string
+    subject?: string
     quantity: number
     strength: number
     price: number
@@ -68,7 +75,7 @@ export default function ClientDCPage() {
   const [dcPoPhotoUrl, setDcPoPhotoUrl] = useState('')
   const [savingClientDC, setSavingClientDC] = useState(false)
   
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects } = useProducts()
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
@@ -320,12 +327,19 @@ export default function ClientDCPage() {
               product: p.product || '',
               class: p.class || '1',
               category: autoCategory, // Use auto-determined category
+              specs: p.specs || 'Regular', // Preserve specs from saved data
+              subject: (p.subject && p.subject.trim() !== '') ? p.subject : undefined, // Preserve subject from saved data, handle empty string
               quantity: quantityNum,
               strength: strengthNum,
               price: priceNum,
               total: totalNum,
               level: p.level || getDefaultLevel(p.product || 'Abacus'),
             }
+            console.log(`Client DC Product ${idx + 1} - Specs/Subject:`, {
+              raw: { specs: p.specs, subject: p.subject, product: p.product },
+              loaded: { specs: row.specs, subject: row.subject },
+              fullProduct: p
+            })
             console.log(`Client DC Product ${idx + 1}:`, {
               raw: { price: p.price, total: p.total, strength: p.strength },
               converted: { price: priceNum, total: totalNum, strength: strengthNum },
@@ -373,6 +387,8 @@ export default function ClientDCPage() {
             product: row.product || '',
             class: row.class || '1',
             category: row.category || 'New School',
+            specs: row.specs || 'Regular',
+            subject: row.subject || undefined,
             quantity: Number(row.quantity) || 0,
             strength: Number(row.strength) || 0,
             price: Number(row.price) || 0,
@@ -438,6 +454,8 @@ export default function ClientDCPage() {
         product: row.product || '',
         class: row.class || '1',
         category: row.category || 'New School',
+        specs: row.specs || 'Regular',
+        subject: row.subject || undefined,
         quantity: Number(row.quantity) || 0,
         strength: Number(row.strength) || 0,
         price: Number(row.price) || 0,
@@ -546,6 +564,41 @@ export default function ClientDCPage() {
     }
   }
 
+  // Filter and sort items based on search query
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    let filtered = items
+    
+    if (query) {
+      filtered = items.filter((d) => {
+        const customerName = (d.customerName || d.saleId?.customerName || d.dcOrderId?.school_name || '').toLowerCase()
+        const phone = (d.customerPhone || d.dcOrderId?.contact_mobile || '').toLowerCase()
+        const product = (d.product || d.saleId?.product || (d.dcOrderId?.products && Array.isArray(d.dcOrderId.products) ? d.dcOrderId.products.map((p: any) => p.product_name || p.product).join(', ') : '')).toLowerCase()
+        const status = (d.status || 'created').toLowerCase()
+        
+        return customerName.includes(query) || 
+               phone.includes(query) || 
+               product.includes(query) || 
+               status.includes(query)
+      })
+    }
+    
+    // Sort by most recent turned date first
+    return filtered.sort((a, b) => {
+      // Get turned date: use dcOrderId.createdAt for converted leads, otherwise use createdAt
+      const dateA = (typeof a.dcOrderId === 'object' && a.dcOrderId?.createdAt) 
+        ? new Date(a.dcOrderId.createdAt).getTime()
+        : (a.createdAt ? new Date(a.createdAt).getTime() : 0)
+      
+      const dateB = (typeof b.dcOrderId === 'object' && b.dcOrderId?.createdAt)
+        ? new Date(b.dcOrderId.createdAt).getTime()
+        : (b.createdAt ? new Date(b.createdAt).getTime() : 0)
+      
+      // Most recent first (descending order)
+      return dateB - dateA
+    })
+  }, [items, searchQuery])
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -556,10 +609,35 @@ export default function ClientDCPage() {
         <Button variant="outline" onClick={load}>Refresh</Button>
       </div>
 
-      <Card className="p-0 overflow-x-auto">
-        {loading && <div className="p-4">Loading…</div>}
+      <Card className="p-4">
+        {/* Search Section */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="flex-1 flex items-center gap-2">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
+              <Input
+                placeholder="Search by client name, phone, product, or status..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-10"
+              />
+              {searchQuery && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {loading && <div className="p-4 text-center">Loading…</div>}
         {!loading && items.length === 0 && (
-          <div className="p-4">
+          <div className="p-4 text-center">
             <p className="text-neutral-600">No clients found with products added.</p>
             <p className="text-sm text-neutral-500 mt-2">
               Closed leads and clients with products added and submitted will appear here.
@@ -570,66 +648,175 @@ export default function ClientDCPage() {
           </div>
         )}
         {!loading && items.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
-            {items.map((d) => (
-              <Card key={d._id} className="p-4 space-y-3">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-neutral-900">
-                      {d.customerName || d.saleId?.customerName || d.dcOrderId?.school_name || 'Unknown Client'}
-                    </h3>
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      d.status === 'created' ? 'bg-blue-100 text-blue-700' :
-                      d.status === 'po_submitted' ? 'bg-yellow-100 text-yellow-700' :
-                      d.status === 'sent_to_manager' ? 'bg-purple-100 text-purple-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {d.status || 'created'}
-                    </span>
-                  </div>
-                  <div className="text-sm text-neutral-600 space-y-1">
-                    <p><span className="font-medium">Phone:</span> {d.customerPhone || d.dcOrderId?.contact_mobile || '-'}</p>
-                    <p><span className="font-medium">Product:</span> {d.product || d.saleId?.product || (d.dcOrderId?.products && Array.isArray(d.dcOrderId.products) ? d.dcOrderId.products.map((p: any) => p.product_name || p.product).join(', ') : '-')}</p>
-                    <p><span className="font-medium">Created:</span> {d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '-'}</p>
-                  </div>
-                </div>
-                
-                {d.poPhotoUrl && (
-                  <div className="space-y-2 pt-2 border-t">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-sm text-neutral-900">PO</h4>
-                    </div>
-                    <div className="relative">
-                      {d.poPhotoUrl.startsWith('data:') || d.poPhotoUrl.startsWith('http') ? (
-                        <img 
-                          src={d.poPhotoUrl} 
-                          alt="PO Document" 
-                          className="w-full h-auto rounded border max-h-32 object-contain bg-neutral-50"
-                        />
-                      ) : (
-                        <div className="w-full h-24 rounded border bg-neutral-50 flex items-center justify-center text-sm text-neutral-500">
-                          PO Document
-                        </div>
-                      )}
-                    </div>
-                  </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[50px]">S.No</TableHead>
+                  <TableHead>Client Name</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created Date</TableHead>
+                  <TableHead>Client Turned Date</TableHead>
+                  <TableHead>PO</TableHead>
+                  <TableHead className="text-center">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center text-neutral-500 py-4">
+                      No clients found matching your search.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredItems.map((d, idx) => {
+                    const customerName = d.customerName || d.saleId?.customerName || d.dcOrderId?.school_name || 'Unknown Client'
+                    const phone = d.customerPhone || d.dcOrderId?.contact_mobile || '-'
+                    const product = d.product || d.saleId?.product || (d.dcOrderId?.products && Array.isArray(d.dcOrderId.products) ? d.dcOrderId.products.map((p: any) => p.product_name || p.product).join(', ') : '-')
+                    const status = d.status || 'created'
+                    const createdDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '-'
+                    // Client turned date: use dcOrderId.createdAt for converted leads, otherwise use createdAt
+                    const turnedDate = (typeof d.dcOrderId === 'object' && d.dcOrderId?.createdAt)
+                      ? new Date(d.dcOrderId.createdAt).toLocaleDateString()
+                      : (d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '-')
+                    
+                    return (
+                      <TableRow key={d._id} className="hover:bg-neutral-50">
+                        <TableCell>{idx + 1}</TableCell>
+                        <TableCell className="font-medium">{customerName}</TableCell>
+                        <TableCell>{phone}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={product}>{product}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${
+                            status === 'created' ? 'bg-blue-100 text-blue-700' :
+                            status === 'po_submitted' ? 'bg-yellow-100 text-yellow-700' :
+                            status === 'sent_to_manager' ? 'bg-purple-100 text-purple-700' :
+                            status === 'warehouse_processing' ? 'bg-orange-100 text-orange-700' :
+                            status === 'completed' ? 'bg-green-100 text-green-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {status}
+                          </span>
+                        </TableCell>
+                        <TableCell>{createdDate}</TableCell>
+                        <TableCell>{turnedDate}</TableCell>
+                        <TableCell>
+                          {d.poPhotoUrl ? (
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-800 p-0 h-auto"
+                              onClick={() => {
+                                setViewingPoUrl(d.poPhotoUrl || null)
+                                setViewingPoOpen(true)
+                              }}
+                            >
+                              View PO
+                            </Button>
+                          ) : (
+                            <span className="text-sm text-neutral-400">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button 
+                            size="sm" 
+                            onClick={() => openClientDCDialog(d)}
+                          >
+                            <Package className="w-4 h-4 mr-2" />
+                            Request DC
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
-                
-                <div className="pt-2 border-t">
-                  <Button 
-                    size="sm" 
-                    className="w-full"
-                    onClick={() => openClientDCDialog(d)}
-                  >
-                    <Package className="w-4 h-4 mr-2" />
-                    Manage DC
-                  </Button>
-                </div>
-              </Card>
-            ))}
+              </TableBody>
+            </Table>
           </div>
         )}
       </Card>
+
+      {/* PO View Modal */}
+      <Dialog open={viewingPoOpen} onOpenChange={setViewingPoOpen}>
+        <DialogContent className="sm:max-w-[90vw] lg:max-w-[1000px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Purchase Order (PO)</DialogTitle>
+            <DialogDescription>
+              View the purchase order document
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            {viewingPoUrl && (
+              <div className="relative">
+                {viewingPoUrl.toLowerCase().endsWith('.pdf') || 
+                 viewingPoUrl.includes('application/pdf') || 
+                 viewingPoUrl.includes('.pdf') ||
+                 (viewingPoUrl.startsWith('data:') && viewingPoUrl.includes('application/pdf')) ||
+                 (viewingPoUrl.startsWith('http') && viewingPoUrl.toLowerCase().includes('.pdf')) ? (
+                  <div className="border rounded-lg p-4 bg-neutral-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">PO Document (PDF)</span>
+                      <a 
+                        href={viewingPoUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 text-sm underline"
+                      >
+                        Open PDF in New Tab
+                      </a>
+                    </div>
+                    {viewingPoUrl.startsWith('data:') ? (
+                      <iframe 
+                        src={viewingPoUrl} 
+                        className="w-full h-[70vh] rounded border"
+                        title="PO Document"
+                      />
+                    ) : (
+                      <iframe 
+                        src={`${viewingPoUrl}#toolbar=0`} 
+                        className="w-full h-[70vh] rounded border"
+                        title="PO Document"
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <img 
+                      src={viewingPoUrl} 
+                      alt="PO Document" 
+                      className="w-full h-auto rounded border max-h-[70vh] object-contain bg-neutral-50 mx-auto"
+                      onError={(e) => {
+                        // If image fails to load, try as PDF
+                        const target = e.target as HTMLImageElement
+                        if (!target.src.includes('.pdf') && !target.src.includes('application/pdf')) {
+                          target.style.display = 'none'
+                          const parent = target.parentElement
+                          if (parent) {
+                            parent.innerHTML = `
+                              <div class="border rounded-lg p-4 bg-neutral-50">
+                                <div class="flex items-center justify-between mb-2">
+                                  <span class="text-sm font-medium">PO Document</span>
+                                  <a href="${target.src}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 text-sm underline">
+                                    Open Document
+                                  </a>
+                                </div>
+                                <iframe src="${target.src}" class="w-full h-[70vh] rounded border" title="PO Document"></iframe>
+                              </div>
+                            `
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Client DC Dialog - Full DC Management */}
       <Dialog open={clientDCDialogOpen} onOpenChange={setClientDCDialogOpen}>
@@ -792,6 +979,8 @@ export default function ClientDCPage() {
                         product: 'Abacus',
                         class: '1',
                         category: autoCategory,
+                        specs: 'Regular',
+                        subject: undefined,
                         quantity: 0,
                         strength: 0,
                         price: 0,
@@ -820,9 +1009,10 @@ export default function ClientDCPage() {
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product</th>
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Class</th>
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Category</th>
-                      <th className="py-3 px-4 text-left text-sm font-semibold border-r">Qty</th>
+                      <th className="py-3 px-4 text-left text-sm font-semibold border-r">Specs</th>
+                      <th className="py-3 px-4 text-left text-sm font-semibold border-r">Subject</th>
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Strength</th>
-                      <th className="py-3 px-4 text-left text-sm font-semibold border-r">Price</th>
+                      <th className="py-3 px-4 text-left text-sm font-semibold border-r min-w-[120px]">Price</th>
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Total</th>
                       <th className="py-3 px-4 text-left text-sm font-semibold border-r">Level</th>
                       <th className="py-3 px-4 text-center text-sm font-semibold">Action</th>
@@ -875,18 +1065,46 @@ export default function ClientDCPage() {
                           />
                         </td>
                         <td className="py-3 px-4 border-r">
-                          <Input
-                            type="number"
-                            className="h-10 text-sm"
-                            value={row.quantity || ''}
-                            onChange={(e) => {
+                          <Select 
+                            value={row.specs || 'Regular'} 
+                            onValueChange={(v) => {
                               const updated = [...dcProductRows]
-                              updated[idx].quantity = Number(e.target.value) || 0
+                              updated[idx].specs = v
                               setDcProductRows(updated)
                             }}
-                            placeholder="0"
-                            min="0"
-                          />
+                          >
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getProductSpecs(row.product).map(spec => (
+                                <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="py-3 px-4 border-r">
+                          {getProductSubjects(row.product).length > 0 ? (
+                            <Select 
+                              value={row.subject || undefined} 
+                              onValueChange={(v) => {
+                                const updated = [...dcProductRows]
+                                updated[idx].subject = v
+                                setDcProductRows(updated)
+                              }}
+                            >
+                              <SelectTrigger className="h-10 text-sm">
+                                <SelectValue placeholder="Select Subject" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getProductSubjects(row.product).map(subject => (
+                                  <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-neutral-400">-</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 border-r">
                           <Input
@@ -906,7 +1124,7 @@ export default function ClientDCPage() {
                         <td className="py-3 px-4 border-r">
                           <Input
                             type="number"
-                            className="h-10 text-sm"
+                            className="h-10 text-sm w-32"
                             value={row.price || ''}
                             onChange={(e) => {
                               const updated = [...dcProductRows]
@@ -916,16 +1134,11 @@ export default function ClientDCPage() {
                             }}
                             placeholder="0"
                             min="0"
+                            step="0.01"
                           />
                         </td>
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="number"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.total || 0}
-                            disabled
-                            placeholder="Auto"
-                          />
+                        <td className="py-3 px-4 border-r font-medium">
+                          {(row.total || 0).toFixed(2)}
                         </td>
                         <td className="py-3 px-4 border-r">
                           <Select value={row.level} onValueChange={(v) => {
@@ -959,6 +1172,21 @@ export default function ClientDCPage() {
                         </td>
                       </tr>
                     ))}
+                    {/* Total Row */}
+                    <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
+                      <td colSpan={4} className="px-3 py-3 text-right">
+                        <span className="text-neutral-700">Total:</span>
+                      </td>
+                      <td className="px-3 py-3"></td>
+                      <td className="px-3 py-3 text-right">
+                        {dcProductRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                      </td>
+                      <td className="px-3 py-3"></td>
+                      <td className="px-3 py-3 text-right font-bold text-lg">
+                        {dcProductRows.reduce((sum, row) => sum + (Number(row.total) || 0), 0).toFixed(2)}
+                      </td>
+                      <td colSpan={2} className="px-3 py-3"></td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

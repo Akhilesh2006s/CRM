@@ -91,9 +91,14 @@ type ProductRow = {
   product: string
   class: string
   category: string
-  productName: string
-  quantity: number
-  strength?: number
+  specs: string
+  subject?: string
+  strength: number
+  price: number
+  total: number
+  level: string
+  productName?: string
+  quantity?: number
 }
 
 export default function PendingDCPage() {
@@ -124,7 +129,7 @@ export default function PendingDCPage() {
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const { productNames: availableProducts } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects } = useProducts()
   const availableDCCategories = ['Term 1', 'Term 2', 'Term 3', 'Full Year']
 
   const load = async () => {
@@ -216,6 +221,11 @@ export default function PendingDCPage() {
             productName: p.productName || matchedProduct, // Use productName or matched product
           quantity: p.quantity || 0,
           strength: p.strength || 0,
+          level: p.level || getDefaultLevel(matchedProduct),
+          specs: p.specs || 'Regular',
+          subject: p.subject || undefined,
+          price: p.price || 0,
+          total: p.total || 0,
           }
         }))
       } else if (dcOrderData?.products && Array.isArray(dcOrderData.products) && dcOrderData.products.length > 0) {
@@ -237,6 +247,11 @@ export default function PendingDCPage() {
             productName: matchedProduct, // Use matched product
           quantity: p.quantity || 0,
           strength: p.strength || 0,
+          level: getDefaultLevel(matchedProduct),
+          specs: 'Regular',
+          subject: undefined,
+          price: 0,
+          total: 0,
           }
         }))
       } else {
@@ -257,6 +272,11 @@ export default function PendingDCPage() {
           productName: matchedProduct, // Use matched product
           quantity: mergedDC.requestedQuantity || 0,
           strength: 0,
+          level: getDefaultLevel(matchedProduct),
+          specs: 'Regular',
+          subject: undefined,
+          price: 0,
+          total: 0,
         }])
       }
     } catch (e: any) {
@@ -287,6 +307,9 @@ export default function PendingDCPage() {
             productName: row.productName,
             quantity: row.quantity,
             strength: row.strength || 0,
+            level: row.level,
+            specs: row.specs || 'Regular',
+            subject: row.subject || undefined,
           })),
         }),
       })
@@ -329,6 +352,9 @@ export default function PendingDCPage() {
             productName: row.productName,
             quantity: row.quantity,
             strength: row.strength || 0,
+            level: row.level,
+            specs: row.specs || 'Regular',
+            subject: row.subject || undefined,
           })),
         }),
       })
@@ -619,14 +645,16 @@ export default function PendingDCPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="bg-gray-100 border-b">
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Product Name</th>
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Qty</th>
-                    <th className="py-2 px-3 text-center text-gray-900">Action</th>
-                  </tr>
+                    <tr className="bg-gray-100 border-b">
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Specs</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Subject</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Strength</th>
+                      <th className="py-2 px-3 text-left border-r text-gray-900">Level</th>
+                      <th className="py-2 px-3 text-center text-gray-900">Action</th>
+                    </tr>
                 </thead>
                 <tbody>
                   {productRows.map((row, idx) => (
@@ -635,8 +663,7 @@ export default function PendingDCPage() {
                         <Select value={row.product} onValueChange={(v) => {
                           const updated = [...productRows]
                           updated[idx].product = v
-                          // ALWAYS auto-fill product name when product changes
-                          updated[idx].productName = v
+                          updated[idx].level = getDefaultLevel(v)
                           setProductRows(updated)
                         }}>
                           <SelectTrigger className="h-8 text-xs bg-white">
@@ -682,31 +709,70 @@ export default function PendingDCPage() {
                         </Select>
                       </td>
                       <td className="py-2 px-3 border-r">
-                        <Input
-                          type="text"
-                          className="h-8 text-xs bg-white"
-                          value={row.productName}
-                          onChange={(e) => {
+                        <Select value={row.specs || 'Regular'} onValueChange={(v) => {
+                          const updated = [...productRows]
+                          updated[idx].specs = v
+                          setProductRows(updated)
+                        }}>
+                          <SelectTrigger className="h-8 text-xs bg-white">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getProductSpecs(row.product).map(spec => (
+                              <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="py-2 px-3 border-r">
+                        {getProductSubjects(row.product).length > 0 ? (
+                          <Select value={row.subject || ''} onValueChange={(v) => {
                             const updated = [...productRows]
-                            updated[idx].productName = e.target.value
+                            updated[idx].subject = v
                             setProductRows(updated)
-                          }}
-                          placeholder="Select Item"
-                        />
+                          }}>
+                            <SelectTrigger className="h-8 text-xs bg-white">
+                              <SelectValue placeholder="Select Subject" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getProductSubjects(row.product).map(subject => (
+                                <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-neutral-400 text-xs">-</span>
+                        )}
                       </td>
                       <td className="py-2 px-3 border-r">
                         <Input
                           type="number"
                           className="h-8 text-xs bg-white"
-                          value={row.quantity || ''}
+                          value={row.strength || ''}
                           onChange={(e) => {
                             const updated = [...productRows]
-                            updated[idx].quantity = Number(e.target.value) || 0
+                            updated[idx].strength = Number(e.target.value) || 0
                             setProductRows(updated)
                           }}
                           placeholder="0"
                           min="0"
                         />
+                      </td>
+                      <td className="py-2 px-3 border-r">
+                        <Select value={row.level || getDefaultLevel(row.product)} onValueChange={(v) => {
+                          const updated = [...productRows]
+                          updated[idx].level = v
+                          setProductRows(updated)
+                        }}>
+                          <SelectTrigger className="h-8 text-xs bg-white">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getProductLevels(row.product).map(level => (
+                              <SelectItem key={level} value={level}>{level}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="py-2 px-3 text-center">
                         {productRows.length > 1 && (
@@ -725,6 +791,16 @@ export default function PendingDCPage() {
                       </td>
                     </tr>
                   ))}
+                  {/* Total Row */}
+                  <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
+                    <td colSpan={5} className="px-3 py-3 text-right">
+                      <span className="text-gray-700">Total:</span>
+                    </td>
+                    <td className="px-3 py-3 text-right font-bold text-lg">
+                      {productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                    </td>
+                    <td colSpan={2} className="px-3 py-3"></td>
+                  </tr>
                 </tbody>
               </table>
             </div>

@@ -164,6 +164,16 @@ const getDC = async (req, res) => {
       return res.status(404).json({ message: 'DC not found' });
     }
 
+    // Ensure productDetails always have specs and subject fields
+    // Only set defaults if they're actually missing (undefined/null), not if they're empty strings
+    if (dc.productDetails && Array.isArray(dc.productDetails)) {
+      dc.productDetails = dc.productDetails.map(p => ({
+        ...p,
+        specs: (p.specs !== undefined && p.specs !== null && p.specs !== '') ? p.specs : 'Regular',
+        subject: (p.subject !== undefined && p.subject !== null && p.subject !== '') ? p.subject : undefined,
+      }));
+    }
+
     res.json(dc);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1107,6 +1117,18 @@ const getPendingWarehouseDCs = async (req, res) => {
       .populate('managerRequestedBy', 'name email')
       .sort({ managerRequestedAt: -1 });
 
+    // Ensure productDetails always have specs and subject fields
+    // Only set defaults if they're actually missing (undefined/null), not if they're empty strings
+    dcs.forEach(dc => {
+      if (dc.productDetails && Array.isArray(dc.productDetails)) {
+        dc.productDetails = dc.productDetails.map(p => ({
+          ...p,
+          specs: (p.specs !== undefined && p.specs !== null && p.specs !== '') ? p.specs : 'Regular',
+          subject: (p.subject !== undefined && p.subject !== null && p.subject !== '') ? p.subject : undefined,
+        }));
+      }
+    });
+
     res.json(dcs);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1313,6 +1335,7 @@ const getMyDCs = async (req, res) => {
           products: order.products,
           status: order.status,
           school_type: order.school_type, // Include school_type for category determination
+          createdAt: order.createdAt, // Include createdAt for client turned date
         },
         employeeId: order.assigned_to ? (typeof order.assigned_to === 'object' ? order.assigned_to._id : order.assigned_to) : employeeId,
         customerName: order.school_name,
@@ -1415,6 +1438,8 @@ const updateDC = async (req, res) => {
           price: Number(p.price) || 0,
           total: Number(p.total) || (Number(p.price) || 0) * (Number(p.strength) || 0),
           level: p.level || 'L2',
+          specs: p.specs || 'Regular', // Preserve specs
+          subject: p.subject || undefined, // Preserve subject
           availableQuantity: p.availableQuantity !== undefined && p.availableQuantity !== null ? Number(p.availableQuantity) : undefined,
           deliverableQuantity: p.deliverableQuantity !== undefined && p.deliverableQuantity !== null ? Number(p.deliverableQuantity) : undefined,
           remainingQuantity: p.remainingQuantity !== undefined && p.remainingQuantity !== null ? Number(p.remainingQuantity) : undefined,

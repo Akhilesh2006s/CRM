@@ -76,6 +76,19 @@ export function useProducts() {
       }
       return ['Regular', 'Single Level only', 'Class WorkBooks Only'] // Default specs
     },
+    // Get product subjects for a specific product
+    getProductSubjects: (productName: string): string[] => {
+      const product = products.find(p => p.productName === productName)
+      if (product && product.hasSubjects && product.subjects && Array.isArray(product.subjects)) {
+        return product.subjects
+      }
+      return [] // No subjects if not configured
+    },
+    // Check if product has subjects
+    hasProductSubjects: (productName: string): boolean => {
+      const product = products.find(p => p.productName === productName)
+      return product?.hasSubjects === true && product?.subjects && Array.isArray(product.subjects) && product.subjects.length > 0
+    },
   }
 }
 

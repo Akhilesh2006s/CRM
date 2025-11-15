@@ -15,6 +15,8 @@ type Item = {
   productName: string
   category: string
   level?: string
+  specs?: string
+  subject?: string
   unitPrice: number
   currentStock?: number
 }
@@ -23,25 +25,34 @@ export default function InventoryEditItemPage() {
   const params = useParams<{ id: string }>()
   const id = (params?.id || '').toString()
   const router = useRouter()
-  const { productNames: productOptions, getProductLevels } = useProducts()
+  const { productNames: productOptions, getProductLevels, getProductSpecs, getProductSubjects, hasProductSubjects } = useProducts()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const [productName, setProductName] = useState('')
   const [category, setCategory] = useState('')
   const [level, setLevel] = useState('')
+  const [specs, setSpecs] = useState('Regular')
+  const [subject, setSubject] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [updateQty, setUpdateQty] = useState('')
   
-  // Update level options when product changes
+  // Update level, specs, and subject options when product changes
   useEffect(() => {
     if (productName) {
       const levels = getProductLevels(productName)
       if (levels.length > 0 && !levels.includes(level)) {
         setLevel(levels[0]) // Set to first available level
       }
+      const availableSpecs = getProductSpecs(productName)
+      if (availableSpecs.length > 0 && !availableSpecs.includes(specs)) {
+        setSpecs(availableSpecs[0]) // Set to first available spec
+      }
+      if (!hasProductSubjects(productName)) {
+        setSubject('') // Clear subject if product doesn't have subjects
+      }
     }
-  }, [productName, getProductLevels])
+  }, [productName, getProductLevels, getProductSpecs, hasProductSubjects])
 
   useEffect(() => {
     if (!id) return
@@ -52,6 +63,8 @@ export default function InventoryEditItemPage() {
         setProductName(item.productName || '')
         setCategory(item.category || '')
         setLevel(item.level || '')
+        setSpecs(item.specs || 'Regular')
+        setSubject(item.subject || '')
         setUnitPrice(String(item.unitPrice ?? ''))
         setUpdateQty(String(item.currentStock ?? 0))
       } catch (err: any) {
@@ -78,7 +91,9 @@ export default function InventoryEditItemPage() {
         body: JSON.stringify({ 
           productName, 
           category, 
-          level, 
+          level,
+          specs: specs || 'Regular',
+          subject: subject || undefined,
           unitPrice: price,
           currentStock: qty 
         }),
@@ -139,6 +154,36 @@ export default function InventoryEditItemPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Specs</div>
+              <Select onValueChange={setSpecs} value={specs} disabled={!productName}>
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? "Select Specs" : "Select Product first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {productName && getProductSpecs(productName).map((spec) => (
+                    <SelectItem key={spec} value={spec}>{spec}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {productName && hasProductSubjects(productName) && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Subject</div>
+                <Select onValueChange={setSubject} value={subject || undefined}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Subject (Optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getProductSubjects(productName).map((subj) => (
+                      <SelectItem key={subj} value={subj}>{subj}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Price *</div>

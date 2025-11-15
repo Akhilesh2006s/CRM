@@ -205,17 +205,19 @@ export default function NewSchoolPage() {
     try {
       const parseFollowUp = (s: string) => {
         if (!s) return undefined
+        // Handle date input type format (YYYY-MM-DD)
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          const d = new Date(s + 'T00:00:00Z')
+          if (!isNaN(d.getTime())) return d.toISOString()
+        }
+        // Fallback for manual entry format (dd-mm-yyyy)
         const norm = s.replace(/\//g, '-').trim()
-        let iso: string | undefined
         if (/^\d{2}-\d{2}-\d{4}$/.test(norm)) {
           const [dd, mm, yyyy] = norm.split('-').map(Number)
           const d = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1))
-          if (!isNaN(d.getTime())) iso = d.toISOString()
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) {
-          const d = new Date(norm + 'T00:00:00Z')
-          if (!isNaN(d.getTime())) iso = d.toISOString()
+          if (!isNaN(d.getTime())) return d.toISOString()
         }
-        return iso
+        return undefined
       }
       
       // Build products array from checked products - just product names
@@ -488,7 +490,16 @@ export default function NewSchoolPage() {
           </div>
           <div>
             <Label>Follow-up date</Label>
-            <Input className="bg-white text-neutral-900 placeholder:text-neutral-500" placeholder="dd-mm-yyyy" name="follow_up_date" value={form.follow_up_date} onChange={onChange} />
+            <Input 
+              type="date"
+              className="bg-white text-neutral-900" 
+              name="follow_up_date" 
+              value={form.follow_up_date || ''} 
+              onChange={(e) => {
+                const dateValue = e.target.value
+                setForm((f) => ({ ...f, follow_up_date: dateValue }))
+              }} 
+            />
           </div>
           {error && <div className="md:col-span-2 text-red-600 text-sm">{error}</div>}
           <div className="md:col-span-2">
