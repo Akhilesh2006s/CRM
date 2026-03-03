@@ -1,0 +1,303 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { apiRequest } from '@/lib/api'
+
+export default function NewEmployeePage() {
+  const router = useRouter()
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    empCode: '',
+    email: '',
+    password: '',
+    phone: '0',
+    mobile: '',
+    address1: '',
+    state: '',
+    zone: '',
+    cluster: '',
+    district: '',
+    city: '',
+    pincode: '',
+    role: 'Executive',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [loadingPincode, setLoadingPincode] = useState(false)
+  const [zones, setZones] = useState<string[]>([])
+  const [clustersByZone, setClustersByZone] = useState<Record<string, string[]>>({})
+
+  const loadZones = async () => {
+    try {
+      const data = await apiRequest<any[]>('/zones-clusters')
+      const zoneMap: Record<string, string[]> = {}
+      data.forEach((zc) => {
+        const zone = (zc.zone || '').trim()
+        if (!zone) return
+        if (!zoneMap[zone]) zoneMap[zone] = []
+        if (zc.cluster && !zoneMap[zone].includes(zc.cluster)) {
+          zoneMap[zone].push(zc.cluster)
+        }
+      })
+      setZones(Object.keys(zoneMap).sort())
+      setClustersByZone(zoneMap)
+    } catch (e) {
+      console.error('Failed to load zones & clusters', e)
+    }
+  }
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setForm((f) => ({ ...f, [name]: value }))
+  }
+
+  const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pincode = e.target.value.replace(/\D/g, '').slice(0, 6)
+    setForm((f) => ({ ...f, pincode }))
+
+    // Only lookup when full 6-digit pincode entered
+    if (pincode.length === 6) {
+      setLoadingPincode(true)
+      try {
+        const response = await apiRequest<{
+          town?: string
+          district?: string
+          state?: string
+          region?: string
+          success: boolean
+        }>(`/location/get-town?pincode=${pincode}`)
+
+        if (response.success) {
+          setForm((f) => ({
+            ...f,
+            state: response.state || f.state,
+            district: response.district || f.district,
+            city: response.town || f.city,
+          }))
+        }
+      } catch (err) {
+        // On failure, keep pincode but allow manual override later if needed
+        console.error('Pincode lookup failed:', err)
+      } finally {
+        setLoadingPincode(false)
+      }
+    } else {
+      // If user clears or edits pincode to less than 6 digits, clear derived fields
+      setForm((f) => ({
+        ...f,
+        state: '',
+        district: '',
+        city: '',
+      }))
+    }
+  }
+
+  useEffect(() => {
+    loadZones()
+  }, [])
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      // Validate cluster for Executive role
+      if (form.role === 'Executive' && !form.cluster?.trim()) {
+        setError('Cluster is required for Executive role')
+        setSubmitting(false)
+        return
+      }
+      
+      const payload: any = {
+        ...form,
+        name: `${form.firstName} ${form.lastName}`.trim() || form.firstName || form.lastName || 'Executive',
+      }
+      // Only include cluster if role is Executive
+      if (form.role !== 'Executive') {
+        delete payload.cluster
+      }
+      await apiRequest('/employees/create', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      router.push('/dashboard/employees/active')
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create employee')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Add New Employee</h1>
+      <Card className="p-4 md:p-6 bg-neutral-50 border border-neutral-200">
+        <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2 text-lg font-semibold mb-2">Personal Data</div>
+          
+          <div>
+            <Label>First Name *</Label>
+            <Input className="bg-white text-neutral-900" name="firstName" value={form.firstName} onChange={onChange} placeholder="First Name" required />
+          </div>
+          <div>
+            <Label>Last Name</Label>
+            <Input className="bg-white text-neutral-900" name="lastName" value={form.lastName} onChange={onChange} placeholder="Last Name" />
+          </div>
+          <div>
+            <Label>Emp ID / Code</Label>
+            <Input className="bg-white text-neutral-900" name="empCode" value={form.empCode} onChange={onChange} placeholder="Employee ID / Code" />
+          </div>
+          <div>
+            <Label>Email Id *</Label>
+            <Input className="bg-white text-neutral-900" type="email" name="email" value={form.email} onChange={onChange} placeholder="Email" required />
+          </div>
+          <div>
+            <Label>Phone</Label>
+            <Input className="bg-white text-neutral-900" name="phone" value={form.phone} onChange={onChange} placeholder="Phone" />
+          </div>
+          <div>
+            <Label>Mobile *</Label>
+            <Input className="bg-white text-neutral-900" name="mobile" value={form.mobile} onChange={onChange} placeholder="Mobile" required />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Address 1</Label>
+            <Textarea className="bg-white text-neutral-900" name="address1" value={form.address1} onChange={onChange} placeholder="Address 1" />
+          </div>
+
+          <div className="md:col-span-2 text-lg font-semibold mb-2 mt-4">Location & User Type</div>
+
+          <div>
+            <Label>PinCode *</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="pincode"
+              value={form.pincode}
+              onChange={handlePincodeChange}
+              placeholder="Pincode"
+              required
+            />
+          </div>
+          <div>
+            <Label>Zone *</Label>
+            <Select
+              value={form.zone}
+              onValueChange={(zone) =>
+                setForm((f) => ({
+                  ...f,
+                  zone,
+                  // Reset cluster when zone changes
+                  cluster: '',
+                }))
+              }
+            >
+              <SelectTrigger className="bg-white text-neutral-900">
+                <SelectValue placeholder="Select Zone" />
+              </SelectTrigger>
+              <SelectContent>
+                {zones.map((z) => (
+                  <SelectItem key={z} value={z}>
+                    {z}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {form.role === 'Executive' && (
+            <div>
+              <Label>Cluster *</Label>
+              <Select
+                value={form.cluster}
+                onValueChange={(cluster) =>
+                  setForm((f) => ({
+                    ...f,
+                    cluster,
+                  }))
+                }
+              >
+                <SelectTrigger className="bg-white text-neutral-900">
+                  <SelectValue placeholder="Select Employee Cluster" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(clustersByZone[form.zone] || []).map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div>
+            <Label>District</Label>
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="district"
+              value={form.district}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+            />
+          </div>
+          <div>
+            <Label>City</Label>
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="city"
+              value={form.city}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+            />
+          </div>
+          <div>
+            <Label>State *</Label>
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="state"
+              value={form.state}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+              required
+            />
+          </div>
+          <div>
+            <Label>User Type *</Label>
+            <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v, cluster: v === 'Executive' ? f.cluster : '' }))}>
+              <SelectTrigger className="bg-white text-neutral-900">
+                <SelectValue placeholder="Select Option" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Executive">Executive</SelectItem>
+                <SelectItem value="Trainer">Trainer</SelectItem>
+                <SelectItem value="Finance Manager">Finance Manager</SelectItem>
+                <SelectItem value="Coordinator">Coordinator</SelectItem>
+                <SelectItem value="Senior Coordinator">Senior Coordinator</SelectItem>
+                <SelectItem value="Manager">Manager</SelectItem>
+                <SelectItem value="Executive Manager">Executive Manager</SelectItem>
+                <SelectItem value="Warehouse Executive">Warehouse Executive</SelectItem>
+                <SelectItem value="Warehouse Manager">Warehouse Manager</SelectItem>
+                <SelectItem value="Admin">Admin</SelectItem>
+                <SelectItem value="Super Admin">Super Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Password *</Label>
+            <Input className="bg-white text-neutral-900" type="password" name="password" value={form.password} onChange={onChange} required />
+          </div>
+
+          {error && <div className="md:col-span-2 text-red-600 text-sm">{error}</div>}
+          <div className="md:col-span-2 flex justify-end">
+            <Button type="submit" disabled={submitting}>{submitting ? 'Submitting…' : 'Submit'}</Button>
+          </div>
+        </form>
+      </Card>
+    </div>
+  )
+}
