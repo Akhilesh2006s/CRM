@@ -1,16 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getVendorDashboard,
-  getVendorStocks,
-  ensureVendor,
-} = require('../controllers/vendorUserController');
+  getPartnerDashboard,
+  getPartnerStocks,
+  getPartnerDCs,
+  ensurePartner,
+} = require('../controllers/vendorUserController'); // TODO: Rename file to partnerUserController.js
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 router.use(authMiddleware);
-router.use(ensureVendor);
+router.use(ensurePartner);
 
-router.get('/dashboard', getVendorDashboard);
-router.get('/stocks', getVendorStocks);
+router.get('/dashboard', getPartnerDashboard);
+router.get('/stocks', getPartnerStocks);
+router.get('/dcs', getPartnerDCs);
 
 module.exports = router;

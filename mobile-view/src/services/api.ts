@@ -29,7 +29,9 @@ const getApiUrl = (): string => {
     const url = String(envUrl).trim().replace(/\/$/, '');
     return url.includes('/api') ? url : `${url}/api`;
   }
-  // Default: local backend on port 5000 (for both web and device via Expo dev tools)
+  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_USE_PRODUCTION === 'true') {
+    return 'https://crm-backend-production-2ffd.up.railway.app/api';
+  }
 
   // Web (browser) or React Native Web - always use localhost
   const isWeb = Platform.OS === 'web' || (typeof window !== 'undefined' && typeof document !== 'undefined');
@@ -50,14 +52,11 @@ const DEV_API_URL = getApiUrl();
 
 export { getApiUrl, DEV_API_URL };
 
-// Production API URL (Railway backend) - used only when explicitly configured
-const PROD_API_URL = 'https://crm-backend-production-fc85.up.railway.app/api';
+// Production API URL (Railway backend)
+const PROD_API_URL = 'https://crm-backend-production-2ffd.up.railway.app/api';
 
-// Use local/dev URL by default; switch to PROD_API_URL only when env flag is set
-const API_BASE_URL =
-  typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_USE_PRODUCTION === 'true'
-    ? PROD_API_URL
-    : DEV_API_URL;
+// Use local development URL (change to PROD_API_URL for production)
+const API_BASE_URL = DEV_API_URL;
 
 class ApiService {
   private baseURL: string;

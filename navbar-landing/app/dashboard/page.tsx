@@ -391,16 +391,35 @@ export default function DashboardPage() {
   }
 
   // Vendor gets dedicated dashboard with product/DC/stock insights
-  if (currentUser?.role === 'Vendor') {
+  if (currentUser?.role === 'Vendor' || currentUser?.role === 'Partner') {
     return (
       <div className="space-y-8">
         <div>
-          <h1 className="text-2xl font-semibold text-neutral-900">Vendor Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-neutral-900">Partner Dashboard</h1>
           <p className="text-sm text-neutral-600 mt-1">Insights for your assigned products</p>
         </div>
         <VendorDashboard />
       </div>
     )
+  }
+
+  // Franchise gets redirected to their franchise dashboard
+  if (currentUser?.role === 'Franchise') {
+    const franchiseEmail = currentUser?.email || ''
+    if (franchiseEmail) {
+      // Redirect to franchise dashboard page
+      if (typeof window !== 'undefined') {
+        window.location.href = `/dashboard/franchises/${encodeURIComponent(franchiseEmail)}`
+        return (
+          <div className="space-y-6 p-8">
+            <div className="text-center text-neutral-500">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-4"></div>
+              <p>Redirecting to franchise dashboard...</p>
+            </div>
+          </div>
+        )
+      }
+    }
   }
 
   return (

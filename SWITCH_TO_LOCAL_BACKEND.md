@@ -27,7 +27,7 @@ The following mobile screens still have hardcoded Railway URLs and need to be up
 ### Pattern to Replace:
 ```typescript
 import ApiService from '../../services/api';
-const apiService = new ApiService('https://crm-backend-production-fc85.up.railway.app/api');
+const apiService = new ApiService('https://crm-backend-production-2ffd.up.railway.app/api');
 ```
 
 ### Replace With:
@@ -58,8 +58,8 @@ cd mobile-view\src\screens
 Get-ChildItem -Recurse -Filter *.tsx | ForEach-Object {
     $content = Get-Content $_.FullName -Raw
     if ($content -match "new ApiService\('https://crm-backend-production") {
-        $content = $content -replace "import ApiService from '../../services/api';\r?\n\s*const apiService = new ApiService\('https://crm-backend-production-fc85\.up\.railway\.app/api'\);", "import { apiService } from '../../services/api';"
-        $content = $content -replace "const apiService = new ApiService\('https://crm-backend-production-fc85\.up\.railway\.app/api'\);", ""
+        $content = $content -replace "import ApiService from '../../services/api';\r?\n\s*const apiService = new ApiService\('https://crm-backend-production-2ffd\.up\.railway\.app/api'\);", "import { apiService } from '../../services/api';"
+        $content = $content -replace "const apiService = new ApiService\('https://crm-backend-production-2ffd\.up\.railway\.app/api'\);", ""
         Set-Content $_.FullName -Value $content -NoNewline
         Write-Host "Updated: $($_.FullName)"
     }

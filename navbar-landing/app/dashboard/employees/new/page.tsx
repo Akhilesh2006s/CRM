@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -31,11 +31,78 @@ export default function NewEmployeePage() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadingPincode, setLoadingPincode] = useState(false)
+  const [zones, setZones] = useState<string[]>([])
+  const [clustersByZone, setClustersByZone] = useState<Record<string, string[]>>({})
+
+  const loadZones = async () => {
+    try {
+      const data = await apiRequest<any[]>('/zones-clusters')
+      const zoneMap: Record<string, string[]> = {}
+      data.forEach((zc) => {
+        const zone = (zc.zone || '').trim()
+        if (!zone) return
+        if (!zoneMap[zone]) zoneMap[zone] = []
+        if (zc.cluster && !zoneMap[zone].includes(zc.cluster)) {
+          zoneMap[zone].push(zc.cluster)
+        }
+      })
+      setZones(Object.keys(zoneMap).sort())
+      setClustersByZone(zoneMap)
+    } catch (e) {
+      console.error('Failed to load zones & clusters', e)
+    }
+  }
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setForm((f) => ({ ...f, [name]: value }))
   }
+
+  const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pincode = e.target.value.replace(/\D/g, '').slice(0, 6)
+    setForm((f) => ({ ...f, pincode }))
+
+    // Only lookup when full 6-digit pincode entered
+    if (pincode.length === 6) {
+      setLoadingPincode(true)
+      try {
+        const response = await apiRequest<{
+          town?: string
+          district?: string
+          state?: string
+          region?: string
+          success: boolean
+        }>(`/location/get-town?pincode=${pincode}`)
+
+        if (response.success) {
+          setForm((f) => ({
+            ...f,
+            state: response.state || f.state,
+            district: response.district || f.district,
+            city: response.town || f.city,
+          }))
+        }
+      } catch (err) {
+        // On failure, keep pincode but allow manual override later if needed
+        console.error('Pincode lookup failed:', err)
+      } finally {
+        setLoadingPincode(false)
+      }
+    } else {
+      // If user clears or edits pincode to less than 6 digits, clear derived fields
+      setForm((f) => ({
+        ...f,
+        state: '',
+        district: '',
+        city: '',
+      }))
+    }
+  }
+
+  useEffect(() => {
+    loadZones()
+  }, [])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -108,30 +175,96 @@ export default function NewEmployeePage() {
           <div className="md:col-span-2 text-lg font-semibold mb-2 mt-4">Location & User Type</div>
 
           <div>
-            <Label>State *</Label>
-            <Input className="bg-white text-neutral-900" name="state" value={form.state} onChange={onChange} placeholder="Enter Employee State" required />
+            <Label>PinCode *</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="pincode"
+              value={form.pincode}
+              onChange={handlePincodeChange}
+              placeholder="Pincode"
+              required
+            />
           </div>
           <div>
             <Label>Zone *</Label>
-            <Input className="bg-white text-neutral-900" name="zone" value={form.zone} onChange={onChange} placeholder="Enter Employee Zone" required />
+            <Select
+              value={form.zone}
+              onValueChange={(zone) =>
+                setForm((f) => ({
+                  ...f,
+                  zone,
+                  // Reset cluster when zone changes
+                  cluster: '',
+                }))
+              }
+            >
+              <SelectTrigger className="bg-white text-neutral-900">
+                <SelectValue placeholder="Select Zone" />
+              </SelectTrigger>
+              <SelectContent>
+                {zones.map((z) => (
+                  <SelectItem key={z} value={z}>
+                    {z}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {form.role === 'Executive' && (
             <div>
               <Label>Cluster *</Label>
-              <Input className="bg-white text-neutral-900" name="cluster" value={form.cluster} onChange={onChange} placeholder="Enter Employee Cluster" required />
+              <Select
+                value={form.cluster}
+                onValueChange={(cluster) =>
+                  setForm((f) => ({
+                    ...f,
+                    cluster,
+                  }))
+                }
+              >
+                <SelectTrigger className="bg-white text-neutral-900">
+                  <SelectValue placeholder="Select Employee Cluster" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(clustersByZone[form.zone] || []).map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
           <div>
             <Label>District</Label>
-            <Input className="bg-white text-neutral-900" name="district" value={form.district} onChange={onChange} placeholder="Enter Employee District" />
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="district"
+              value={form.district}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+            />
           </div>
           <div>
             <Label>City</Label>
-            <Input className="bg-white text-neutral-900" name="city" value={form.city} onChange={onChange} placeholder="City" />
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="city"
+              value={form.city}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+            />
           </div>
           <div>
-            <Label>PinCode</Label>
-            <Input className="bg-white text-neutral-900" name="pincode" value={form.pincode} onChange={onChange} placeholder="Pincode" />
+            <Label>State *</Label>
+            <Input
+              className="bg-neutral-100 text-neutral-900"
+              name="state"
+              value={form.state}
+              readOnly
+              placeholder="Auto-filled from Pincode"
+              required
+            />
           </div>
           <div>
             <Label>User Type *</Label>

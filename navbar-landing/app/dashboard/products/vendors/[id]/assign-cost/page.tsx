@@ -34,23 +34,25 @@ type School = {
   location?: string
 }
 
-type EnterpriseSchool = {
+type FranchiseSchool = {
   schoolId: string
   schoolName: string
   schoolCode?: string
 }
 
-type Enterprise = {
-  enterpriseName: string
-  enterpriseCost: number
-  schools: EnterpriseSchool[]
+type Franchise = {
+  franchiseName: string
+  franchiseEmail: string
+  franchiseCost: number
+  zones: string[]
+  schools: FranchiseSchool[]
 }
 
 type ProductCost = {
   productId: string
   productName: string
   defaultCost: number
-  enterprises: Enterprise[]
+  franchises: Franchise[]
 }
 
 type VendorCost = {
@@ -71,14 +73,16 @@ export default function AssignCostPage() {
   const [saving, setSaving] = useState(false)
   
   const [selectedProduct, setSelectedProduct] = useState<string>('')
-  const [selectedProductForEnterprise, setSelectedProductForEnterprise] = useState<string>('')
-  const [addEnterpriseDialogOpen, setAddEnterpriseDialogOpen] = useState(false)
-  const [addSchoolDialogOpen, setAddSchoolDialogOpen] = useState(false)
-  const [enterpriseName, setEnterpriseName] = useState('')
-  const [enterpriseCost, setEnterpriseCost] = useState('')
-  const [selectedEnterpriseIndex, setSelectedEnterpriseIndex] = useState<number | null>(null)
-  const [selectedSchoolForAdd, setSelectedSchoolForAdd] = useState<School | null>(null)
-  const [schoolSearchTerm, setSchoolSearchTerm] = useState('')
+  const [selectedProductForFranchise, setSelectedProductForFranchise] = useState<string>('')
+  const [addFranchiseDialogOpen, setAddFranchiseDialogOpen] = useState(false)
+  const [addZoneDialogOpen, setAddZoneDialogOpen] = useState(false)
+  const [franchiseName, setFranchiseName] = useState('')
+  const [franchiseEmail, setFranchiseEmail] = useState('')
+  const [franchisePassword, setFranchisePassword] = useState('')
+  const [franchiseCost, setFranchiseCost] = useState('')
+  const [selectedFranchiseIndex, setSelectedFranchiseIndex] = useState<number | null>(null)
+  const [selectedZones, setSelectedZones] = useState<string[]>([])
+  const [availableZones, setAvailableZones] = useState<string[]>([])
   
   const [vendorCost, setVendorCost] = useState<VendorCost>({
     vendorId,
@@ -95,21 +99,25 @@ export default function AssignCostPage() {
     try {
       console.log('Loading vendor cost data for vendor:', vendorId)
       
-      // Load vendor, products, schools, and vendor cost in parallel
-      const [vendorData, productsData, schoolsData, costData] = await Promise.all([
-        apiRequest<Vendor>(`/vendors/${vendorId}`).catch((e: any) => {
-          console.error('Failed to load vendor:', e)
-          throw new Error('Failed to load vendor: ' + (e?.message || 'Unknown error'))
+      // Load vendor, products, schools, zones, and vendor cost in parallel
+      const [vendorData, productsData, schoolsData, zonesData, costData] = await Promise.all([
+        apiRequest<Vendor>(`/partners/${vendorId}`).catch((e: any) => {
+          console.error('Failed to load partner:', e)
+          throw new Error('Failed to load partner: ' + (e?.message || 'Unknown error'))
         }),
         apiRequest<Product[]>(`/products/active`).catch((e: any) => {
           console.error('Failed to load products:', e)
           return []
         }),
-        apiRequest<School[]>(`/vendor-costs/schools`).catch((e: any) => {
+        apiRequest<School[]>(`/partner-costs/schools`).catch((e: any) => {
           console.error('Failed to load schools:', e)
           return []
         }),
-        apiRequest<VendorCost>(`/vendor-costs/${vendorId}`).catch((e: any) => {
+        apiRequest<string[]>(`/partner-costs/zones`).catch((e: any) => {
+          console.error('Failed to load zones:', e)
+          return []
+        }),
+        apiRequest<VendorCost>(`/partner-costs/${vendorId}`).catch((e: any) => {
           // If no cost config exists, return default
           return { vendorId, products: [] }
         })
@@ -124,7 +132,10 @@ export default function AssignCostPage() {
       console.log('Schools loaded:', schoolsData)
       setAllSchools(Array.isArray(schoolsData) ? schoolsData : [])
       
-      console.log('Vendor cost data loaded:', costData)
+      console.log('Zones loaded:', zonesData)
+      setAvailableZones(Array.isArray(zonesData) ? zonesData : [])
+      
+      console.log('Partner cost data loaded:', costData)
       if (costData && costData.vendorId) {
         setVendorCost(costData)
       }
@@ -180,7 +191,7 @@ export default function AssignCostPage() {
       productId: selectedProduct,
       productName: product.productName,
       defaultCost: 0,
-      enterprises: [],
+      franchises: [],
     }
     
     setVendorCost(prev => ({
@@ -215,77 +226,131 @@ export default function AssignCostPage() {
     }))
   }
 
-  const openAddEnterpriseDialog = (productIndex: number) => {
-    setSelectedProductForEnterprise(vendorCost.products[productIndex].productId)
-    setSelectedEnterpriseIndex(productIndex)
-    setEnterpriseName('')
-    setEnterpriseCost('')
-    setAddEnterpriseDialogOpen(true)
+  const openAddFranchiseDialog = (productIndex: number) => {
+    setSelectedProductForFranchise(vendorCost.products[productIndex].productId)
+    setSelectedFranchiseIndex(productIndex)
+    setFranchiseName('')
+    setFranchiseEmail('')
+    setFranchisePassword('')
+    setFranchiseCost('')
+    setAddFranchiseDialogOpen(true)
   }
 
-  const handleAddEnterprise = () => {
-    if (!enterpriseName.trim()) {
-      toast.error('Please enter enterprise name')
+  const handleAddFranchise = async () => {
+    if (!franchiseName.trim()) {
+      toast.error('Please enter franchise name')
       return
     }
     
-    const cost = parseFloat(enterpriseCost) || 0
+    if (!franchiseEmail.trim()) {
+      toast.error('Please enter franchise email')
+      return
+    }
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(franchiseEmail.trim())) {
+      toast.error('Please enter a valid email address')
+      return
+    }
+    
+    if (!franchisePassword.trim()) {
+      toast.error('Please enter franchise password')
+      return
+    }
+    
+    // Password validation: min 6 characters
+    if (franchisePassword.trim().length < 6) {
+      toast.error('Password must be at least 6 characters')
+      return
+    }
+    
+    const cost = parseFloat(franchiseCost) || 0
     if (cost < 0) {
-      toast.error('Enterprise cost cannot be negative')
+      toast.error('Franchise cost cannot be negative')
       return
     }
     
-    if (selectedEnterpriseIndex === null) {
+    if (selectedFranchiseIndex === null) {
       toast.error('Product not found')
       return
     }
     
-    const product = vendorCost.products[selectedEnterpriseIndex]
+    const product = vendorCost.products[selectedFranchiseIndex]
     
-    // Check if enterprise name already exists for this product
-    const existingEnterprise = product.enterprises.find(e => e.enterpriseName.toLowerCase() === enterpriseName.trim().toLowerCase())
-    if (existingEnterprise) {
-      toast.error('Enterprise with this name already exists for this product')
+    // Check if franchise name already exists for this product
+    const existingFranchise = product.franchises.find(f => f.franchiseName.toLowerCase() === franchiseName.trim().toLowerCase())
+    if (existingFranchise) {
+      toast.error('Franchise with this name already exists for this product')
       return
     }
     
-    const newEnterprise: Enterprise = {
-      enterpriseName: enterpriseName.trim(),
-      enterpriseCost: cost,
+    // Check if franchise email already exists for this product
+    const existingEmail = product.franchises.find(f => f.franchiseEmail.toLowerCase() === franchiseEmail.trim().toLowerCase())
+    if (existingEmail) {
+      toast.error('Franchise with this email already exists for this product')
+      return
+    }
+    
+    // Create or update User account for franchise
+    try {
+      await apiRequest('/auth/register-franchise', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: franchiseName.trim(),
+          email: franchiseEmail.trim().toLowerCase(),
+          password: franchisePassword.trim(),
+        }),
+      })
+    } catch (err: any) {
+      // If user already exists, that's okay - just continue
+      if (!err?.message?.includes('already exists') && !err?.message?.includes('Email already')) {
+        console.error('Failed to create franchise user account:', err)
+        toast.error('Franchise created but failed to create login account. You may need to create it manually.')
+      }
+    }
+    
+    const newFranchise: Franchise = {
+      franchiseName: franchiseName.trim(),
+      franchiseEmail: franchiseEmail.trim().toLowerCase(),
+      franchiseCost: cost,
+      zones: [],
       schools: [],
     }
     
     setVendorCost(prev => ({
       ...prev,
       products: prev.products.map((p, idx) => 
-        idx === selectedEnterpriseIndex 
-          ? { ...p, enterprises: [...p.enterprises, newEnterprise] }
+        idx === selectedFranchiseIndex 
+          ? { ...p, franchises: [...p.franchises, newFranchise] }
           : p
       ),
     }))
     
-    setAddEnterpriseDialogOpen(false)
-    setEnterpriseName('')
-    setEnterpriseCost('')
-    setSelectedEnterpriseIndex(null)
-    toast.success('Enterprise added successfully')
+    setAddFranchiseDialogOpen(false)
+    setFranchiseName('')
+    setFranchiseEmail('')
+    setFranchisePassword('')
+    setFranchiseCost('')
+    setSelectedFranchiseIndex(null)
+    toast.success('Franchise added successfully with login account')
   }
 
-  const handleRemoveEnterprise = (productIndex: number, enterpriseIndex: number) => {
+  const handleRemoveFranchise = (productIndex: number, franchiseIndex: number) => {
     setVendorCost(prev => ({
       ...prev,
       products: prev.products.map((product, pIdx) => 
         pIdx === productIndex 
-          ? { ...product, enterprises: product.enterprises.filter((_, eIdx) => eIdx !== enterpriseIndex) }
+          ? { ...product, franchises: product.franchises.filter((_, fIdx) => fIdx !== franchiseIndex) }
           : product
       ),
     }))
-    toast.success('Enterprise removed')
+    toast.success('Franchise removed')
   }
 
-  const handleUpdateEnterpriseCost = (productIndex: number, enterpriseIndex: number, cost: number) => {
+  const handleUpdateFranchiseCost = (productIndex: number, franchiseIndex: number, cost: number) => {
     if (cost < 0) {
-      toast.error('Enterprise cost cannot be negative')
+      toast.error('Franchise cost cannot be negative')
       return
     }
     setVendorCost(prev => ({
@@ -294,10 +359,10 @@ export default function AssignCostPage() {
         pIdx === productIndex 
           ? {
               ...product,
-              enterprises: product.enterprises.map((enterprise, eIdx) => 
-                eIdx === enterpriseIndex 
-                  ? { ...enterprise, enterpriseCost: cost }
-                  : enterprise
+              franchises: product.franchises.map((franchise, fIdx) => 
+                fIdx === franchiseIndex 
+                  ? { ...franchise, franchiseCost: cost }
+                  : franchise
               )
             }
           : product
@@ -305,47 +370,59 @@ export default function AssignCostPage() {
     }))
   }
 
-  const openAddSchoolDialog = (productIndex: number, enterpriseIndex: number) => {
-    setSelectedProductForEnterprise(vendorCost.products[productIndex].productId)
-    setSelectedEnterpriseIndex(enterpriseIndex)
-    setSelectedSchoolForAdd(null)
-    setSchoolSearchTerm('')
-    setAddSchoolDialogOpen(true)
+  const openAddZoneDialog = (productIndex: number, franchiseIndex: number) => {
+    setSelectedProductForFranchise(vendorCost.products[productIndex].productId)
+    setSelectedFranchiseIndex(franchiseIndex)
+    setSelectedZones([])
+    setAddZoneDialogOpen(true)
   }
 
-  const handleAddSchool = () => {
-    if (!selectedSchoolForAdd) {
-      toast.error('Please select a school')
+  const handleAddZones = () => {
+    if (selectedZones.length === 0) {
+      toast.error('Please select at least one zone')
       return
     }
     
-    if (selectedEnterpriseIndex === null) {
-      toast.error('Enterprise not found')
+    if (selectedFranchiseIndex === null) {
+      toast.error('Franchise not found')
       return
     }
     
-    // Find the product and enterprise indices
-    const productIndex = vendorCost.products.findIndex(p => p.productId === selectedProductForEnterprise)
+    // Find the product and franchise indices
+    const productIndex = vendorCost.products.findIndex(p => p.productId === selectedProductForFranchise)
     if (productIndex === -1) {
       toast.error('Product not found')
       return
     }
     
     const product = vendorCost.products[productIndex]
-    const enterprise = product.enterprises[selectedEnterpriseIndex]
+    const franchise = product.franchises[selectedFranchiseIndex]
     
-    // Check if school already exists in this enterprise
-    const schoolExists = enterprise.schools.some(s => s.schoolId === selectedSchoolForAdd._id)
-    if (schoolExists) {
-      toast.error('This school is already added to this enterprise')
+    // Get all schools from selected zones
+    const schoolsFromZones: FranchiseSchool[] = []
+    const addedSchoolIds = new Set<string>(franchise.schools.map(s => s.schoolId))
+    
+    selectedZones.forEach(zone => {
+      const schoolsInZone = allSchools.filter(school => school.zone === zone)
+      schoolsInZone.forEach(school => {
+        if (!addedSchoolIds.has(school._id)) {
+          schoolsFromZones.push({
+            schoolId: school._id,
+            schoolName: school.school_name,
+            schoolCode: school.school_code || '',
+          })
+          addedSchoolIds.add(school._id)
+        }
+      })
+    })
+    
+    if (schoolsFromZones.length === 0) {
+      toast.error('No schools found in selected zones')
       return
     }
     
-    const newSchool: EnterpriseSchool = {
-      schoolId: selectedSchoolForAdd._id,
-      schoolName: selectedSchoolForAdd.school_name,
-      schoolCode: selectedSchoolForAdd.school_code || '',
-    }
+    // Update franchise with new zones and schools
+    const updatedZones = [...new Set([...franchise.zones, ...selectedZones])]
     
     setVendorCost(prev => ({
       ...prev,
@@ -353,40 +430,74 @@ export default function AssignCostPage() {
         pIdx === productIndex 
           ? {
               ...p,
-              enterprises: p.enterprises.map((e, eIdx) => 
-                eIdx === selectedEnterpriseIndex 
-                  ? { ...e, schools: [...e.schools, newSchool] }
-                  : e
+              franchises: p.franchises.map((f, fIdx) => 
+                fIdx === selectedFranchiseIndex 
+                  ? { 
+                      ...f, 
+                      zones: updatedZones,
+                      schools: [...f.schools, ...schoolsFromZones] 
+                    }
+                  : f
               )
             }
           : p
       ),
     }))
     
-    setAddSchoolDialogOpen(false)
-    setSelectedSchoolForAdd(null)
-    setSchoolSearchTerm('')
-    setSelectedEnterpriseIndex(null)
-    toast.success('School added successfully')
+    setAddZoneDialogOpen(false)
+    setSelectedZones([])
+    setSelectedFranchiseIndex(null)
+    toast.success(`Added ${schoolsFromZones.length} school(s) from ${selectedZones.length} zone(s)`)
   }
 
-  const handleRemoveSchool = (productIndex: number, enterpriseIndex: number, schoolIndex: number) => {
+  const handleRemoveSchool = (productIndex: number, franchiseIndex: number, schoolIndex: number) => {
     setVendorCost(prev => ({
       ...prev,
       products: prev.products.map((product, pIdx) => 
         pIdx === productIndex 
           ? {
               ...product,
-              enterprises: product.enterprises.map((enterprise, eIdx) => 
-                eIdx === enterpriseIndex 
-                  ? { ...enterprise, schools: enterprise.schools.filter((_, sIdx) => sIdx !== schoolIndex) }
-                  : enterprise
+              franchises: product.franchises.map((franchise, fIdx) => 
+                fIdx === franchiseIndex 
+                  ? { ...franchise, schools: franchise.schools.filter((_, sIdx) => sIdx !== schoolIndex) }
+                  : franchise
               )
             }
           : product
       ),
     }))
     toast.success('School removed')
+  }
+  
+  const handleRemoveZone = (productIndex: number, franchiseIndex: number, zoneToRemove: string) => {
+    const product = vendorCost.products[productIndex]
+    const franchise = product.franchises[franchiseIndex]
+    
+    // Remove zone and all schools from that zone
+    const schoolsInZone = allSchools
+      .filter(school => school.zone === zoneToRemove)
+      .map(school => school._id)
+    
+    setVendorCost(prev => ({
+      ...prev,
+      products: prev.products.map((p, pIdx) => 
+        pIdx === productIndex 
+          ? {
+              ...p,
+              franchises: p.franchises.map((f, fIdx) => 
+                fIdx === franchiseIndex 
+                  ? { 
+                      ...f, 
+                      zones: f.zones.filter(z => z !== zoneToRemove),
+                      schools: f.schools.filter(s => !schoolsInZone.includes(s.schoolId))
+                    }
+                  : f
+              )
+            }
+          : p
+      ),
+    }))
+    toast.success(`Zone "${zoneToRemove}" and its schools removed`)
   }
 
   const handleSave = async () => {
@@ -397,10 +508,10 @@ export default function AssignCostPage() {
         return
       }
       
-      // Validate enterprises
-      for (const enterprise of product.enterprises) {
-        if (enterprise.enterpriseCost < 0) {
-          toast.error(`Enterprise ${enterprise.enterpriseName} in ${product.productName}: Cost cannot be negative`)
+      // Validate franchises
+      for (const franchise of product.franchises) {
+        if (franchise.franchiseCost < 0) {
+          toast.error(`Franchise ${franchise.franchiseName} in ${product.productName}: Cost cannot be negative`)
           return
         }
       }
@@ -408,7 +519,7 @@ export default function AssignCostPage() {
     
     setSaving(true)
     try {
-      await apiRequest(`/vendor-costs/${vendorId}`, {
+      await apiRequest(`/partner-costs/${vendorId}`, {
         method: 'PUT',
         body: JSON.stringify(vendorCost),
       })
@@ -421,24 +532,13 @@ export default function AssignCostPage() {
     }
   }
 
-  // Filter schools for dialog
-  const filteredSchools = allSchools.filter(school => {
-    if (!schoolSearchTerm) return true
-    const search = schoolSearchTerm.toLowerCase()
-    return (
-      school.school_name.toLowerCase().includes(search) ||
-      (school.school_code && school.school_code.toLowerCase().includes(search)) ||
-      (school.zone && school.zone.toLowerCase().includes(search))
-    )
-  })
-
-  // Get schools already assigned to any enterprise in the selected product
+  // Get schools already assigned to any franchise in the selected product
   const getAssignedSchoolIds = (productIndex: number): string[] => {
     const product = vendorCost.products[productIndex]
     if (!product) return []
     const assignedIds: string[] = []
-    product.enterprises.forEach(enterprise => {
-      enterprise.schools.forEach(school => {
+    product.franchises.forEach(franchise => {
+      franchise.schools.forEach(school => {
         assignedIds.push(school.schoolId)
       })
     })
@@ -450,7 +550,7 @@ export default function AssignCostPage() {
       <div className="space-y-6 p-8">
         <div className="text-center text-neutral-500">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p>Loading vendor cost configuration...</p>
+          <p>Loading partner cost configuration...</p>
         </div>
       </div>
     )
@@ -460,9 +560,9 @@ export default function AssignCostPage() {
     return (
       <div className="space-y-6 p-8">
         <div className="text-center text-red-600">
-          <p>Vendor not found</p>
+          <p>Partner not found</p>
           <Link href="/dashboard/products/vendors" className="text-blue-600 hover:underline mt-2 inline-block">
-            Go back to vendors
+            Go back to partners
           </Link>
         </div>
       </div>
@@ -476,12 +576,12 @@ export default function AssignCostPage() {
         className="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to Vendors
+        Back to Partners
       </Link>
 
       <div>
         <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Assign Cost - {vendor.name}</h1>
-        <p className="text-sm text-neutral-600 mt-1">Configure product costs: default cost applies to all schools, enterprise costs apply to specific schools</p>
+        <p className="text-sm text-neutral-600 mt-1">Configure product costs: default cost applies to all schools, franchise costs apply to schools in selected zones</p>
       </div>
 
       <Card className="p-4 md:p-6 space-y-6">
@@ -548,7 +648,7 @@ export default function AssignCostPage() {
 
                   {/* Default Cost */}
                   <div>
-                    <Label>Default Cost (₹) - Applies to all schools not in any enterprise</Label>
+                    <Label>Default Cost (₹) - Applies to all schools not in any franchise</Label>
                     <Input
                       type="number"
                       min="0"
@@ -559,106 +659,122 @@ export default function AssignCostPage() {
                       className="mt-1"
                     />
                     <p className="text-xs text-neutral-500 mt-1">
-                      This default price will be shown to vendor in their dashboard for all schools not assigned to any enterprise
+                      This default price will be shown to partner in their dashboard for all schools not assigned to any franchise
                     </p>
                   </div>
 
-                  {/* Enterprises */}
+                  {/* Franchises */}
                   <div className="space-y-3 pt-4 border-t border-neutral-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Briefcase className="w-4 h-4 text-blue-600" />
-                        <Label className="text-sm font-medium">Enterprises ({product.enterprises.length})</Label>
+                        <Label className="text-sm font-medium">Franchises ({product.franchises.length})</Label>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => openAddEnterpriseDialog(productIndex)}
+                        onClick={() => openAddFranchiseDialog(productIndex)}
                         className="border-green-200 text-green-700 hover:bg-green-50"
                       >
                         <Plus className="w-4 h-4 mr-2" />
-                        Add Enterprise
+                        Add Franchise
                       </Button>
                     </div>
 
-                    {product.enterprises.length === 0 ? (
+                    {product.franchises.length === 0 ? (
                       <div className="text-sm text-neutral-500 py-4 text-center border border-dashed border-neutral-200 rounded">
-                        No enterprises added. Click "Add Enterprise" to add enterprise costs with specific schools.
+                        No franchises added. Click "Add Franchise" to add franchise costs with specific zones.
                       </div>
                     ) : (
                       <div className="space-y-3">
-                        {product.enterprises.map((enterprise, enterpriseIndex) => (
-                          <Card key={enterpriseIndex} className="p-3 border border-neutral-200 bg-neutral-50">
+                        {product.franchises.map((franchise, franchiseIndex) => (
+                          <Card key={franchiseIndex} className="p-3 border border-neutral-200 bg-neutral-50">
                             <div className="space-y-3">
-                              {/* Enterprise Header */}
+                              {/* Franchise Header */}
                               <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="secondary" className="text-sm font-medium">
-                                    {enterprise.enterpriseName}
-                                  </Badge>
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="secondary" className="text-sm font-medium w-fit">
+                                      {franchise.franchiseName}
+                                    </Badge>
+                                    <Link 
+                                      href={`/dashboard/franchises/${encodeURIComponent(franchise.franchiseEmail)}`}
+                                      target="_blank"
+                                    >
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                                      >
+                                        View Dashboard
+                                      </Button>
+                                    </Link>
+                                  </div>
+                                  <span className="text-xs text-neutral-500">{franchise.franchiseEmail}</span>
                                 </div>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => handleRemoveEnterprise(productIndex, enterpriseIndex)}
+                                  onClick={() => handleRemoveFranchise(productIndex, franchiseIndex)}
                                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
                                 >
                                   <X className="w-4 h-4" />
                                 </Button>
                               </div>
 
-                              {/* Enterprise Cost */}
+                              {/* Franchise Cost */}
                               <div>
-                                <Label className="text-xs text-neutral-600">Enterprise Cost (₹)</Label>
+                                <Label className="text-xs text-neutral-600">Franchise Cost (₹)</Label>
                                 <Input
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  value={enterprise.enterpriseCost}
-                                  onChange={(e) => handleUpdateEnterpriseCost(productIndex, enterpriseIndex, parseFloat(e.target.value) || 0)}
+                                  value={franchise.franchiseCost}
+                                  onChange={(e) => handleUpdateFranchiseCost(productIndex, franchiseIndex, parseFloat(e.target.value) || 0)}
                                   placeholder="0.00"
                                   className="h-8 text-sm mt-1"
                                 />
                               </div>
 
-                              {/* Schools in Enterprise */}
+                              {/* Zones in Franchise */}
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between">
                                   <Label className="text-xs text-neutral-600">
-                                    Schools ({enterprise.schools.length})
+                                    Zones ({franchise.zones.length})
                                   </Label>
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => openAddSchoolDialog(productIndex, enterpriseIndex)}
+                                    onClick={() => openAddZoneDialog(productIndex, franchiseIndex)}
                                     className="border-blue-200 text-blue-700 hover:bg-blue-50 text-xs h-7"
                                   >
                                     <Plus className="w-3 h-3 mr-1" />
-                                    Add School
+                                    Add Zone
                                   </Button>
                                 </div>
 
-                                {enterprise.schools.length === 0 ? (
+                                {franchise.zones.length === 0 ? (
                                   <div className="text-xs text-neutral-500 py-2 text-center border border-dashed border-neutral-200 rounded">
-                                    No schools added. Click "Add School" to assign schools to this enterprise.
+                                    No zones added. Click "Add Zone" to assign zones to this franchise. Schools in selected zones will be automatically added.
                                   </div>
                                 ) : (
                                   <div className="space-y-1">
-                                    {enterprise.schools.map((school, schoolIndex) => (
-                                      <div key={schoolIndex} className="flex items-center justify-between p-2 bg-white rounded border border-neutral-200">
+                                    {franchise.zones.map((zone, zoneIndex) => (
+                                      <div key={zoneIndex} className="flex items-center justify-between p-2 bg-white rounded border border-neutral-200">
                                         <div className="flex items-center gap-2">
                                           <Building2 className="w-3 h-3 text-neutral-500" />
-                                          <span className="text-sm font-medium">{school.schoolName}</span>
-                                          {school.schoolCode && (
-                                            <Badge variant="secondary" className="text-xs">
-                                              {school.schoolCode}
-                                            </Badge>
-                                          )}
+                                          <span className="text-sm font-medium">{zone}</span>
+                                          <Badge variant="secondary" className="text-xs">
+                                            {franchise.schools.filter(s => {
+                                              const school = allSchools.find(sc => sc._id === s.schoolId)
+                                              return school?.zone === zone
+                                            }).length} schools
+                                          </Badge>
                                         </div>
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          onClick={() => handleRemoveSchool(productIndex, enterpriseIndex, schoolIndex)}
+                                          onClick={() => handleRemoveZone(productIndex, franchiseIndex, zone)}
                                           className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
                                         >
                                           <X className="w-3 h-3" />
@@ -668,6 +784,28 @@ export default function AssignCostPage() {
                                   </div>
                                 )}
                               </div>
+
+                              {/* Schools in Franchise (read-only display) */}
+                              {franchise.schools.length > 0 && (
+                                <div className="space-y-2 pt-2 border-t border-neutral-200">
+                                  <Label className="text-xs text-neutral-600">
+                                    Schools ({franchise.schools.length})
+                                  </Label>
+                                  <div className="max-h-32 overflow-y-auto space-y-1">
+                                    {franchise.schools.map((school, schoolIndex) => (
+                                      <div key={schoolIndex} className="flex items-center gap-2 p-1.5 bg-white rounded border border-neutral-200 text-xs">
+                                        <Building2 className="w-3 h-3 text-neutral-400" />
+                                        <span className="text-neutral-700">{school.schoolName}</span>
+                                        {school.schoolCode && (
+                                          <Badge variant="outline" className="text-xs">
+                                            {school.schoolCode}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </Card>
                         ))}
@@ -699,35 +837,59 @@ export default function AssignCostPage() {
         </div>
       </Card>
 
-      {/* Add Enterprise Dialog */}
-      <Dialog open={addEnterpriseDialogOpen} onOpenChange={setAddEnterpriseDialogOpen}>
+      {/* Add Franchise Dialog */}
+      <Dialog open={addFranchiseDialogOpen} onOpenChange={setAddFranchiseDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Add Enterprise</DialogTitle>
+            <DialogTitle>Add Franchise</DialogTitle>
             <DialogDescription>
-              Add an enterprise with a specific cost. Schools assigned to this enterprise will use this cost instead of the default cost.
+              Add a franchise with a specific cost. Schools in selected zones will automatically be added and use this cost instead of the default cost.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div>
-              <Label>Enterprise Name</Label>
+              <Label>Franchise Name</Label>
               <Input
-                value={enterpriseName}
-                onChange={(e) => setEnterpriseName(e.target.value)}
-                placeholder="Enter enterprise name"
+                value={franchiseName}
+                onChange={(e) => setFranchiseName(e.target.value)}
+                placeholder="Enter franchise name"
                 className="mt-1"
               />
             </div>
             
             <div>
-              <Label>Enterprise Cost (₹)</Label>
+              <Label>Franchise Email</Label>
+              <Input
+                type="email"
+                value={franchiseEmail}
+                onChange={(e) => setFranchiseEmail(e.target.value)}
+                placeholder="Enter franchise email"
+                className="mt-1"
+              />
+              <p className="text-xs text-neutral-500 mt-1">This email will be used for login</p>
+            </div>
+            
+            <div>
+              <Label>Franchise Password</Label>
+              <Input
+                type="password"
+                value={franchisePassword}
+                onChange={(e) => setFranchisePassword(e.target.value)}
+                placeholder="Enter password (min 6 characters)"
+                className="mt-1"
+              />
+              <p className="text-xs text-neutral-500 mt-1">Password for franchise login (minimum 6 characters)</p>
+            </div>
+            
+            <div>
+              <Label>Franchise Cost (₹)</Label>
               <Input
                 type="number"
                 min="0"
                 step="0.01"
-                value={enterpriseCost}
-                onChange={(e) => setEnterpriseCost(e.target.value)}
+                value={franchiseCost}
+                onChange={(e) => setFranchiseCost(e.target.value)}
                 placeholder="0.00"
                 className="mt-1"
               />
@@ -738,90 +900,80 @@ export default function AssignCostPage() {
             <Button
               variant="outline"
               onClick={() => {
-                setAddEnterpriseDialogOpen(false)
-                setEnterpriseName('')
-                setEnterpriseCost('')
-                setSelectedEnterpriseIndex(null)
+                setAddFranchiseDialogOpen(false)
+                setFranchiseName('')
+                setFranchiseEmail('')
+                setFranchisePassword('')
+                setFranchiseCost('')
+                setSelectedFranchiseIndex(null)
               }}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleAddEnterprise}
-              disabled={!enterpriseName.trim()}
+              onClick={handleAddFranchise}
+              disabled={!franchiseName.trim() || !franchiseEmail.trim() || !franchisePassword.trim()}
               className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
             >
-              Add Enterprise
+              Add Franchise
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Add School Dialog */}
-      <Dialog open={addSchoolDialogOpen} onOpenChange={setAddSchoolDialogOpen}>
+      {/* Add Zone Dialog */}
+      <Dialog open={addZoneDialogOpen} onOpenChange={setAddZoneDialogOpen}>
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>Add School to Enterprise</DialogTitle>
+            <DialogTitle>Add Zones to Franchise</DialogTitle>
             <DialogDescription>
-              Select a school to assign to this enterprise. Schools in enterprises use enterprise cost instead of default cost.
+              Select zones to add to this franchise. All schools in the selected zones will be automatically added.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div>
-              <Label>Search School</Label>
-              <Input
-                value={schoolSearchTerm}
-                onChange={(e) => setSchoolSearchTerm(e.target.value)}
-                placeholder="Search by name, code, or zone..."
-                className="mt-1"
-              />
-            </div>
-            
-            <div className="max-h-60 overflow-y-auto border border-neutral-200 rounded">
-              {filteredSchools.length === 0 ? (
-                <div className="p-4 text-center text-neutral-500 text-sm">
-                  No schools found
-                </div>
-              ) : (
-                <div className="divide-y divide-neutral-200">
-                  {filteredSchools
-                    .filter(school => {
-                      // Filter out schools already assigned to any enterprise in this product
-                      const productIndex = vendorCost.products.findIndex(p => p.productId === selectedProductForEnterprise)
-                      if (productIndex === -1) return true
-                      const assignedIds = getAssignedSchoolIds(productIndex)
-                      return !assignedIds.includes(school._id)
-                    })
-                    .map(school => (
-                      <button
-                        key={school._id}
-                        onClick={() => setSelectedSchoolForAdd(school)}
-                        className={`w-full p-3 text-left hover:bg-neutral-50 transition-colors ${
-                          selectedSchoolForAdd?._id === school._id ? 'bg-blue-50 border-l-2 border-blue-600' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4 text-neutral-500" />
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{school.school_name}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              {school.school_code && (
-                                <span className="text-xs text-neutral-500">Code: {school.school_code}</span>
-                              )}
-                              {school.zone && (
-                                <span className="text-xs text-neutral-500">Zone: {school.zone}</span>
-                              )}
+              <Label>Select Zones</Label>
+              <div className="max-h-60 overflow-y-auto border border-neutral-200 rounded mt-1">
+                {availableZones.length === 0 ? (
+                  <div className="p-4 text-center text-neutral-500 text-sm">
+                    No zones available
+                  </div>
+                ) : (
+                  <div className="divide-y divide-neutral-200">
+                    {availableZones.map(zone => {
+                      const schoolsInZone = allSchools.filter(s => s.zone === zone).length
+                      const isSelected = selectedZones.includes(zone)
+                      return (
+                        <button
+                          key={zone}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedZones(prev => prev.filter(z => z !== zone))
+                            } else {
+                              setSelectedZones(prev => [...prev, zone])
+                            }
+                          }}
+                          className={`w-full p-3 text-left hover:bg-neutral-50 transition-colors ${
+                            isSelected ? 'bg-blue-50 border-l-2 border-blue-600' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-neutral-500" />
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{zone}</p>
+                              <p className="text-xs text-neutral-500 mt-1">{schoolsInZone} school(s) in this zone</p>
                             </div>
+                            {isSelected && (
+                              <Badge variant="secondary" className="text-xs">Selected</Badge>
+                            )}
                           </div>
-                          {selectedSchoolForAdd?._id === school._id && (
-                            <Badge variant="secondary" className="text-xs">Selected</Badge>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -829,20 +981,19 @@ export default function AssignCostPage() {
             <Button
               variant="outline"
               onClick={() => {
-                setAddSchoolDialogOpen(false)
-                setSelectedSchoolForAdd(null)
-                setSchoolSearchTerm('')
-                setSelectedEnterpriseIndex(null)
+                setAddZoneDialogOpen(false)
+                setSelectedZones([])
+                setSelectedFranchiseIndex(null)
               }}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleAddSchool}
-              disabled={!selectedSchoolForAdd}
+              onClick={handleAddZones}
+              disabled={selectedZones.length === 0}
               className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700"
             >
-              Add School
+              Add {selectedZones.length > 0 ? `${selectedZones.length} Zone(s)` : 'Zones'}
             </Button>
           </DialogFooter>
         </DialogContent>

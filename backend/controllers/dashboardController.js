@@ -16,8 +16,74 @@ const Attendance = require('../models/Attendance');
 // @access  Private
 const getDashboardStats = async (req, res) => {
   try {
-    const stats = await mockDataService.getDashboardStats();
-    res.json(stats);
+    const isExecutive = req.user.role === 'Executive';
+    const executiveId = req.user._id;
+    
+    if (isExecutive) {
+      // For executives, return personalized stats based on their data
+      const dateFilter = {};
+      
+      // Active Leads - leads created/managed by this executive that are not closed
+      const activeLeads = await Lead.countDocuments({
+        $or: [
+          { createdBy: executiveId },
+          { managed_by: executiveId }
+        ],
+        status: { $nin: ['Closed', 'Saved'] }
+      });
+      
+      // Total Sales - DCs created by this executive
+      const totalSales = await DC.countDocuments({
+        $or: [
+          { employeeId: executiveId },
+          { createdBy: executiveId }
+        ]
+      });
+      
+      // Existing Schools - DcOrders with school_type 'Existing' assigned to this executive
+      const existingSchools = await DcOrder.countDocuments({
+        assigned_to: executiveId,
+        school_type: 'Existing'
+      });
+      
+      // Pending Trainings - trainings assigned to this executive with status 'Pending'
+      const pendingTrainings = await Training.countDocuments({
+        employeeId: executiveId,
+        status: 'Pending'
+      });
+      
+      // Completed Trainings - trainings assigned to this executive with status 'Completed'
+      const completedTrainings = await Training.countDocuments({
+        employeeId: executiveId,
+        status: 'Completed'
+      });
+      
+      // Pending Services - services assigned to this executive with status 'Pending'
+      const pendingServices = await Service.countDocuments({
+        employeeId: executiveId,
+        status: 'Pending'
+      });
+      
+      // Completed Services - services assigned to this executive with status 'Completed'
+      const completedServices = await Service.countDocuments({
+        employeeId: executiveId,
+        status: 'Completed'
+      });
+      
+      res.json({
+        activeLeads,
+        totalSales,
+        existingSchools,
+        pendingTrainings,
+        completedTrainings,
+        pendingServices,
+        completedServices
+      });
+    } else {
+      // For other roles, use mock data or aggregate all data
+      const stats = await mockDataService.getDashboardStats();
+      res.json(stats);
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -107,13 +173,17 @@ const getRecentActivities = async (req, res) => {
         });
       });
       
-      // Get recent DCs/sales created by this executive
+      // Get recent DCs/sales for this executive (by employeeId or createdBy)
       const recentDCs = await DC.find({
-        createdBy: executiveId
+        $or: [
+          { employeeId: executiveId },
+          { createdBy: executiveId }
+        ]
       })
         .sort({ createdAt: -1 })
         .limit(limit)
         .populate('createdBy', 'name')
+        .populate('employeeId', 'name')
         .lean();
       
       recentDCs.forEach((dc) => {
@@ -221,17 +291,34 @@ const getRevenueTrends = async (req, res) => {
         createdAt: { $gte: startOfDay, $lte: endOfDay }
       };
       if (isExecutive) {
-        dcFilter.createdBy = executiveId;
+        // Filter DCs by both employeeId and createdBy to get all DCs for this executive
+        dcFilter.$or = [
+          { employeeId: executiveId },
+          { createdBy: executiveId }
+        ];
       }
       const salesCount = await DC.countDocuments(dcFilter);
       
       // Get revenue from payments on this day
+      // For executives, get payments related to their DCs
       const paymentFilter = {
         paymentDate: { $gte: startOfDay, $lte: endOfDay },
         status: 'Approved'
       };
       if (isExecutive) {
-        paymentFilter.createdBy = executiveId;
+        // Get DCs for this executive to find related payments
+        const executiveDCIds = await DC.find({
+          $or: [
+            { employeeId: executiveId },
+            { createdBy: executiveId }
+          ]
+        }).select('_id').lean();
+        const dcIds = executiveDCIds.map(dc => dc._id);
+        
+        paymentFilter.$or = [
+          { createdBy: executiveId },
+          { dcId: { $in: dcIds } }
+        ];
       }
       const payments = await Payment.find(paymentFilter);
       const revenue = payments.reduce((sum, p) => sum + (p.amount || 0), 0);

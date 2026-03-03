@@ -133,6 +133,7 @@ export default function ClosedSalesPage() {
     product: string
     class: string
     category: string
+    productCategory?: string
     specs: string
     subject?: string
     strength: number
@@ -141,12 +142,12 @@ export default function ClosedSalesPage() {
     unit_price: number
   }
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { id: '1', product: 'Abacus', class: '1', category: 'New Students', specs: 'Regular', strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
+    { id: '1', product: 'Abacus', class: '1', category: 'New Students', productCategory: undefined, specs: 'Regular', strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
   ])
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const defaultCategories = ['New Students', 'Existing Students', 'Both']
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories, hasProductSubjects } = useProducts()
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
@@ -1256,12 +1257,6 @@ export default function ClosedSalesPage() {
       if (!row.product || row.product.trim() === '') {
         invalidRows.push(`Row ${rowNum}: Product is required`)
       }
-      if (!row.class || row.class.trim() === '') {
-        invalidRows.push(`Row ${rowNum}: Class is required`)
-      }
-      if (!row.category || row.category.trim() === '') {
-        invalidRows.push(`Row ${rowNum}: Category is required`)
-      }
       if (!row.specs || row.specs.trim() === '') {
         invalidRows.push(`Row ${rowNum}: Specs is required`)
       }
@@ -1306,6 +1301,7 @@ export default function ClosedSalesPage() {
               product: row.product || '',
               class: row.class || '1',
               category: row.category || (selectedDeal?.school_type === 'Existing' ? 'Existing Students' : 'New Students'),
+              productCategory: row.productCategory || undefined,
           specs: row.specs || 'Regular',
           subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
@@ -1983,7 +1979,7 @@ export default function ClosedSalesPage() {
                       <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-300">
                         <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Product</th>
                         <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Class</th>
-                        <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Category</th>
+                        <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Product Category</th>
                         <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Specs</th>
                         <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Subject</th>
                         <th className="py-4 px-5 text-left text-slate-700 font-bold text-xs uppercase tracking-wider">Quantity</th>
@@ -2001,7 +1997,25 @@ export default function ClosedSalesPage() {
                               onValueChange={(value) => {
                               const updated = [...productRows]
                                 updated[idx].product = value
+                                // Default level based on product
                                 updated[idx].level = getDefaultLevel(value)
+                                // Default product category if configured
+                                if (hasProductCategories(value)) {
+                                  const cats = getProductCategories(value)
+                                  updated[idx].productCategory = cats[0] || ''
+                                } else {
+                                  updated[idx].productCategory = undefined
+                                }
+                                // Default specs based on product
+                                const specs = getProductSpecs(value)
+                                updated[idx].specs = specs[0] || 'Regular'
+                                // Default subject if product has subjects
+                                if (hasProductSubjects(value)) {
+                                  const subjects = getProductSubjects(value)
+                                  updated[idx].subject = subjects[0] || ''
+                                } else {
+                                  updated[idx].subject = undefined
+                                }
                               setProductRows(updated)
                               }}
                             >
@@ -2030,40 +2044,75 @@ export default function ClosedSalesPage() {
                             />
                           </td>
                           <td className="py-4 px-5">
-                            <Input
-                              value={row.category}
-                              onChange={(e) => {
+                        {hasProductCategories(row.product) ? (
+                          <Select
+                            value={row.productCategory || ''}
+                            onValueChange={(value) => {
                               const updated = [...productRows]
-                                updated[idx].category = e.target.value
+                              updated[idx].productCategory = value
                               setProductRows(updated)
                               }}
-                              className="h-9 text-sm bg-white border-slate-200"
-                              placeholder="Category"
-                            />
+                          >
+                            <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-32">
+                              <SelectValue placeholder="Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getProductCategories(row.product).map((cat) => (
+                                <SelectItem key={cat} value={cat}>
+                                  {cat}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
                           </td>
                           <td className="py-4 px-5">
-                            <Input
-                              value={row.specs || 'Regular'}
-                              onChange={(e) => {
+                            <Select
+                              value={row.specs || ''}
+                              onValueChange={(value) => {
                               const updated = [...productRows]
-                                updated[idx].specs = e.target.value
+                                updated[idx].specs = value
                               setProductRows(updated)
                               }}
-                              className="h-9 text-sm bg-white border-slate-200"
-                              placeholder="Specs"
-                            />
+                            >
+                              <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-36">
+                                <SelectValue placeholder="Specs" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getProductSpecs(row.product).map((spec) => (
+                                  <SelectItem key={spec} value={spec}>
+                                    {spec}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </td>
                           <td className="py-4 px-5">
-                            <Input
+                            {hasProductSubjects(row.product) && getProductSubjects(row.product).length > 0 ? (
+                              <Select
                               value={row.subject || ''}
-                              onChange={(e) => {
+                                onValueChange={(value) => {
                                 const updated = [...productRows]
-                                updated[idx].subject = e.target.value
+                                  updated[idx].subject = value
                                 setProductRows(updated)
                               }}
-                              className="h-9 text-sm bg-white border-slate-200"
-                              placeholder="Subject"
-                            />
+                              >
+                                <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-32">
+                                  <SelectValue placeholder="Subject" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getProductSubjects(row.product).map((subj) => (
+                                    <SelectItem key={subj} value={subj}>
+                                      {subj}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
                           </td>
                           <td className="py-4 px-5">
                             <Input

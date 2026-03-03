@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['Super Admin', 'Admin', 'Finance Manager', 'Trainer', 'Coordinator', 'Senior Coordinator', 'Manager', 'Executive', 'Sales BDE', 'Executive Manager', 'Warehouse Executive', 'Warehouse Manager', 'Vendor'],
+    enum: ['Super Admin', 'Admin', 'Finance Manager', 'Trainer', 'Coordinator', 'Senior Coordinator', 'Manager', 'Executive', 'Sales BDE', 'Executive Manager', 'Warehouse Executive', 'Warehouse Manager', 'Partner', 'Franchise'],
     default: 'Executive',
   },
   // Support for multiple roles (for mobile app employees who can be both Sales BDE and Trainer)
@@ -86,8 +86,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
-  // Vendor-specific: products assigned to this vendor (only used when role is Vendor)
-  vendorAssignedProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+  // Partner-specific: products assigned to this partner (only used when role is Partner)
+  partnerAssignedProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
 }, {
   timestamps: true,
 });

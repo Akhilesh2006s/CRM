@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const path = require('path');
+const fs = require('fs');
 const Lead = require('../models/Lead');
 const Sale = require('../models/Sale');
 const Payment = require('../models/Payment');
@@ -8,7 +10,29 @@ const Expense = require('../models/Expense');
 const User = require('../models/User');
 const DcOrder = require('../models/DcOrder');
 
-dotenv.config();
+// Robust .env loading: try backend/.env, project root .env, or current working dir
+(() => {
+  const envPaths = [
+    path.join(__dirname, '..', '.env'),
+    path.join(__dirname, '..', '..', '.env'),
+    path.join(process.cwd(), '.env'),
+  ];
+
+  for (const envPath of envPaths) {
+    try {
+      if (fs.existsSync(envPath)) {
+        dotenv.config({ path: envPath });
+        console.log(`📄 Loaded environment from: ${envPath}`);
+        return;
+      }
+    } catch {
+      // Ignore and try next path
+    }
+  }
+
+  // Fallback to default behavior (may still work if env vars are set at OS level)
+  dotenv.config();
+})();
 
 // Connect to database
 const connectDB = require('../config/db');
@@ -891,6 +915,61 @@ async function seedManagers(count = 20) {
   console.log(`✅ Created/Verified ${count} managers`);
 }
 
+// 8. CREATE FOLLOW-UP LEADS FOR SPECIFIC EXECUTIVE
+async function seedFollowupLeadsForVenkat(count = 10) {
+  console.log(`\n📞 Seeding ${count} follow-up leads for Venkat...`);
+
+  const venkatEmail = 'venkat@edutech.com';
+  const venkat = await User.findOne({ email: venkatEmail.toLowerCase() });
+
+  if (!venkat) {
+    console.log(`⚠️  No user found with email ${venkatEmail}. Skipping Venkat follow-up leads seeding.`);
+    return;
+  }
+
+  const now = new Date();
+  const leads = [];
+
+  for (let i = 0; i < count; i++) {
+    const createdDate = randomDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), now);
+    // Follow-up dates: some overdue, some upcoming
+    const followUpOffsetDays = randomInt(-5, 5); // -5 means 5 days overdue, +5 means in 5 days
+    const followUpDate = new Date(now.getTime() + followUpOffsetDays * 24 * 60 * 60 * 1000);
+
+    const products = [
+      {
+        product_name: randomElement(PRODUCTS),
+        quantity: randomInt(1, 5),
+        unit_price: randomInt(10000, 50000),
+      },
+    ];
+
+    leads.push({
+      school_name: `Venkat Follow-up School ${i + 1}`,
+      contact_person: `Venkat Contact ${i + 1}`,
+      contact_mobile: `9${randomInt(100000000, 999999999)}`,
+      products,
+      location: randomElement(CITIES),
+      pincode: randomInt(100000, 999999).toString(),
+      state: randomElement(STATES),
+      city: randomElement(CITIES),
+      zone: venkat.zone || randomElement(ZONES),
+      priority: randomElement(PRIORITIES),
+      status: 'Pending',
+      follow_up_date: followUpDate,
+      strength: randomInt(100, 1000),
+      createdBy: venkat._id,
+      managed_by: venkat._id,
+      createdAt: createdDate,
+      updatedAt: createdDate,
+      remarks: 'Auto-generated follow-up lead for testing',
+    });
+  }
+
+  await Lead.insertMany(leads);
+  console.log(`✅ Created ${leads.length} follow-up leads for Venkat (${venkatEmail})`);
+}
+
 // ============================================
 // MAIN SEED FUNCTION
 // ============================================
@@ -924,6 +1003,9 @@ async function seedAll() {
     await seedPerformanceScenarios();
     await seedDelayScenarios();
     await seedCashflowScenarios();
+
+    // Step 4: Seed specific follow-up leads for Venkat
+    await seedFollowupLeadsForVenkat(10);
     
     console.log('\n✅ All AI test data seeded successfully!');
     console.log('\n📊 Final Summary:');

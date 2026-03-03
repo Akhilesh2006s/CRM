@@ -301,7 +301,21 @@ const raiseDC = async (req, res) => {
 
       // Term 1 DC (pending_dc)
       if (dcPending) {
-        dcPending.productDetails = term1Products;
+        // Ensure productDetails are properly formatted and saved
+        dcPending.productDetails = term1Products.map(p => ({
+          product: p.product || p.productName || '',
+          class: p.class || '1',
+          category: p.category || 'New Students',
+          productName: p.productName || p.product || '',
+          quantity: Number(p.quantity) || Number(p.strength) || 0,
+          strength: Number(p.strength) || Number(p.quantity) || 0,
+          price: Number(p.price) || 0,
+          total: Number(p.total) || (Number(p.price) || 0) * (Number(p.strength) || Number(p.quantity) || 0),
+          level: p.level || 'L2',
+          specs: p.specs || 'Regular',
+          subject: p.subject || undefined,
+          term: p.term || 'Term 1',
+        }));
         dcPending.requestedQuantity = term1Qty;
         dcPending.status = 'pending_dc';
         if (req.body.dcDate) dcPending.deliveryDate = new Date(req.body.dcDate);
@@ -309,9 +323,18 @@ const raiseDC = async (req, res) => {
         if (req.body.dcNotes) dcPending.deliveryNotes = req.body.dcNotes ? (dcPending.deliveryNotes ? dcPending.deliveryNotes + '\n' + req.body.dcNotes : req.body.dcNotes) : dcPending.deliveryNotes;
         if (req.body.poPhotoUrl) { dcPending.poPhotoUrl = req.body.poPhotoUrl; dcPending.poDocument = req.body.poPhotoUrl; }
         if (!dcPending.poPhotoUrl && dcOrder.pod_proof_url) { dcPending.poPhotoUrl = dcOrder.pod_proof_url; dcPending.poDocument = dcOrder.pod_proof_url; }
+        console.log('💾 Saving Term 1 DC with productDetails:', {
+          dcId: dcPending._id,
+          productDetailsCount: dcPending.productDetails.length,
+          productDetails: dcPending.productDetails
+        });
         await dcPending.save();
       } else {
         const payload = buildDcPayload(term1Products, 'pending_dc', term1Qty);
+        console.log('💾 Creating new Term 1 DC with productDetails:', {
+          productDetailsCount: payload.productDetails?.length || 0,
+          productDetails: payload.productDetails
+        });
         await DC.create(payload);
       }
 

@@ -161,6 +161,8 @@ const NAV: NavItem[] = [
       { label: 'Active Employees', href: '/dashboard/employees/active' },
       { label: 'Inactive Employees', href: '/dashboard/employees/inactive' },
       { label: 'Pending Leaves', href: '/dashboard/employees/leaves', icon: CalendarCheck2 },
+      { label: 'Zones', href: '/dashboard/employees/zones', icon: Database },
+      { label: 'Clusters', href: '/dashboard/employees/clusters', icon: Database },
     ],
   },
   {
@@ -257,7 +259,7 @@ const NAV: NavItem[] = [
       { label: 'All Products', href: '/dashboard/products', icon: Database },
       { label: 'Add New Product', href: '/dashboard/products/new', icon: PlusCircle },
       { label: 'Deliverables', href: '/dashboard/products/deliverables', icon: Eye, adminOnly: true },
-      { label: 'Vendor', href: '/dashboard/products/vendors', icon: Building2, adminOnly: true },
+      { label: 'Partner', href: '/dashboard/products/vendors', icon: Building2, adminOnly: true },
     ],
   },
   {
@@ -309,7 +311,7 @@ export function Sidebar() {
   const isTrainer = user?.role === 'Trainer'
   const isWarehouseExecutive = user?.role === 'Warehouse Executive'
   const isWarehouseManager = user?.role === 'Warehouse Manager'
-  const isVendor = user?.role === 'Vendor'
+  const isPartner = user?.role === 'Partner'
 
   // Add employee leave menu if employee, replace admin Leave Management
   const employeeLeavesMenu: NavItem = {
@@ -576,8 +578,8 @@ export function Sidebar() {
       },
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
-  } else if (isVendor) {
-    // For Vendor role: Dashboard + Stocks + DCs (assigned products only)
+  } else if (isPartner) {
+    // For Partner role: Dashboard + Stocks + DCs (assigned products only)
     finalNav = [
       { label: 'My Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       { label: 'Stocks', icon: Boxes, href: '/dashboard/stocks' },

@@ -200,10 +200,95 @@ const firebaseLogin = async (req, res) => {
   }
 };
 
+// @desc    Register franchise user
+// @route   POST /api/auth/register-franchise
+// @access  Private (Admin only - should be called from admin panel)
+const registerFranchise = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ message: 'Franchise name is required' });
+    }
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({ message: 'Franchise email is required' });
+    }
+    if (!password || !String(password).trim()) {
+      return res.status(400).json({ message: 'Franchise password is required' });
+    }
+
+    // Password security: min 6 characters
+    if (String(password).length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(String(email).trim())) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      const userExists = await User.findOne({ email: String(email).trim().toLowerCase() });
+
+      if (userExists) {
+        // If user exists, update it to Franchise role if needed
+        if (userExists.role !== 'Franchise') {
+          userExists.role = 'Franchise';
+          userExists.name = String(name).trim();
+          if (password) {
+            userExists.password = String(password);
+          }
+          await userExists.save();
+        }
+        return res.json({
+          _id: userExists._id,
+          name: userExists.name,
+          email: userExists.email,
+          role: userExists.role,
+          message: 'Franchise user account updated',
+        });
+      }
+
+      const user = await User.create({
+        name: String(name).trim(),
+        email: String(email).trim().toLowerCase(),
+        password: String(password),
+        role: 'Franchise',
+        isActive: true,
+      });
+
+      if (user) {
+        res.status(201).json({
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          message: 'Franchise user account created successfully',
+        });
+      } else {
+        res.status(400).json({ message: 'Invalid franchise data' });
+      }
+    } else {
+      res.status(503).json({ message: 'Database not available' });
+    }
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message).join('. ');
+      return res.status(400).json({ message: messages });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
   getMe,
   firebaseLogin,
+  registerFranchise,
 };
 

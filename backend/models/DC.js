@@ -225,9 +225,9 @@ const dcSchema = new mongoose.Schema({
     category: {
       type: String,
     },
+    // Optional product category (e.g. EduApt, Prime+, etc.) – free string linked to Product.categories
     productCategory: {
       type: String,
-      enum: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],
     },
     productName: {
       type: String,

@@ -14,13 +14,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 
-type Vendor = {
+type Partner = {
   _id: string
   name: string
   email: string
   isActive?: boolean
   createdAt?: string
-  vendorAssignedProducts?: Array<{ _id: string; productName: string }>
+  partnerAssignedProducts?: Array<{ _id: string; productName: string }>
 }
 
 type Product = {
@@ -28,14 +28,14 @@ type Product = {
   productName: string
 }
 
-export default function VendorsPage() {
+export default function PartnersPage() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
-  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [partners, setPartners] = useState<Partner[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null)
+  const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null)
   const [availableProducts, setAvailableProducts] = useState<Product[]>([])
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -43,17 +43,17 @@ export default function VendorsPage() {
   const currentUser = mounted ? getCurrentUser() : null
   const isAdmin = currentUser?.role === 'Admin' || currentUser?.role === 'Super Admin'
 
-  const loadVendors = useCallback(async () => {
+  const loadPartners = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await apiRequest<Vendor[]>('/vendors')
-      setVendors(Array.isArray(data) ? data : [])
+      const data = await apiRequest<Partner[]>('/partners')
+      setPartners(Array.isArray(data) ? data : [])
     } catch (err: any) {
-      const msg = err?.message || 'Failed to load vendors'
+      const msg = err?.message || 'Failed to load partners'
       setError(msg)
       toast.error(msg)
-      setVendors([])
+      setPartners([])
     } finally {
       setLoading(false)
     }
@@ -69,10 +69,10 @@ export default function VendorsPage() {
     }
   }
 
-  const openEditDialog = async (vendor: Vendor) => {
-    setSelectedVendor(vendor)
+  const openEditDialog = async (partner: Partner) => {
+    setSelectedPartner(partner)
     // Load current assigned product IDs
-    const currentProductIds = vendor.vendorAssignedProducts?.map(p => 
+    const currentProductIds = partner.partnerAssignedProducts?.map(p => 
       typeof p === 'object' && p._id ? p._id : String(p)
     ) || []
     setSelectedProductIds(currentProductIds)
@@ -91,16 +91,16 @@ export default function VendorsPage() {
   }
 
   const handleSaveProducts = async () => {
-    if (!selectedVendor) return
+    if (!selectedPartner) return
 
     if (selectedProductIds.length === 0) {
-      toast.error('At least one product must be assigned to the vendor')
+      toast.error('At least one product must be assigned to the partner')
       return
     }
 
     setSaving(true)
     try {
-      await apiRequest(`/vendors/${selectedVendor._id}/products`, {
+      await apiRequest(`/partners/${selectedPartner._id}/products`, {
         method: 'PUT',
         body: JSON.stringify({
           assignedProducts: selectedProductIds
@@ -108,7 +108,7 @@ export default function VendorsPage() {
       })
       toast.success('Products updated successfully!')
       setEditDialogOpen(false)
-      loadVendors() // Refresh the list
+      loadPartners() // Refresh the list
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update products')
     } finally {
@@ -127,8 +127,8 @@ export default function VendorsPage() {
       router.push('/dashboard')
       return
     }
-    loadVendors()
-  }, [mounted, isAdmin, router, loadVendors])
+    loadPartners()
+  }, [mounted, isAdmin, router, loadPartners])
 
   if (!mounted) {
     return (
@@ -142,10 +142,10 @@ export default function VendorsPage() {
     return null
   }
 
-  if (loading && vendors.length === 0 && !error) {
+  if (loading && partners.length === 0 && !error) {
     return (
       <div className="space-y-6">
-        <div className="p-8 text-center text-neutral-500">Loading vendors...</div>
+        <div className="p-8 text-center text-neutral-500">Loading partners...</div>
       </div>
     )
   }
@@ -154,13 +154,13 @@ export default function VendorsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Vendors</h1>
-          <p className="text-sm text-neutral-600 mt-1">Manage vendor accounts and product assignments</p>
+          <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Partners</h1>
+          <p className="text-sm text-neutral-600 mt-1">Manage partner accounts and product assignments</p>
         </div>
         <Link href="/dashboard/products/vendors/new">
           <Button className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700">
             <PlusCircle className="w-4 h-4 mr-2" />
-            Add Vendor
+            Add Partner
           </Button>
         </Link>
       </div>
@@ -169,7 +169,7 @@ export default function VendorsPage() {
         <Card className="p-4 border-red-200 bg-red-50">
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-red-700">{error}</p>
-            <Button variant="outline" size="sm" onClick={loadVendors}>
+            <Button variant="outline" size="sm" onClick={loadPartners}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Retry
             </Button>
@@ -178,14 +178,14 @@ export default function VendorsPage() {
       )}
 
       <Card className="p-4 md:p-6">
-        {vendors.length === 0 ? (
+        {partners.length === 0 ? (
           <div className="text-center py-12 text-neutral-500">
             <Building2 className="w-12 h-12 mx-auto mb-4 text-neutral-300" />
-            <p>No vendors yet. Add your first vendor to get started.</p>
+            <p>No partners yet. Add your first partner to get started.</p>
             <Link href="/dashboard/products/vendors/new">
               <Button variant="outline" size="sm" className="mt-4">
                 <PlusCircle className="w-4 h-4 mr-2" />
-                Add Vendor
+                Add Partner
               </Button>
             </Link>
           </div>
@@ -194,7 +194,7 @@ export default function VendorsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-neutral-200">
-                  <th className="text-left py-3 px-4 font-semibold text-neutral-700">Vendor Name</th>
+                  <th className="text-left py-3 px-4 font-semibold text-neutral-700">Partner Name</th>
                   <th className="text-left py-3 px-4 font-semibold text-neutral-700">Email</th>
                   <th className="text-left py-3 px-4 font-semibold text-neutral-700">Assigned Products Count</th>
                   <th className="text-left py-3 px-4 font-semibold text-neutral-700">Status</th>
@@ -203,27 +203,27 @@ export default function VendorsPage() {
                 </tr>
               </thead>
               <tbody>
-                {vendors.map((vendor) => (
-                  <tr key={vendor._id} className="border-b border-neutral-100 hover:bg-neutral-50">
-                    <td className="py-3 px-4 font-medium">{vendor.name}</td>
-                    <td className="py-3 px-4 text-neutral-600">{vendor.email}</td>
+                {partners.map((partner) => (
+                  <tr key={partner._id} className="border-b border-neutral-100 hover:bg-neutral-50">
+                    <td className="py-3 px-4 font-medium">{partner.name}</td>
+                    <td className="py-3 px-4 text-neutral-600">{partner.email}</td>
                     <td className="py-3 px-4">
-                      {Array.isArray(vendor.vendorAssignedProducts) ? vendor.vendorAssignedProducts.length : 0}
+                      {Array.isArray(partner.partnerAssignedProducts) ? partner.partnerAssignedProducts.length : 0}
                     </td>
                     <td className="py-3 px-4">
                       <Badge
-                        variant={vendor.isActive !== false ? 'default' : 'secondary'}
-                        className={vendor.isActive !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}
+                        variant={partner.isActive !== false ? 'default' : 'secondary'}
+                        className={partner.isActive !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}
                       >
-                        {vendor.isActive !== false ? 'Active' : 'Inactive'}
+                        {partner.isActive !== false ? 'Active' : 'Inactive'}
                       </Badge>
                     </td>
                     <td className="py-3 px-4 text-sm text-neutral-600">
-                      {vendor.createdAt ? new Date(vendor.createdAt).toLocaleDateString() : '-'}
+                      {partner.createdAt ? new Date(partner.createdAt).toLocaleDateString() : '-'}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
-                        <Link href={`/dashboard/products/vendors/${vendor._id}`}>
+                        <Link href={`/dashboard/products/vendors/${partner._id}`}>
                           <Button variant="outline" size="sm">
                             <Eye className="w-4 h-4 mr-2" />
                             View
@@ -232,13 +232,13 @@ export default function VendorsPage() {
                         <Button 
                           variant="outline" 
                           size="sm"
-                          onClick={() => openEditDialog(vendor)}
+                          onClick={() => openEditDialog(partner)}
                           className="border-blue-200 text-blue-700 hover:bg-blue-50"
                         >
                           <Pencil className="w-4 h-4 mr-2" />
                           Edit
                         </Button>
-                        <Link href={`/dashboard/products/vendors/${vendor._id}/assign-cost`}>
+                        <Link href={`/dashboard/products/vendors/${partner._id}/assign-cost`}>
                           <Button 
                             variant="outline" 
                             size="sm"
@@ -262,9 +262,9 @@ export default function VendorsPage() {
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Products - {selectedVendor?.name}</DialogTitle>
+            <DialogTitle>Edit Products - {selectedPartner?.name}</DialogTitle>
             <DialogDescription>
-              Add or remove products assigned to this vendor
+              Add or remove products assigned to this partner
             </DialogDescription>
           </DialogHeader>
           

@@ -102,7 +102,10 @@ type ProductRow = {
   id: string
   product: string
   class: string
+  // Student category (New/Existing/Both)
   category: string
+  // Product category (e.g. EduApt, Prime+, etc.)
+  productCategory?: string
   specs: string
   subject?: string
   strength: number
@@ -142,7 +145,7 @@ export default function PendingDCPage() {
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories } = useProducts()
   const availableDCCategories = ['Term 1', 'Term 2', 'Term 3', 'Full Year']
 
   const load = async () => {
@@ -266,19 +269,20 @@ export default function PendingDCPage() {
           ) || (rawProduct || 'ABACUS')
           
           return {
-          id: String(idx + 1),
+            id: String(idx + 1),
             product: matchedProduct, // Use matched product for dropdown
-          class: p.class || '1',
-          category: p.category || 'New Students',
+            class: p.class || '1',
+            category: p.category || 'New Students',
+            productCategory: (p as any).productCategory || undefined,
             productName: p.productName || p.product || matchedProduct, // Use productName or product or matched product
-          quantity: Number(p.quantity) || Number(p.strength) || 0,
-          strength: Number(p.strength) || Number(p.quantity) || 0,
-          level: p.level || getDefaultLevel(matchedProduct),
-          specs: p.specs || 'Regular',
-          subject: p.subject || undefined,
-          price: Number(p.price) || 0,
-          total: Number(p.total) || 0,
-          term: p.term || 'Term 1',
+            quantity: Number(p.quantity) || Number(p.strength) || 0,
+            strength: Number(p.strength) || Number(p.quantity) || 0,
+            level: p.level || getDefaultLevel(matchedProduct),
+            specs: p.specs || 'Regular',
+            subject: p.subject || undefined,
+            price: Number(p.price) || 0,
+            total: Number(p.total) || 0,
+            term: p.term || 'Term 1',
           }
         }))
       } else if (dcOrderData?.products && Array.isArray(dcOrderData.products) && dcOrderData.products.length > 0) {
@@ -303,31 +307,42 @@ export default function PendingDCPage() {
           console.warn('⚠️ No products found in DcOrder.products')
           setProductRows([])
         } else {
-          setProductRows(productsToUse.map((p: any, idx: number) => {
-          const rawProduct = p.product_name || p.product || 'ABACUS'
-          // Find matching product (case-insensitive)
-          const matchedProduct = availableProducts.find(ap => 
-            ap.toLowerCase() === String(rawProduct).toLowerCase() || 
-            String(rawProduct).toLowerCase().includes(ap.toLowerCase()) ||
-            ap.toLowerCase().includes(String(rawProduct).toLowerCase())
-          ) || 'ABACUS'
-          
-          return {
-          id: String(idx + 1),
-            product: matchedProduct, // Use matched product for dropdown
-          class: p.class || '1',
-          category: p.category || (mergedDC.school_type === 'Existing' ? 'Existing Students' : 'New Students'),
-            productName: matchedProduct, // Use matched product
-          quantity: Number(p.quantity) || 0,
-          strength: Number(p.strength) || Number(p.quantity) || 0,
-          level: p.level || getDefaultLevel(matchedProduct),
-          specs: p.specs || 'Regular',
-          subject: p.subject || undefined,
-          price: Number(p.unit_price) || Number(p.price) || 0,
-          total: Number(p.total) || (Number(p.unit_price) || 0) * (Number(p.quantity) || 0),
-          term: p.term || 'Term 1',
-          }
-        }))
+          setProductRows(
+            productsToUse.map((p: any, idx: number) => {
+              const rawProduct = p.product_name || p.product || 'ABACUS'
+              // Find matching product (case-insensitive)
+              const matchedProduct =
+                availableProducts.find(
+                  (ap) =>
+                    ap.toLowerCase() === String(rawProduct).toLowerCase() ||
+                    String(rawProduct).toLowerCase().includes(ap.toLowerCase()) ||
+                    ap.toLowerCase().includes(String(rawProduct).toLowerCase())
+                ) || 'ABACUS'
+
+              return {
+                id: String(idx + 1),
+                product: matchedProduct, // Use matched product for dropdown
+                class: p.class || '1',
+                category:
+                  p.category ||
+                  (mergedDC.school_type === 'Existing'
+                    ? 'Existing Students'
+                    : 'New Students'),
+                productCategory: (p as any).productCategory || undefined,
+                productName: matchedProduct, // Use matched product
+                quantity: Number(p.quantity) || 0,
+                strength: Number(p.strength) || Number(p.quantity) || 0,
+                level: p.level || getDefaultLevel(matchedProduct),
+                specs: p.specs || 'Regular',
+                subject: p.subject || undefined,
+                price: Number(p.unit_price) || Number(p.price) || 0,
+                total:
+                  Number(p.total) ||
+                  (Number(p.unit_price) || 0) * (Number(p.quantity) || 0),
+                term: p.term || 'Term 1',
+              }
+            })
+          )
         }
       } else {
         // Fallback: create from product string or check if DC has product field
@@ -353,6 +368,7 @@ export default function PendingDCPage() {
           product: matchedProduct, // Use matched product for dropdown
           class: '1',
           category: 'New Students',
+          productCategory: undefined,
           productName: matchedProduct, // Use matched product
           quantity: fallbackQuantity,
           strength: fallbackQuantity,
@@ -411,8 +427,9 @@ export default function PendingDCPage() {
           status: statusToUse, // Preserve Term 2 status
           productDetails: productRows.map(row => ({
             product: row.product,
-            class: row.class,
+            class: row.class || '1',
             category: row.category,
+            productCategory: row.productCategory || undefined,
             productName: row.productName,
             quantity: row.quantity,
             strength: row.strength || 0,
@@ -485,8 +502,9 @@ export default function PendingDCPage() {
           status: statusToUse, // Preserve Term 2 status
           productDetails: productRows.map(row => ({
             product: row.product,
-            class: row.class,
+            class: row.class || '1',
             category: row.category,
+            productCategory: row.productCategory || undefined,
             productName: row.productName,
             quantity: row.quantity,
             strength: row.strength || 0,
@@ -833,7 +851,8 @@ export default function PendingDCPage() {
                   <tr className="bg-gray-100 border-b">
                     <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
                     <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
-                    <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
+                    <th className="py-2 px-3 text-left border-r text-gray-900">Product Category</th>
+                    <th className="py-2 px-3 text-left border-r text-gray-900">Student Category</th>
                     <th className="py-2 px-3 text-left border-r text-gray-900">Specs</th>
                     <th className="py-2 px-3 text-left border-r text-gray-900">Subject</th>
                     <th className="py-2 px-3 text-left border-r text-gray-900">Strength</th>
@@ -848,7 +867,21 @@ export default function PendingDCPage() {
                         <Select value={row.product} onValueChange={(v) => {
                           const updated = [...productRows]
                           updated[idx].product = v
+                          // Default level
                           updated[idx].level = getDefaultLevel(v)
+                          // Default product category if configured
+                          if (hasProductCategories(v)) {
+                            const cats = getProductCategories(v)
+                            updated[idx].productCategory = cats[0] || ''
+                          } else {
+                            updated[idx].productCategory = undefined
+                          }
+                          // Default specs
+                          const specs = getProductSpecs(v)
+                          updated[idx].specs = specs[0] || 'Regular'
+                          // Default subject if product has subjects
+                          const subjects = getProductSubjects(v)
+                          updated[idx].subject = subjects.length > 0 ? subjects[0] : undefined
                           setProductRows(updated)
                         }}>
                           <SelectTrigger className="h-8 text-xs bg-white">
@@ -876,6 +909,29 @@ export default function PendingDCPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                      </td>
+                      <td className="py-2 px-3 border-r">
+                        {hasProductCategories(row.product) ? (
+                          <Select
+                            value={row.productCategory || ''}
+                            onValueChange={(v) => {
+                              const updated = [...productRows]
+                              updated[idx].productCategory = v
+                              setProductRows(updated)
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-white">
+                              <SelectValue placeholder="Prod Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getProductCategories(row.product).map(cat => (
+                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-neutral-400 text-xs">-</span>
+                        )}
                       </td>
                       <td className="py-2 px-3 border-r">
                         <Select value={row.category} onValueChange={(v) => {
@@ -978,7 +1034,7 @@ export default function PendingDCPage() {
                   ))}
                   {/* Total Row */}
                   <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
-                    <td colSpan={7} className="px-3 py-3 text-right">
+                    <td colSpan={8} className="px-3 py-3 text-right">
                       <span className="text-gray-700">Total:</span>
                     </td>
                     <td className="px-3 py-3 text-right font-bold text-lg">

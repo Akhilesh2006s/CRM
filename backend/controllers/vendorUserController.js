@@ -6,36 +6,36 @@ const Sale = require('../models/Sale');
 const Warehouse = require('../models/Warehouse');
 const StockReturn = require('../models/StockReturn');
 
-// Ensure user is Vendor role
-const ensureVendor = (req, res, next) => {
-  if (req.user?.role !== 'Vendor') {
-    return res.status(403).json({ message: 'Access denied. Vendor only.' });
+// Ensure user is Partner role
+const ensurePartner = (req, res, next) => {
+  if (req.user?.role !== 'Partner') {
+    return res.status(403).json({ message: 'Access denied. Partner only.' });
   }
   next();
 };
 
-// Get vendor's assigned product names (from Product model)
-const getVendorProductNames = async (vendorId) => {
-  const user = await User.findById(vendorId)
-    .select('vendorAssignedProducts')
-    .populate('vendorAssignedProducts', 'productName')
+// Get partner's assigned product names (from Product model)
+const getPartnerProductNames = async (partnerId) => {
+  const user = await User.findById(partnerId)
+    .select('partnerAssignedProducts')
+    .populate('partnerAssignedProducts', 'productName')
     .lean();
-  if (!user || !user.vendorAssignedProducts?.length) {
+  if (!user || !user.partnerAssignedProducts?.length) {
     return [];
   }
-  return user.vendorAssignedProducts
+  return user.partnerAssignedProducts
     .map((p) => (typeof p === 'object' && p?.productName ? p.productName : null))
     .filter(Boolean);
 };
 
 /**
- * @route   GET /api/vendor-user/dashboard
- * @access  Private (Vendor only)
- * Returns summary cards + chart data for vendor-assigned products
+ * @route   GET /api/partner-user/dashboard
+ * @access  Private (Partner only)
+ * Returns summary cards + chart data for partner-assigned products
  */
-const getVendorDashboard = async (req, res) => {
+const getPartnerDashboard = async (req, res) => {
   try {
-    const productNames = await getVendorProductNames(req.user._id);
+    const productNames = await getPartnerProductNames(req.user._id);
     if (productNames.length === 0) {
       return res.json({
         summary: {
@@ -262,13 +262,13 @@ const getVendorDashboard = async (req, res) => {
 };
 
 /**
- * @route   GET /api/vendor-user/stocks
- * @access  Private (Vendor only)
- * Returns stock for vendor-assigned products
+ * @route   GET /api/partner-user/stocks
+ * @access  Private (Partner only)
+ * Returns stock for partner-assigned products
  */
-const getVendorStocks = async (req, res) => {
+const getPartnerStocks = async (req, res) => {
   try {
-    const productNames = await getVendorProductNames(req.user._id);
+    const productNames = await getPartnerProductNames(req.user._id);
     if (productNames.length === 0) {
       return res.json([]);
     }
@@ -298,8 +298,167 @@ const getVendorStocks = async (req, res) => {
   }
 };
 
+/**
+ * @route   GET /api/partner-user/dcs
+ * @access  Private (Partner only)
+ * Returns DCs with schools and products for partner-assigned products
+ */
+const getPartnerDCs = async (req, res) => {
+  try {
+    const productNames = await getPartnerProductNames(req.user._id);
+    if (productNames.length === 0) {
+      return res.json([]);
+    }
+
+    // Get partner cost configuration
+    const PartnerCost = require('../models/VendorCost'); // TODO: Rename file to PartnerCost.js
+    const Product = require('../models/Product');
+    const partnerCost = await PartnerCost.findOne({ partnerId: req.user._id })
+      .populate('products.productId', 'productName')
+      .lean();
+
+    // Create a map for quick lookup: productName -> { defaultCost, enterpriseMap: schoolId -> enterpriseCost }
+    const costMap = {};
+    if (partnerCost && partnerCost.products) {
+      partnerCost.products.forEach((productCost) => {
+        // Get product name - could be from populated productId or productName field
+        let productName = null;
+        if (productCost.productId) {
+          if (typeof productCost.productId === 'object' && productCost.productId.productName) {
+            productName = productCost.productId.productName;
+          } else if (productCost.productName) {
+            productName = productCost.productName;
+          }
+        } else if (productCost.productName) {
+          productName = productCost.productName;
+        }
+        
+        // Only add to map if product name matches partner's assigned products
+        if (productName && productNames.includes(productName)) {
+          const enterpriseMap = {};
+          // Build map of schoolId -> enterpriseCost
+          if (productCost.enterprises && Array.isArray(productCost.enterprises)) {
+            productCost.enterprises.forEach((enterprise) => {
+              if (enterprise.schools && Array.isArray(enterprise.schools)) {
+                enterprise.schools.forEach((school) => {
+                  let schoolId = null;
+                  if (school.schoolId) {
+                    if (typeof school.schoolId === 'object' && school.schoolId._id) {
+                      schoolId = school.schoolId._id.toString();
+                    } else {
+                      schoolId = school.schoolId.toString();
+                    }
+                  }
+                  if (schoolId) {
+                    enterpriseMap[schoolId] = enterprise.enterpriseCost;
+                  }
+                });
+              }
+            });
+          }
+          costMap[productName] = {
+            defaultCost: productCost.defaultCost || 0,
+            enterpriseMap: enterpriseMap,
+          };
+        }
+      });
+    }
+
+    // Get DCs that have partner's assigned products
+    const dcs = await DC.find({
+      $or: [
+        { product: { $in: productNames } },
+        { 'productDetails.productName': { $in: productNames } },
+      ],
+    })
+      .populate('dcOrderId', 'school_name school_code zone location contact_person contact_mobile email address dc_code _id')
+      .populate('employeeId', 'name email')
+      .select('_id dcOrderId product productDetails deliverableQuantity requestedQuantity status dcDate createdAt employeeId')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Transform DCs to include school and product information with pricing
+    const transformed = dcs.map((dc) => {
+      const school = dc.dcOrderId || {};
+      const schoolId = school._id ? school._id.toString() : null;
+      const products = [];
+      let totalPrice = 0;
+      
+      // Add main product if it matches partner's products
+      if (dc.product && productNames.includes(dc.product)) {
+        const quantity = dc.deliverableQuantity || dc.requestedQuantity || 0;
+        const costInfo = costMap[dc.product] || { defaultCost: 0, enterpriseMap: {} };
+        const unitPrice = schoolId && costInfo.enterpriseMap[schoolId] !== undefined 
+          ? costInfo.enterpriseMap[schoolId] 
+          : costInfo.defaultCost;
+        const price = unitPrice * quantity;
+        totalPrice += price;
+        
+        products.push({
+          productName: dc.product,
+          quantity: quantity,
+          unitPrice: unitPrice,
+          price: price,
+          isEnterprise: schoolId && costInfo.enterpriseMap[schoolId] !== undefined,
+        });
+      }
+      
+      // Add productDetails if they match partner's products
+      if (dc.productDetails && Array.isArray(dc.productDetails)) {
+        dc.productDetails.forEach((pd) => {
+          if (pd.productName && productNames.includes(pd.productName)) {
+            const quantity = pd.quantity || 0;
+            const costInfo = costMap[pd.productName] || { defaultCost: 0, enterpriseMap: {} };
+            const unitPrice = schoolId && costInfo.enterpriseMap[schoolId] !== undefined 
+              ? costInfo.enterpriseMap[schoolId] 
+              : costInfo.defaultCost;
+            const price = unitPrice * quantity;
+            totalPrice += price;
+            
+            products.push({
+              productName: pd.productName,
+              quantity: quantity,
+              unitPrice: unitPrice,
+              price: price,
+              isEnterprise: schoolId && costInfo.enterpriseMap[schoolId] !== undefined,
+            });
+          }
+        });
+      }
+
+      return {
+        _id: dc._id,
+        dcDate: dc.dcDate || dc.createdAt,
+        status: dc.status,
+        school: {
+          _id: school._id,
+          name: school.school_name || 'N/A',
+          code: school.school_code || '-',
+          zone: school.zone || '-',
+          location: school.location || '-',
+          contactPerson: school.contact_person || '-',
+          contactMobile: school.contact_mobile || '-',
+          dcCode: school.dc_code || '-',
+        },
+        employee: dc.employeeId ? {
+          name: dc.employeeId.name || 'N/A',
+          email: dc.employeeId.email || '-',
+        } : null,
+        products: products,
+        totalQuantity: products.reduce((sum, p) => sum + (p.quantity || 0), 0),
+        totalPrice: totalPrice,
+      };
+    }).filter(dc => dc.products.length > 0); // Only return DCs with matching products
+
+    res.json(transformed);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
-  getVendorDashboard,
-  getVendorStocks,
-  ensureVendor,
+  getPartnerDashboard,
+  getPartnerStocks,
+  getPartnerDCs,
+  ensurePartner,
 };

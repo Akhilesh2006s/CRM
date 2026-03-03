@@ -70,9 +70,9 @@ export default function ClientDCPage() {
     id: string
     product: string
     class: string
-    category: string
+    // Product category for the SKU (e.g. Risers+, Winners+), not "Existing/New School"
+    productCategory?: string
     specs: string
-    subject?: string
     quantity: number
     strength: number
     level: string
@@ -145,7 +145,7 @@ export default function ClientDCPage() {
     product_name: string
     quantity: number
     unit_price: number
-    term: string
+    level?: string // Level configured on Products master; shown in Edit PO
   }>>([])
   const [addProductDialogOpen, setAddProductDialogOpen] = useState(false)
   const [addNewProductDialogOpen, setAddNewProductDialogOpen] = useState(false)
@@ -893,30 +893,18 @@ export default function ClientDCPage() {
     try {
       const fullDC = await apiRequest<any>(`/dc/${dc._id}`)
       
-      // Load existing product details - prioritize dcOrder.products (from Edit PO), then DC.productDetails
-      // Convert dcOrder.products format to dcProductRows format
+      // Load existing product details.
+      // IMPORTANT: For closed leads → DC flow, DC.productDetails is the source of truth
+      // (it contains per-spec rows, productCategory, correct strength & level).
+      // So we PREFER DC.productDetails and only fall back to dcOrder.products when
+      // productDetails is empty.
       let productsToShow: any[] = []
-      
-      // First, try to use products from DcOrder (Edit PO products)
-      if (dcOrderProducts.length > 0) {
-        productsToShow = dcOrderProducts.map((p: any, idx: number) => ({
-          id: `dcorder-${idx + 1}`,
-          product: p.product_name || '',
-          class: '1', // Default, as Edit PO doesn't have class
-          category: autoCategory,
-          specs: 'Regular', // Default, as Edit PO doesn't have specs
-          subject: undefined,
-          quantity: Number(p.quantity) || 0,
-          strength: Number(p.quantity) || 0, // Use quantity as strength
-          level: getDefaultLevel(p.product_name || 'Abacus'),
-          term: p.term || 'Term 1',
-        }))
-      }
-      
-      // If no DcOrder products, fall back to DC.productDetails
-      if (productsToShow.length === 0 && fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        // Only show products that were actually added (have product name and details)
-        const addedProducts = fullDC.productDetails.filter((p: any) => p.product && (p.price > 0 || p.strength > 0))
+      const dcProductDetails = Array.isArray(fullDC.productDetails) ? fullDC.productDetails : []
+
+      // 1) Prefer DC.productDetails if present
+      if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
+        // Only show products that were actually added (have product name and at least some quantity/strength/price)
+        const addedProducts = fullDC.productDetails.filter((p: any) => p.product && (p.price > 0 || p.strength > 0 || p.quantity > 0))
         if (addedProducts.length > 0) {
           console.log('Loading products for Client DC from DC.productDetails:', JSON.stringify(addedProducts, null, 2))
           productsToShow = addedProducts.map((p: any, idx: number) => {
@@ -928,9 +916,9 @@ export default function ClientDCPage() {
               id: `dc-${idx + 1}`,
               product: p.product || '',
               class: p.class || '1',
-              category: autoCategory, // Use auto-determined category
+              // Prefer productCategory from DC productDetails if present
+              productCategory: p.productCategory || undefined,
               specs: p.specs || 'Regular', // Preserve specs from saved data
-              subject: (p.subject && p.subject.trim() !== '') ? p.subject : undefined, // Preserve subject from saved data, handle empty string
               quantity: quantityNum,
               strength: strengthNum,
               level: p.level || getDefaultLevel(p.product || 'Abacus'),
@@ -944,6 +932,32 @@ export default function ClientDCPage() {
             return row
           })
         }
+      }
+      
+      // 2) If DC.productDetails is empty, fall back to DcOrder products (Edit PO)
+      if (productsToShow.length === 0 && dcOrderProducts.length > 0) {
+        productsToShow = dcOrderProducts.map((p: any, idx: number) => ({
+          id: `dcorder-${idx + 1}`,
+          product: p.product_name || '',
+          // Try to preserve the original class from DC productDetails (by index or matching name)
+          class: (() => {
+            const byIndex = dcProductDetails[idx]
+            if (byIndex && byIndex.class) return byIndex.class
+            const byName = dcProductDetails.find((d: any) => {
+              const dcName = (d.product || d.productName || '').toString().toLowerCase().trim()
+              const orderName = (p.product_name || '').toString().toLowerCase().trim()
+              return dcName !== '' && dcName === orderName
+            })
+            return byName?.class || '1'
+          })(),
+          // DcOrder doesn't have per-product category; keep this empty here.
+          productCategory: undefined,
+          specs: 'Regular', // Default, as Edit PO doesn't have specs
+          quantity: Number(p.quantity) || 0,
+          strength: Number(p.quantity) || 0, // Use quantity as strength
+          level: getDefaultLevel(p.product_name || 'Abacus'),
+          term: p.term || 'Term 1',
+        }))
       }
       
       // Set the products to display
@@ -986,9 +1000,9 @@ export default function ClientDCPage() {
         ? dcProductRows.map(row => ({
             product: row.product || '',
             class: row.class || '1',
-            category: row.category || 'New School',
+            // Save productCategory back into DC so warehouse view can use it
+            productCategory: row.productCategory || undefined,
             specs: row.specs || 'Regular',
-            subject: row.subject || undefined,
             quantity: Number(row.quantity) || 0,
             strength: Number(row.strength) || 0,
             level: row.level || getDefaultLevel(row.product || 'Abacus'),
@@ -1775,15 +1789,20 @@ export default function ClientDCPage() {
       
       setEditFormData(formData)
       
-      // Set product rows
+      // Set product rows (for Edit PO)
       setEditProductRows(
-        (dcOrder.products || []).map((p: any, idx: number) => ({
-          id: String(idx + 1),
-          product_name: p.product_name || '',
-          quantity: p.quantity || 0,
-          unit_price: p.unit_price || 0,
-          term: p.term || 'Term 1',
-        }))
+        (dcOrder.products || []).map((p: any, idx: number) => {
+          const name = p.product_name || ''
+          const levels = getAvailableLevels(name)
+          const defaultLevel = levels[0] || getDefaultLevel(name || 'Abacus')
+          return {
+            id: String(idx + 1),
+            product_name: name,
+            quantity: p.quantity || 0,
+            unit_price: p.unit_price || 0,
+            level: defaultLevel,
+          }
+        })
       )
       
       // Extract unique product names from original PO (products selected when lead was closed)
@@ -1837,12 +1856,20 @@ export default function ClientDCPage() {
       // Prepare products array
       const products = editProductRows
         .filter(row => row.product_name && row.product_name.trim() !== '') // Only include rows with product names
-        .map(row => ({
-        product_name: row.product_name,
-        quantity: row.quantity,
-        unit_price: row.unit_price,
-          term: row.term || 'Term 1',
-      }))
+        .map(row => {
+          const level =
+            row.level ||
+            getAvailableLevels(row.product_name || '')[0] ||
+            getDefaultLevel(row.product_name || 'Abacus')
+          return {
+            product_name: row.product_name,
+            quantity: row.quantity,
+            unit_price: row.unit_price,
+            // Keep term for backward compatibility in DcOrder schema, but UI uses level only
+            term: 'Term 1',
+            level,
+          }
+        })
 
       // Calculate total amount
       const totalAmount = products.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
@@ -2854,88 +2881,66 @@ export default function ClientDCPage() {
                   <p className="text-xs mt-1">Use the "Add Product" button below to add products to this client</p>
                 </div>
               ) : (() => {
-                // Helper function to render a product row
+                // Helper function to render a product row (no Term column in UI)
                 const renderProductRow = (row: typeof dcProductRows[0]) => (
-                      <tr key={row.id} className="border-b">
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="text"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.product}
-                            readOnly
-                            disabled
-                          />
-                        </td>
+                  <tr key={row.id} className="border-b">
                     <td className="py-3 px-4 border-r">
                       <Input
                         type="text"
                         className="h-10 text-sm bg-neutral-50"
-                        value={row.term || 'Term 1'}
-                            readOnly
-                            disabled
-                          />
-                        </td>
-                        <td className="py-2 px-3 border-r">
-                          <Input
-                            type="text"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.class}
-                            readOnly
-                            disabled
-                          />
-                        </td>
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="text"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.category}
-                            readOnly
-                            disabled
-                          />
-                        </td>
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="text"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.specs || 'Regular'} 
-                            readOnly
-                            disabled
-                          />
-                        </td>
-                        <td className="py-3 px-4 border-r">
-                          {row.subject ? (
-                            <Input
-                              type="text"
-                              className="h-10 text-sm bg-neutral-50"
-                              value={row.subject}
-                              readOnly
-                              disabled
-                            />
-                          ) : (
-                            <span className="text-neutral-400">-</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="number"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.strength || ''}
-                            readOnly
-                            disabled
-                            placeholder="0"
-                            min="0"
-                          />
-                        </td>
-                        <td className="py-3 px-4 border-r">
-                          <Input
-                            type="text"
-                            className="h-10 text-sm bg-neutral-50"
-                            value={row.level}
-                            readOnly
-                            disabled
-                          />
-                        </td>
-                      </tr>
+                        value={row.product}
+                        readOnly
+                        disabled
+                      />
+                    </td>
+                    <td className="py-2 px-3 border-r">
+                      <Input
+                        type="text"
+                        className="h-10 text-sm bg-neutral-50"
+                        value={row.class}
+                        readOnly
+                        disabled
+                      />
+                    </td>
+                    <td className="py-3 px-4 border-r">
+                      <Input
+                        type="text"
+                        className="h-10 text-sm bg-neutral-50"
+                        value={row.productCategory || ''}
+                        readOnly
+                        disabled
+                      />
+                    </td>
+                    <td className="py-3 px-4 border-r">
+                      <Input
+                        type="text"
+                        className="h-10 text-sm bg-neutral-50"
+                        value={row.specs || 'Regular'}
+                        readOnly
+                        disabled
+                      />
+                    </td>
+                    <td className="py-3 px-4 border-r">
+                      <Input
+                        type="number"
+                        className="h-10 text-sm bg-neutral-50"
+                        value={row.strength || ''}
+                        readOnly
+                        disabled
+                        placeholder="0"
+                        min="0"
+                      />
+                    </td>
+                    <td className="py-3 px-4 border-r">
+                      <Input
+                        type="text"
+                        className="h-10 text-sm bg-neutral-50"
+                        value={row.level}
+                        readOnly
+                        disabled
+                      />
+                    </td>
+                  </tr>
                 )
 
                 // Check if all products have the same term
@@ -2955,27 +2960,28 @@ export default function ClientDCPage() {
                         <thead>
                           <tr className="bg-neutral-100 border-b">
                             <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product</th>
-                            <th className="py-3 px-4 text-left text-sm font-semibold border-r">Term</th>
                             <th className="py-3 px-4 text-left text-sm font-semibold border-r">Class</th>
-                            <th className="py-3 px-4 text-left text-sm font-semibold border-r">Category</th>
+                            <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product Category</th>
                             <th className="py-3 px-4 text-left text-sm font-semibold border-r">Specs</th>
-                            <th className="py-3 px-4 text-left text-sm font-semibold border-r">Subject</th>
                             <th className="py-3 px-4 text-left text-sm font-semibold border-r">Strength</th>
                             <th className="py-3 px-4 text-left text-sm font-semibold border-r">Level</th>
                           </tr>
                         </thead>
                         <tbody>
                           {dcProductRows.map((row) => renderProductRow(row))}
-                    {/* Total Row */}
-                    <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
-                            <td colSpan={6} className="px-3 py-3 text-right">
-                        <span className="text-neutral-700">Total:</span>
-                      </td>
-                      <td className="px-3 py-3 text-right">
-                        {dcProductRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
-                      </td>
-                      <td className="px-3 py-3"></td>
-                    </tr>
+                        {/* Total Row */}
+                        <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
+                          <td colSpan={4} className="px-3 py-3 text-right">
+                            <span className="text-neutral-700">Total:</span>
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {dcProductRows.reduce(
+                              (sum, row) => sum + (Number(row.strength) || 0),
+                              0
+                            )}
+                          </td>
+                          <td className="px-3 py-3"></td>
+                        </tr>
                   </tbody>
                 </table>
                     </div>
@@ -3001,11 +3007,9 @@ export default function ClientDCPage() {
                             <thead>
                               <tr className="bg-neutral-100 border-b">
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Term</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Class</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Category</th>
+                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product Category</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Specs</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Subject</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Strength</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Level</th>
                               </tr>
@@ -3014,14 +3018,17 @@ export default function ClientDCPage() {
                               {term1Products.map((row) => renderProductRow(row))}
                               {/* Total Row for Term 1 */}
                               <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
-                                <td colSpan={6} className="px-3 py-3 text-right">
+                                <td colSpan={5} className="px-3 py-3 text-right">
                                   <span className="text-neutral-700">Total:</span>
-                      </td>
+                                </td>
                                 <td className="px-3 py-3 text-right">
-                                  {term1Products.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                                  {term1Products.reduce(
+                                    (sum, row) => sum + (Number(row.strength) || 0),
+                                    0
+                                  )}
                                 </td>
                                 <td className="px-3 py-3"></td>
-                    </tr>
+                              </tr>
                   </tbody>
                 </table>
                         </div>
@@ -3037,11 +3044,9 @@ export default function ClientDCPage() {
                             <thead>
                               <tr className="bg-neutral-100 border-b">
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Term</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Class</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Category</th>
+                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Product Category</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Specs</th>
-                                <th className="py-3 px-4 text-left text-sm font-semibold border-r">Subject</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Strength</th>
                                 <th className="py-3 px-4 text-left text-sm font-semibold border-r">Level</th>
                               </tr>
@@ -3050,11 +3055,14 @@ export default function ClientDCPage() {
                               {term2Products.map((row) => renderProductRow(row))}
                               {/* Total Row for Term 2 */}
                               <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
-                                <td colSpan={6} className="px-3 py-3 text-right">
+                                <td colSpan={5} className="px-3 py-3 text-right">
                                   <span className="text-neutral-700">Total:</span>
                                 </td>
                                 <td className="px-3 py-3 text-right">
-                                  {term2Products.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                                  {term2Products.reduce(
+                                    (sum, row) => sum + (Number(row.strength) || 0),
+                                    0
+                                  )}
                                 </td>
                                 <td className="px-3 py-3"></td>
                               </tr>
@@ -3354,26 +3362,36 @@ export default function ClientDCPage() {
                           />
                         </TableCell>
                         <TableCell>
+                          {/* Level selector based on Products master configuration */}
                           <Select
-                            value={row.term || 'Term 1'}
+                            value={
+                              row.level ||
+                              getAvailableLevels(row.product_name || '')[0] ||
+                              getDefaultLevel(row.product_name || 'Abacus')
+                            }
                             onValueChange={(value) => {
                               const updated = [...editProductRows]
-                              updated[actualIdx].term = value
+                              updated[actualIdx].level = value
                               setEditProductRows(updated)
-                              // Recalculate total after term change
-                              const total = updated.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
+                              // Recalculate total after level change (total is still qty × price)
+                              const total = updated.reduce(
+                                (sum, p) => sum + p.quantity * p.unit_price,
+                                0
+                              )
                               setEditFormData({ ...editFormData, total_amount: total })
-                              }}
-                            >
-                              <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select term" />
-                              </SelectTrigger>
-                              <SelectContent>
-                              <SelectItem value="Term 1">Term 1</SelectItem>
-                              <SelectItem value="Term 2">Term 2</SelectItem>
-                              <SelectItem value="Both">Both</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            }}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select level" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getAvailableLevels(row.product_name || '').map((lvl) => (
+                                <SelectItem key={lvl} value={lvl}>
+                                  {lvl}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           </TableCell>
                           <TableCell>
                             <Input
@@ -3443,7 +3461,8 @@ export default function ClientDCPage() {
                   const hasBothTerm = terms.includes('Both')
                   const hasDifferentTerms = uniqueTerms.length > 1 || hasBothTerm
 
-                  // If all products have the same term (and it's not "Both"), show single table
+                  // If all products have the same term (and it's not "Both"), show single table.
+                  // In UI we call this "Level" instead of "Term".
                   if (!hasDifferentTerms) {
                     return (
                       <div className="overflow-x-auto">
@@ -3451,7 +3470,7 @@ export default function ClientDCPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Product Name</TableHead>
-                              <TableHead>Term</TableHead>
+                              <TableHead>Level</TableHead>
                               <TableHead>Quantity</TableHead>
                               <TableHead>Unit Price</TableHead>
                               <TableHead>Total</TableHead>
@@ -3489,13 +3508,13 @@ export default function ClientDCPage() {
                     <div className="space-y-6">
                       {/* Term 1 Products Table */}
                       <div>
-                        <Label className="text-md font-semibold mb-3 block text-blue-700">Term 1 Products</Label>
+                        <Label className="text-md font-semibold mb-3 block text-blue-700">Products</Label>
                         <div className="overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
-                                <TableHead>Term</TableHead>
+                                <TableHead>Level</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Unit Price</TableHead>
                                 <TableHead>Total</TableHead>
@@ -3506,7 +3525,7 @@ export default function ClientDCPage() {
                               {term1Products.length === 0 ? (
                                 <TableRow>
                                   <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
-                                    No Term 1 products added yet
+                                    No Level 1 products added yet
                                   </TableCell>
                                 </TableRow>
                               ) : (
@@ -3519,13 +3538,13 @@ export default function ClientDCPage() {
 
                       {/* Term 2 Products Table */}
                       <div>
-                        <Label className="text-md font-semibold mb-3 block text-green-700">Term 2 Products</Label>
+                        <Label className="text-md font-semibold mb-3 block text-green-700">Products (Different Levels)</Label>
                         <div className="overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
-                                <TableHead>Term</TableHead>
+                                <TableHead>Level</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Unit Price</TableHead>
                                 <TableHead>Total</TableHead>
@@ -3536,7 +3555,7 @@ export default function ClientDCPage() {
                               {term2Products.length === 0 ? (
                                 <TableRow>
                                   <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
-                                    No Term 2 products added yet
+                                    No Level 2 products added yet
                                   </TableCell>
                                 </TableRow>
                               ) : (

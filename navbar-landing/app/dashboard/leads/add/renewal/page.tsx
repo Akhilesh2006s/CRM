@@ -137,10 +137,17 @@ export default function RenewalPage() {
     setLoadingSchools(true)
     try {
       // Fetch existing schools from leads with status "Closed" (completed deals)
-      const closedLeads = await apiRequest<any[]>('/leads?status=Closed')
+      const closedLeadsRes = await apiRequest<any>('/leads?status=Closed')
+      // API may return a plain array or a paginated object { data: [...] }
+      const closedLeads: any[] = Array.isArray(closedLeadsRes)
+        ? closedLeadsRes
+        : (closedLeadsRes?.data || [])
       
       // Also fetch from dc-orders to get more existing schools (completed or existing orders)
-      const dcOrders = await apiRequest<any[]>('/dc-orders')
+      const dcOrdersRes = await apiRequest<any>('/dc-orders')
+      const dcOrders: any[] = Array.isArray(dcOrdersRes)
+        ? dcOrdersRes
+        : (dcOrdersRes?.data || [])
       
       // Combine and deduplicate by school_name
       const allSchools: ExistingSchool[] = []

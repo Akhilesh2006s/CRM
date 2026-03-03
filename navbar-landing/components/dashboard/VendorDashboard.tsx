@@ -9,7 +9,7 @@ import LineChart from '@/components/charts/LineChart'
 import PieChart from '@/components/charts/PieChart'
 import DoughnutStatus from '@/components/charts/DoughnutStatus'
 
-type VendorDashboardData = {
+type PartnerDashboardData = {
   summary: {
     totalAssignedProducts: number
     totalDcQuantityLast30Days: number
@@ -30,8 +30,8 @@ const SUMMARY_CARDS = [
   { key: 'totalReturns', label: 'Total Returns', icon: RefreshCw, color: 'from-rose-50 to-rose-100', border: 'border-rose-200', text: 'text-rose-700' },
 ]
 
-export default function VendorDashboard() {
-  const [data, setData] = useState<VendorDashboardData | null>(null)
+export default function PartnerDashboard() {
+  const [data, setData] = useState<PartnerDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,7 +39,7 @@ export default function VendorDashboard() {
     let mounted = true
     const fetchData = async () => {
       try {
-        const res = await apiRequest<VendorDashboardData>('/vendor-user/dashboard')
+        const res = await apiRequest<PartnerDashboardData>('/partner-user/dashboard')
         if (mounted) setData(res)
       } catch (e) {
         if (mounted) setError((e as Error)?.message || 'Failed to load dashboard')

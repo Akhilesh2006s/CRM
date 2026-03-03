@@ -25,11 +25,15 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const productRoutes = require('./routes/productRoutes');
 const deliverableRoutes = require('./routes/deliverableRoutes');
-const vendorRoutes = require('./routes/vendorRoutes');
-const vendorUserRoutes = require('./routes/vendorUserRoutes');
+const partnerRoutes = require('./routes/vendorRoutes'); // TODO: Rename file to partnerRoutes.js
+const partnerUserRoutes = require('./routes/vendorUserRoutes'); // TODO: Rename file to partnerUserRoutes.js
+const partnerCostRoutes = require('./routes/vendorCostRoutes'); // TODO: Rename file to partnerCostRoutes.js
+const franchiseRoutes = require('./routes/franchiseRoutes');
 const executiveManagerRoutes = require('./routes/executiveManagerRoutes');
 const sampleRequestRoutes = require('./routes/sampleRequestRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const apiKeyRoutes = require('./routes/apiKeyRoutes');
+const automationApiRoutes = require('./routes/automationApiRoutes');
 
 dotenv.config();
 
@@ -155,8 +159,10 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/deliverables', deliverableRoutes);
-app.use('/api/vendors', vendorRoutes);
-app.use('/api/vendor-user', vendorUserRoutes);
+app.use('/api/partners', partnerRoutes);
+app.use('/api/partner-user', partnerUserRoutes);
+app.use('/api/partner-costs', partnerCostRoutes);
+app.use('/api/franchises', franchiseRoutes);
 // Explicit route so PO change list is never 404 (mobile: GET /api/executive-managers/po-change-requests)
 const { authMiddleware } = require('./middleware/authMiddleware');
 const { listPoChangeRequests } = require('./controllers/dcOrderController');
@@ -165,6 +171,11 @@ app.get('/api/executive-managers/po-change-requests', authMiddleware, listPoChan
 app.use('/api/executive-managers', executiveManagerRoutes);
 app.use('/api/sample-requests', sampleRequestRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/api-keys', apiKeyRoutes);
+app.use('/api/automation', automationApiRoutes);
+app.use('/api/zones-clusters', require('./routes/zoneClusterRoutes'));
+app.use('/api/zones', require('./routes/zoneRoutes'));
+app.use('/api/clusters', require('./routes/clusterRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {

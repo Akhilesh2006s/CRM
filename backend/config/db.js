@@ -4,8 +4,14 @@ const connectDB = async (retryCount = 0, maxRetries = 3) => {
   let mongoURI =
     process.env.MONGO_URI ||
     process.env.MONGODB_URI ||
-    process.env.DATABASE_URL ||
-    'mongodb://127.0.0.1:27017/crm_system'
+    process.env.DATABASE_URL
+
+  if (!mongoURI) {
+    console.error('❌ MongoDB connection string not found!')
+    console.error('   Please set MONGO_URI, MONGODB_URI, or DATABASE_URL in your .env file')
+    console.error('   Format: mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/crm_system?retryWrites=true&w=majority')
+    process.exit(1)
+  }
 
   try {
     if (retryCount > 0) {
