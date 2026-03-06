@@ -4,6 +4,28 @@ const ExcelJS = require('exceljs');
 const mongoose = require('mongoose');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
 
+const VALID_PRODUCT_TERMS = ['Term 1', 'Term 2', 'Both'];
+
+function normalizeLeadProducts(products) {
+  if (!Array.isArray(products)) return products;
+
+  return products.map((p) => {
+    const product = { ...p };
+
+    // Backwards compatibility: if term is missing, default to 'Term 1'
+    if (product.term == null || product.term === '') {
+      product.term = 'Term 1';
+      return product;
+    }
+
+    if (!VALID_PRODUCT_TERMS.includes(product.term)) {
+      throw new Error('Invalid product term. Allowed values are: Term 1, Term 2, Both.');
+    }
+
+    return product;
+  });
+}
+
 // @desc    Get all leads
 // @route   GET /api/leads
 // @access  Private
@@ -186,6 +208,13 @@ const createLead = async (req, res) => {
       ...req.body,
       createdBy: req.user._id,
     };
+
+    // Normalize product terms (adds default Term 1 when missing, validates when provided)
+    try {
+      leadData.products = normalizeLeadProducts(leadData.products);
+    } catch (termError) {
+      return res.status(400).json({ message: termError.message || 'Invalid product term' });
+    }
     
     // Auto-generate school code if not provided
     // Use managed_by or assigned_by if available, otherwise use the creator
@@ -228,6 +257,15 @@ const updateLead = async (req, res) => {
     // For leads, we'll store history in a simple format
     // Since Lead model doesn't have updateHistory, we'll update directly
     // History can be tracked via timestamps and status changes
+    // Normalize product terms if products are being updated
+    if (req.body && Array.isArray(req.body.products)) {
+      try {
+        req.body.products = normalizeLeadProducts(req.body.products);
+      } catch (termError) {
+        return res.status(400).json({ message: termError.message || 'Invalid product term' });
+      }
+    }
+
     const updatedLead = await Lead.findByIdAndUpdate(
       req.params.id,
       req.body,
