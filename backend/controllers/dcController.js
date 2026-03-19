@@ -305,8 +305,10 @@ const raiseDC = async (req, res) => {
         dcPending.productDetails = term1Products.map(p => ({
           product: p.product || p.productName || '',
           class: p.class || '1',
-          category: p.category || 'New Students',
+          category: p.category || (dcOrder.school_type === 'Existing' ? 'Old Students' : 'new Students'),
           productName: p.productName || p.product || '',
+          // Preserve SKU category for Pending DC UI.
+          productCategory: p.productCategory || undefined,
           quantity: Number(p.quantity) || Number(p.strength) || 0,
           strength: Number(p.strength) || Number(p.quantity) || 0,
           price: Number(p.price) || 0,
@@ -1535,7 +1537,7 @@ const updateDC = async (req, res) => {
         dc.productDetails = req.body.productDetails.map((p) => ({
           product: p.product || '',
           class: p.class || '1',
-          category: p.category || 'New Students',
+          category: p.category || 'new Students',
           productName: p.productName || '',
           quantity: Number(p.quantity) || Number(p.strength) || 0,
           strength: Number(p.strength) || 0,

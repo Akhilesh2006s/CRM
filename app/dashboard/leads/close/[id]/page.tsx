@@ -921,6 +921,8 @@ export default function CloseLeadPage() {
             quantity: p.strength, // Use strength as quantity
             unit_price: p.price,
             deliverables,
+            // Persist SKU category so Raise DC can prefill productCategory from Close Lead.
+            productCategory: (p as any).productCategory || (p as any).category || undefined,
           }
         }),
       }

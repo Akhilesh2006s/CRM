@@ -5,6 +5,11 @@ const productSchema = new mongoose.Schema(
     product_name: { type: String, required: true },
     quantity: { type: Number, default: 1, min: 0 },
     unit_price: { type: Number, default: 0, min: 0 },
+    // SKU category for the product (e.g. EduApt, Risers+, etc.)
+    // Needed so "Raise DC" can prefill productCategory based on Close Lead selections.
+    productCategory: { type: String },
+    // Legacy / compatibility field (some older flows stored category-like values here)
+    category: { type: String },
     expiry_date: { type: Date },
     term: { type: String, enum: ['Term 1', 'Term 2', 'Both'], default: 'Term 1' },
     deliverables: { type: [String], default: [] }, // Transaction-level: deliverables selected when closing lead
