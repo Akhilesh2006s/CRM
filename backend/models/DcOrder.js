@@ -7,6 +7,25 @@ const productSchema = new mongoose.Schema(
     unit_price: { type: Number, default: 0, min: 0 },
     expiry_date: { type: Date },
     term: { type: String, enum: ['Term 1', 'Term 2', 'Both'], default: 'Term 1' },
+    // Per-product lead metadata
+    status: {
+      type: String,
+      enum: ['Hot', 'Warm', 'Not Interested', 'Management Not Met', 'Visit Again'],
+      default: 'Warm',
+    },
+    chance: {
+      // Percentage chance (0–100) for this product
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    strength: {
+      // Student strength for this specific product
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     deliverables: { type: [String], default: [] }, // Transaction-level: deliverables selected when closing lead
   },
   { _id: false }
