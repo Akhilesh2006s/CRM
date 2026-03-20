@@ -825,13 +825,18 @@ export default function ClientDCPage() {
             zone: dcOrder.pendingEdit.zone || dcOrder.zone || '',
             location: dcOrder.pendingEdit.location || dcOrder.location || '',
             remarks: dcOrder.pendingEdit.remarks || dcOrder.remarks || '',
+            // Transport details from pendingEdit (fallback to main fields)
+            transport_name: dcOrder.pendingEdit.transport_name || dcOrder.transport_name || '',
+            transport_location: dcOrder.pendingEdit.transport_location || dcOrder.transport_location || '',
+            transportation_landmark: dcOrder.pendingEdit.transportation_landmark || dcOrder.transportation_landmark || '',
+            pincode: dcOrder.pendingEdit.pincode || dcOrder.pincode || '',
+            // Delivery address
             property_number: dcOrder.pendingEdit.property_number || '',
             floor: dcOrder.pendingEdit.floor || '',
             tower_block: dcOrder.pendingEdit.tower_block || '',
             nearby_landmark: dcOrder.pendingEdit.nearby_landmark || '',
             area: dcOrder.pendingEdit.area || '',
             city: dcOrder.pendingEdit.city || '',
-            pincode: dcOrder.pendingEdit.pincode || '',
           }
         } else {
           // If no pending edit, show from approved/main fields
@@ -846,13 +851,18 @@ export default function ClientDCPage() {
             zone: dcOrder.zone || '',
             location: dcOrder.location || '',
             remarks: dcOrder.remarks || '',
+            // Transport details from main DcOrder fields
+            transport_name: dcOrder.transport_name || '',
+            transport_location: dcOrder.transport_location || '',
+            transportation_landmark: dcOrder.transportation_landmark || '',
+            pincode: dcOrder.pincode || '',
+            // Delivery address
             property_number: dcOrder.property_number || '',
             floor: dcOrder.floor || '',
             tower_block: dcOrder.tower_block || '',
             nearby_landmark: dcOrder.nearby_landmark || '',
             area: dcOrder.area || '',
             city: dcOrder.city || '',
-            pincode: dcOrder.pincode || '',
           }
         }
         setDcOrderData(displayData)
@@ -903,32 +913,46 @@ export default function ClientDCPage() {
 
       // 1) Prefer DC.productDetails if present
       if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        // Only show products that were actually added (have product name and at least some quantity/strength/price)
-        const addedProducts = fullDC.productDetails.filter((p: any) => p.product && (p.price > 0 || p.strength > 0 || p.quantity > 0))
-        if (addedProducts.length > 0) {
-          console.log('Loading products for Client DC from DC.productDetails:', JSON.stringify(addedProducts, null, 2))
-          productsToShow = addedProducts.map((p: any, idx: number) => {
+        // Only require product name; keep SKU category even if quantities/prices are 0.
+        // This prevents losing `productCategory` and falling back to DcOrder.products (which has no SKU category).
+        const dcProducts = fullDC.productDetails.filter((p: any) => p && p.product)
+        if (dcProducts.length > 0) {
+          console.log('Loading products for Client DC from DC.productDetails:', JSON.stringify(dcProducts, null, 2))
+          productsToShow = dcProducts.map((p: any, idx: number) => {
             // Read values directly - preserve 0 values, only default if null/undefined
             const strengthNum = p.strength !== null && p.strength !== undefined ? Number(p.strength) : 0
             const quantityNum = p.quantity !== null && p.quantity !== undefined ? Number(p.quantity) : strengthNum
-            
+
+            const studentCategories = [
+              'New Students',
+              'Existing Students',
+              'Both',
+              'New School',
+              'Existing School',
+            ]
+            const studentLike = typeof p.category === 'string' && studentCategories.includes(p.category)
+
+            // Prefer SKU productCategory.
+            // If missing, only use `category` as SKU category when it isn't a student category.
+            const rowProductCategory =
+              p.productCategory ||
+              (!studentLike && typeof p.category === 'string' ? p.category : undefined) ||
+              undefined
+
             const row = {
               id: `dc-${idx + 1}`,
               product: p.product || '',
               class: p.class || '1',
-              // Prefer productCategory from DC productDetails if present
-              productCategory: p.productCategory || undefined,
+              // Keep student category (for the `category` field that admin/warehouse use later)
+              category: p.category,
+              productCategory: rowProductCategory,
               specs: p.specs || 'Regular', // Preserve specs from saved data
               quantity: quantityNum,
               strength: strengthNum,
               level: p.level || getDefaultLevel(p.product || 'Abacus'),
               term: p.term || 'Term 1',
+              subject: p.subject || undefined,
             }
-            console.log(`Client DC Product ${idx + 1} - Specs/Subject:`, {
-              raw: { specs: p.specs, subject: p.subject, product: p.product },
-              loaded: { specs: row.specs, subject: row.subject },
-              fullProduct: p
-            })
             return row
           })
         }
@@ -1048,6 +1072,25 @@ export default function ClientDCPage() {
   const requestClientDC = async () => {
     if (!selectedDC) return
 
+    // Validate transport details (must be filled via Edit PO first)
+    const transportName =
+      (dcOrderData?.pendingEdit?.transport_name as string) ??
+      (dcOrderData?.transport_name as string) ??
+      ''
+    const transportLocation =
+      (dcOrderData?.pendingEdit?.transport_location as string) ??
+      (dcOrderData?.transport_location as string) ??
+      ''
+    const transportPincode =
+      (dcOrderData?.pendingEdit?.pincode as string) ??
+      (dcOrderData?.pincode as string) ??
+      ''
+
+    if (!transportName.trim() || !transportLocation.trim() || !transportPincode.trim()) {
+      toast.error('Please fill Transport Name, Transport Location, and Pincode in Edit PO before requesting DC.')
+      return
+    }
+
     // Validate products - must have at least one product
     if (dcProductRows.length === 0) {
       toast.error('Please add at least one product before requesting')
@@ -1062,11 +1105,22 @@ export default function ClientDCPage() {
 
     setSavingClientDC(true)
     try {
+      const defaultStudentCategory =
+        dcOrderData?.school_type === 'Existing' ? 'Existing Students' : 'New Students'
+
+      const normalizeStudentCategory = (v: any) => {
+        if (!v) return v
+        if (v === 'New School') return 'New Students'
+        if (v === 'Existing School') return 'Existing Students'
+        return v
+      }
+
       // Prepare product details
       const productDetails = dcProductRows.map(row => ({
         product: row.product || '',
         class: row.class || '1',
-        category: row.category || 'New School',
+        category: normalizeStudentCategory(row.category) || defaultStudentCategory,
+        productCategory: row.productCategory || undefined,
         specs: row.specs || 'Regular',
         subject: row.subject || undefined,
         quantity: Number(row.quantity) || 0,
@@ -1832,12 +1886,24 @@ export default function ClientDCPage() {
     console.log('✅ selectedDcOrder exists:', selectedDcOrder._id)
     setSubmittingEdit(true)
     try {
+      // Validate transport details (mandatory for saving PO changes)
+      const transport_name = (editFormData.transport_name || '').trim()
+      const transport_location = (editFormData.transport_location || '').trim()
+      const transportation_landmark = (editFormData.transportation_landmark || '').trim()
+      const pincode = (editFormData.pincode || '').trim()
+
+      if (!transport_name || !transport_location || !pincode) {
+        toast.error('Please fill Transport Name, Transport Location, and Pincode before saving PO changes.')
+        setSubmittingEdit(false)
+        return
+      }
+
       // Log current editFormData state before preparing payload
       console.log('📝 Current editFormData state:', {
-        transport_name: editFormData.transport_name,
-        transport_location: editFormData.transport_location,
-        transportation_landmark: editFormData.transportation_landmark,
-        pincode: editFormData.pincode,
+        transport_name,
+        transport_location,
+        transportation_landmark,
+        pincode,
       })
 
       // Validate products - quantity and unit price are mandatory
@@ -2798,59 +2864,44 @@ export default function ClientDCPage() {
                 </div>
               )}
 
-            {/* Delivery and Address Table */}
+            {/* Transport Details (from Edit PO / DcOrder) */}
             <div className="border rounded-lg p-6 space-y-4">
-              <Label className="text-lg font-semibold mb-4 block">Delivery and Address</Label>
+              <Label className="text-lg font-semibold mb-4 block">Transport Details</Label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label>Property Number</Label>
+                  <Label>Transport Name</Label>
                   <Input
-                    value={deliveryAddress.property_number}
+                    value={
+                      (dcOrderData?.pendingEdit?.transport_name as string) ??
+                      (dcOrderData?.transport_name as string) ??
+                      ''
+                    }
                     readOnly
                     disabled
                     className="bg-neutral-50"
                   />
                 </div>
                 <div>
-                  <Label>Floor</Label>
+                  <Label>Transport Location</Label>
                   <Input
-                    value={deliveryAddress.floor}
+                    value={
+                      (dcOrderData?.pendingEdit?.transport_location as string) ??
+                      (dcOrderData?.transport_location as string) ??
+                      ''
+                    }
                     readOnly
                     disabled
                     className="bg-neutral-50"
                   />
                 </div>
                 <div>
-                  <Label>Tower/Block</Label>
+                  <Label>Transportation Landmark</Label>
                   <Input
-                    value={deliveryAddress.tower_block}
-                    readOnly
-                    disabled
-                    className="bg-neutral-50"
-                  />
-                </div>
-                <div>
-                  <Label>Nearby Landmark</Label>
-                  <Input
-                    value={deliveryAddress.nearby_landmark}
-                    readOnly
-                    disabled
-                    className="bg-neutral-50"
-                  />
-                </div>
-                <div>
-                  <Label>Area</Label>
-                  <Input
-                    value={deliveryAddress.area}
-                    readOnly
-                    disabled
-                    className="bg-neutral-50"
-                  />
-                </div>
-                <div>
-                  <Label>City</Label>
-                  <Input
-                    value={deliveryAddress.city}
+                    value={
+                      (dcOrderData?.pendingEdit?.transportation_landmark as string) ??
+                      (dcOrderData?.transportation_landmark as string) ??
+                      ''
+                    }
                     readOnly
                     disabled
                     className="bg-neutral-50"
@@ -2859,7 +2910,11 @@ export default function ClientDCPage() {
                 <div>
                   <Label>Pincode</Label>
                   <Input
-                    value={deliveryAddress.pincode}
+                    value={
+                      (dcOrderData?.pendingEdit?.pincode as string) ??
+                      (dcOrderData?.pincode as string) ??
+                      ''
+                    }
                     readOnly
                     disabled
                     className="bg-neutral-50"
