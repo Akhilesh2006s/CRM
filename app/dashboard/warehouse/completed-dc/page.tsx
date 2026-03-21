@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, resolveUploadUrl, poFileApiUrl } from '@/lib/api'
 import { toast } from 'sonner'
-import { Pencil, CreditCard, X, Upload, FileText, Download } from 'lucide-react'
+import { Pencil, CreditCard, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
 
 type Row = {
@@ -55,8 +55,24 @@ export default function CompletedDCPage() {
     deliveryStatus: '',
     remarks: '',
   })
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [pdfViewerSrc, setPdfViewerSrc] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const pdfBlobRef = useRef<string | null>(null)
   const [pdfDC, setPdfDC] = useState<Row | null>(null)
+
+  const revokePdfBlob = () => {
+    if (pdfBlobRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(pdfBlobRef.current)
+    }
+    pdfBlobRef.current = null
+  }
+
+  const closePdfViewer = () => {
+    revokePdfBlob()
+    setPdfViewerSrc(null)
+    setPdfLoading(false)
+    setPdfDC(null)
+  }
   const [saving, setSaving] = useState(false)
   const [uploadedPdf, setUploadedPdf] = useState<File | null>(null)
   const [pdfPreview, setPdfPreview] = useState<string | null>(null)
@@ -988,39 +1004,74 @@ export default function CompletedDCPage() {
   }
 
   const openPDF = async (row: Row) => {
+    revokePdfBlob()
+    setPdfViewerSrc(null)
+    setPdfDC(row)
+    setPdfLoading(true)
+
     try {
-      // Determine which ID to use for fetching
       const dcIdToFetch = row.dcId || row._id
-      
-      // Fetch the latest DC data to ensure we have the most recent PDF
       let latestDC: any = null
       try {
         latestDC = await apiRequest<any>(`/dc/${dcIdToFetch}`)
       } catch (err: any) {
-        console.warn('Failed to fetch latest DC data, using row data:', err)
-        // Fallback to row data if fetch fails
+        console.warn("Failed to fetch latest DC data, using row data:", err)
         latestDC = row
       }
-      
-      // Try to get PDF from the latest DC data, then fallback to row data
-      const url = latestDC?.poDocument || latestDC?.poPhotoUrl || row.poDocument || row.poPhotoUrl
-      
-      if (url) {
-        setPdfUrl(url)
-        setPdfDC(row)
-      } else {
-        toast.error('No PDF document available for this DC')
+
+      const raw =
+        latestDC?.poDocument ||
+        latestDC?.poPhotoUrl ||
+        row.poDocument ||
+        row.poPhotoUrl
+
+      if (!raw || String(raw).trim() === "") {
+        toast.error("No PDF document available for this DC")
+        closePdfViewer()
+        return
       }
+
+      const resolved = resolveUploadUrl(String(raw))
+      if (!resolved) {
+        toast.error("No PDF document available for this DC")
+        closePdfViewer()
+        return
+      }
+
+      // data: / blob: work in iframe directly (no HTTP)
+      if (resolved.startsWith("data:") || resolved.startsWith("blob:")) {
+        setPdfViewerSrc(resolved)
+        return
+      }
+
+      // Prefer authenticated /api/dc/po-file — avoids 403 on static /uploads (AirPlay port, hosting, etc.).
+      const fetchUrl =
+        poFileApiUrl(String(raw)) ||
+        poFileApiUrl(resolved) ||
+        resolved
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("authToken") : null
+      const res = await fetch(fetchUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      })
+
+      if (!res.ok) {
+        toast.error(`Could not load PDF (HTTP ${res.status})`)
+        closePdfViewer()
+        return
+      }
+
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      pdfBlobRef.current = blobUrl
+      setPdfViewerSrc(blobUrl)
     } catch (err: any) {
-      console.error('Error opening PDF:', err)
-      // Fallback to row data
-      const url = row.poPhotoUrl || row.poDocument
-      if (url) {
-        setPdfUrl(url)
-        setPdfDC(row)
-      } else {
-        toast.error('No PDF document available for this DC')
-      }
+      console.error("Error opening PDF:", err)
+      toast.error(err?.message || "Could not load PDF")
+      closePdfViewer()
+    } finally {
+      setPdfLoading(false)
     }
   }
 
@@ -1468,23 +1519,28 @@ export default function CompletedDCPage() {
       </Dialog>
 
       {/* PDF Viewer Dialog */}
-      <Dialog open={!!pdfUrl} onOpenChange={(open) => {
-        if (!open) {
-          setPdfUrl(null)
-          setPdfDC(null)
-        }
-      }}>
+      <Dialog
+        open={!!pdfViewerSrc || pdfLoading}
+        onOpenChange={(open) => {
+          if (!open) closePdfViewer()
+        }}
+      >
         <DialogContent className="sm:max-w-[90vw] max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>DC Document</DialogTitle>
             <DialogDescription>
-              Viewing document for DC: {pdfDC?.dcNo || 'N/A'}
+              Viewing document for DC: {pdfDC?.dcNo || "N/A"}
             </DialogDescription>
           </DialogHeader>
           <div className="w-full h-[80vh] flex items-center justify-center bg-neutral-100 rounded">
-            {pdfUrl ? (
+            {pdfLoading && !pdfViewerSrc ? (
+              <div className="flex flex-col items-center gap-2 text-neutral-600">
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <span className="text-sm">Loading PDF…</span>
+              </div>
+            ) : pdfViewerSrc ? (
               <iframe
-                src={pdfUrl}
+                src={pdfViewerSrc}
                 className="w-full h-full border-0"
                 title="DC Document"
               />
@@ -1493,7 +1549,7 @@ export default function CompletedDCPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPdfUrl(null)}>
+            <Button variant="outline" onClick={closePdfViewer}>
               <X className="mr-2 h-4 w-4" />
               Close
             </Button>

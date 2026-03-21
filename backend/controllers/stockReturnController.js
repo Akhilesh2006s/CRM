@@ -625,7 +625,7 @@ const uploadReturnPhoto = async (req, res) => {
     }
 
     const fileUrl = `/uploads/stock-returns/${req.file.filename}`;
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
     const fullUrl = `${baseUrl}${fileUrl}`;
 
     res.json({

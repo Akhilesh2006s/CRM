@@ -104,7 +104,7 @@ async function generateApiKey(token, name, expiresInDays, permissions) {
     console.log('   This route may not be deployed yet.');
     console.log('\n💡 Solutions:');
     console.log('   1. Deploy the latest backend code to production');
-    console.log('   2. Run the backend locally and use: http://localhost:5000/api');
+    console.log('   2. Run the backend locally and use: http://localhost:5001/api');
     console.log('   3. Use generate-api-key-direct.js (requires database access)');
     throw new Error('API key endpoint not available on production server. Please deploy the latest code or use an alternative method.');
   }

@@ -29,6 +29,7 @@ const {
   exportSalesVisit,
   uploadPO,
   uploadPOMiddleware,
+  servePoUpload,
 } = require('../controllers/dcController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
@@ -69,6 +70,9 @@ router.post('/upload-po', authMiddleware, (req, res, next) => {
     next();
   });
 }, uploadPO);
+
+// Authenticated PO file download (must be before /:id)
+router.get('/po-file', authMiddleware, servePoUpload);
 
 // New workflow actions
 router.post('/:id/submit-po', authMiddleware, submitPO);
