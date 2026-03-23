@@ -49,6 +49,7 @@ export default function NewSchoolPage() {
     remarks: '',
     average_fee: '',
     follow_up_date: '',
+    cluster_code: '',
   })
   
   // Product selections - just checkboxes for interest + term per product
@@ -266,6 +267,7 @@ export default function NewSchoolPage() {
         products: selectedProducts,
         follow_up_date: parseFollowUp(form.follow_up_date), // Save as follow_up_date, NOT estimated_delivery_date
         assigned_to: currentUser?._id, // Auto-assign to current employee
+        cluster_code: form.cluster_code || undefined,
       }
       
       if (selectedProducts.length === 0) {
@@ -517,6 +519,16 @@ export default function NewSchoolPage() {
             <p className="text-xs text-neutral-500 mt-1">
               Zone is automatically set based on your assigned zone
             </p>
+          </div>
+          <div>
+            <Label>Cluster Code</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="cluster_code"
+              value={form.cluster_code}
+              onChange={onChange}
+              placeholder="Enter cluster code"
+            />
           </div>
           <div>
             <Label>Follow-up date *</Label>

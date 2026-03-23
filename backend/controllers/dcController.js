@@ -1760,18 +1760,13 @@ const uploadPO = async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Generate URL for the uploaded file
-    // In production, you might want to use a cloud storage service like AWS S3, Cloudinary, etc.
+    // Save relative URL so it remains valid across host/port changes.
     const fileUrl = `/uploads/po/${req.file.filename}`;
-    
-    // For local development, return a full URL
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
-    const fullUrl = `${baseUrl}${fileUrl}`;
 
     res.json({
       message: 'PO document uploaded successfully',
-      poPhotoUrl: fullUrl,
-      url: fullUrl, // Alias for backward compatibility
+      poPhotoUrl: fileUrl,
+      url: fileUrl, // Alias for backward compatibility
       filename: req.file.filename,
       originalName: req.file.originalname,
       size: req.file.size,

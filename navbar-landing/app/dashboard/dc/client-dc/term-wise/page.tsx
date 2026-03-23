@@ -545,23 +545,97 @@ export default function TermWiseDCPage() {
     setEditProductRows(editProductRows.filter(row => row.id !== id))
   }
 
+  const requestClientDC = async (
+    dc: DC,
+    formData: typeof requestDCFormData,
+    productRows: typeof requestDCProductRows
+  ) => {
+    const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+    if (totalQuantity <= 0) {
+      toast.error('Please ensure at least one product with quantity > 0')
+      return
+    }
+
+    setSavingDC(true)
+    try {
+      const dcOrderId = typeof dc.dcOrderId === 'object' ? dc.dcOrderId._id : dc.dcOrderId
+      
+      if (!dcOrderId) {
+        toast.error('Cannot request DC: DC Order not found')
+        return
+      }
+
+      // Convert product rows to productDetails format (only Term 2 products)
+      // Include unit_price so it's preserved when DC goes to Closed Sales
+      const productDetails = productRows
+        .filter(row => (row.term || 'Term 1') === 'Term 2')
+        .map(row => ({
+          product: row.product_name,
+          class: '1',
+          category: formData.school_type === 'Existing' ? 'Existing School' : 'New School',
+          specs: 'Regular',
+          subject: undefined,
+          quantity: row.quantity,
+          strength: row.quantity,
+          level: 'L2',
+          term: 'Term 2',
+          unit_price: row.unit_price || 0,
+        }))
+
+      const dcPayload = {
+        dcOrderId,
+        customerName: formData.school_name || dc.customerName || '',
+        customerPhone: formData.contact_mobile || dc.customerPhone || '',
+        productDetails,
+        dcDate: new Date().toISOString().split('T')[0],
+        dcRemarks: formData.remarks,
+        dcCategory: formData.school_type === 'Existing' ? 'Existing School' : 'New School',
+        status: 'scheduled_for_later',
+      }
+
+      await apiRequest(`/dc/${dc._id}`, {
+        method: 'PUT',
+        body: JSON.stringify(dcPayload),
+      })
+
+      try {
+        const updateResponse = await apiRequest<any>(`/dc-orders/${dcOrderId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            status: 'dc_requested',
+            dcRequestData: {
+              productDetails,
+              requestedQuantity: totalQuantity,
+              requestedAt: new Date().toISOString(),
+            },
+          }),
+        })
+        if (updateResponse?.status !== 'dc_requested') {
+          toast.warning('DC updated, but DcOrder status may not have been updated. Please check Closed Sales page.')
+        }
+      } catch (dcOrderError: any) {
+        toast.error(`Failed to update DcOrder status: ${dcOrderError?.message || 'Unknown error'}.`)
+      }
+
+      toast.success('DC requested successfully! It will appear in Closed Sales page.')
+      load()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to request DC')
+    } finally {
+      setSavingDC(false)
+    }
+  }
+
   const openRequestDCDialog = async (dc: DC) => {
-    setSelectedDC(dc)
-    
     const dcOrderId = typeof dc.dcOrderId === 'object' ? dc.dcOrderId._id : dc.dcOrderId
     if (!dcOrderId) {
       toast.error('Cannot request DC: DC Order not found')
       return
     }
-
     try {
-      // Fetch the full DC data to get productDetails (most accurate)
       const fullDC = await apiRequest<any>(`/dc/${dc._id}`).catch(() => dc)
-      
-      // Fetch the latest DC Order data (includes changes from Edit PO)
       const dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
-      
-      // Populate form with current data from DC Order (shows changes made in Edit PO)
+
       const formData = {
         school_name: dcOrder.school_name || '',
         contact_person: dcOrder.contact_person || '',
@@ -576,167 +650,26 @@ export default function TermWiseDCPage() {
         pod_proof_url: dcOrder.pod_proof_url || dc.poPhotoUrl || '',
         remarks: dcOrder.remarks || '',
         total_amount: dcOrder.total_amount || 0,
-        // Transport fields - check pendingEdit first, then main fields
         transport_name: dcOrder.pendingEdit?.transport_name || dcOrder.transport_name || '',
         transport_location: dcOrder.pendingEdit?.transport_location || dcOrder.transport_location || '',
         transportation_landmark: dcOrder.pendingEdit?.transportation_landmark || dcOrder.transportation_landmark || '',
         pincode: dcOrder.pendingEdit?.pincode || dcOrder.pincode || '',
       }
-      
-      setRequestDCFormData(formData)
-      
-      // Load Term 2 products - prioritize DC's productDetails (has all details), then DcOrder products
-      let term2Products: any[] = []
-      
-      // First try to get from full DC's productDetails (most accurate - has all product details)
-      if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        const dcTerm2Products = fullDC.productDetails.filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-        if (dcTerm2Products.length > 0) {
-          // Get unit prices from DcOrder products if available
-          term2Products = dcTerm2Products.map((p: any) => {
-            // Try to match with DcOrder product to get unit_price
-            const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
-              const orderProductName = (op.product_name || '').toLowerCase().trim()
-              const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
-              return orderProductName === dcProductName && (op.term || 'Term 1') === 'Term 2'
-            })
-            
-            return {
-              product_name: p.product || p.product_name || '',
-              quantity: p.quantity || p.strength || 0,
-              unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
-              term: p.term || 'Term 2',
-            }
-          })
-        }
-      }
-      
-      // Fallback to DcOrder products if DC productDetails not available or no Term 2 products found
-      if (term2Products.length === 0) {
-        const dcOrderTerm2Products = (dcOrder.products || []).filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-        term2Products = dcOrderTerm2Products.map((p: any) => ({
-          product_name: p.product_name || '',
-          quantity: p.quantity || 0,
-          unit_price: p.unit_price || 0,
-          term: p.term || 'Term 2',
-        }))
-      }
-      
-      console.log('📦 Loaded Term 2 products for Request DC:', {
-        fromDCProductDetails: fullDC.productDetails?.length || 0,
-        term2ProductsCount: term2Products.length,
-        products: term2Products
-      })
-      
-      setRequestDCProductRows(
-        term2Products.map((p: any, idx: number) => ({
-          id: String(idx + 1),
-          product_name: p.product_name || '',
-          quantity: p.quantity || 0,
-          unit_price: p.unit_price || 0,
-          term: p.term || 'Term 2',
-        }))
-      )
-      
-      setRequestDCDialogOpen(true)
+
+      const sourceProducts = fullDC?.productDetails || dcOrder?.products || []
+      const term2Products = sourceProducts.filter((p: any) => p.term === 'Term 2')
+
+      const productRows = term2Products.map((p: any, idx: number) => ({
+        id: String(idx + 1),
+        product_name: p.product_name || p.product || '',
+        quantity: p.quantity || 0,
+        unit_price: p.unit_price || 0,
+        term: p.term || 'Term 2',
+      }))
+
+      await requestClientDC(dc, formData, productRows)
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load DC Order details')
-    }
-  }
-
-  const requestClientDC = async () => {
-    if (!selectedDC) return
-
-    const totalQuantity = requestDCProductRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
-    if (totalQuantity <= 0) {
-      toast.error('Please ensure at least one product with quantity > 0')
-      return
-    }
-
-    setSavingDC(true)
-    try {
-      const dcOrderId = typeof selectedDC.dcOrderId === 'object' ? selectedDC.dcOrderId._id : selectedDC.dcOrderId
-      
-      if (!dcOrderId) {
-        toast.error('Cannot request DC: DC Order not found')
-        return
-      }
-
-      // Convert product rows to productDetails format (only Term 2 products)
-      // Include unit_price so it's preserved when DC goes to Closed Sales
-      const productDetails = requestDCProductRows
-        .filter(row => (row.term || 'Term 1') === 'Term 2')
-        .map(row => ({
-          product: row.product_name,
-          class: '1',
-          category: requestDCFormData.school_type === 'Existing' ? 'Existing School' : 'New School',
-          specs: 'Regular',
-          subject: undefined,
-          quantity: row.quantity,
-          strength: row.quantity,
-          level: 'L2',
-          term: 'Term 2', // Ensure Term 2
-          unit_price: row.unit_price || 0, // Preserve unit price from Edit PO
-        }))
-
-      // Update DC - keep status as 'scheduled_for_later' so it still appears in Term-Wise DC
-      const dcPayload = {
-        dcOrderId: dcOrderId,
-        customerName: requestDCFormData.school_name || selectedDC.customerName || '',
-        customerPhone: requestDCFormData.contact_mobile || selectedDC.customerPhone || '',
-        productDetails,
-        dcDate: new Date().toISOString().split('T')[0],
-        dcRemarks: requestDCFormData.remarks,
-        dcCategory: requestDCFormData.school_type === 'Existing' ? 'Existing School' : 'New School',
-        status: 'scheduled_for_later', // Keep as scheduled_for_later so it appears in Term-Wise DC
-      }
-
-      await apiRequest(`/dc/${selectedDC._id}`, {
-        method: 'PUT',
-        body: JSON.stringify(dcPayload),
-      })
-
-      // Update DcOrder status to 'dc_requested' and store request data with unit prices
-      try {
-        const updateResponse = await apiRequest(`/dc-orders/${dcOrderId}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            status: 'dc_requested',
-            dcRequestData: {
-              productDetails: productDetails, // Includes unit_price
-              requestedQuantity: totalQuantity,
-              requestedAt: new Date().toISOString(),
-            },
-          }),
-        })
-        console.log('✅ DcOrder status updated to dc_requested:', {
-          dcOrderId,
-          response: updateResponse,
-          status: updateResponse?.status
-        })
-        
-        // Verify the status was actually updated
-        if (updateResponse?.status !== 'dc_requested') {
-          console.warn('⚠️ DcOrder status may not have been updated correctly:', updateResponse?.status)
-          toast.warning('DC updated, but DcOrder status may not have been updated. Please check Closed Sales page.')
-        }
-      } catch (dcOrderError: any) {
-        console.error('❌ Failed to update DcOrder status:', {
-          dcOrderId,
-          error: dcOrderError?.message,
-          fullError: dcOrderError
-        })
-        // Still show success for DC update, but warn about DcOrder
-        toast.error(`Failed to update DcOrder status: ${dcOrderError?.message || 'Unknown error'}. Please refresh Closed Sales page manually.`)
-      }
-
-      toast.success('DC requested successfully! It will appear in Closed Sales page.')
-      setRequestDCDialogOpen(false)
-      load()
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to request DC')
-    } finally {
-      setSavingDC(false)
     }
   }
 
@@ -1408,221 +1341,6 @@ export default function TermWiseDCPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Request DC Dialog */}
-      <Dialog open={requestDCDialogOpen} onOpenChange={setRequestDCDialogOpen}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Request DC - {requestDCFormData.school_name || 'Client'}</DialogTitle>
-            <DialogDescription>
-              Review PO details and request Delivery Challan. All fields are read-only.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-6 py-4">
-            {/* School/Client Information */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-4">
-                <div>
-                  <Label>School Name</Label>
-                  <Input value={requestDCFormData.school_name} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Contact Person</Label>
-                  <Input value={requestDCFormData.contact_person} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Contact Person 2</Label>
-                  <Input value={requestDCFormData.contact_person2} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <Input value={requestDCFormData.email} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Location</Label>
-                  <Input value={requestDCFormData.location} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Address</Label>
-                  <Textarea
-                    value={requestDCFormData.address}
-                    readOnly
-                    className="bg-neutral-50"
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <Label>School Type</Label>
-                  <Input value={requestDCFormData.school_type} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Contact Mobile</Label>
-                  <Input value={requestDCFormData.contact_mobile} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Contact Mobile 2</Label>
-                  <Input value={requestDCFormData.contact_mobile2} readOnly className="bg-neutral-50" />
-                </div>
-                <div>
-                  <Label>Zone</Label>
-                  <Input value={requestDCFormData.zone} readOnly className="bg-neutral-50" />
-                </div>
-              </div>
-            </div>
-
-            {/* Remarks */}
-            <div>
-              <Label>Remarks</Label>
-              <Textarea
-                value={requestDCFormData.remarks}
-                readOnly
-                className="bg-neutral-50"
-                rows={3}
-              />
-            </div>
-
-            {/* PO Details */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>PO Photo URL</Label>
-                <Input
-                  value={requestDCFormData.pod_proof_url}
-                  readOnly
-                  className="bg-neutral-50"
-                />
-              </div>
-              <div>
-                <Label>Total Amount</Label>
-                <Input
-                  type="number"
-                  value={requestDCFormData.total_amount}
-                  readOnly
-                  className="bg-neutral-50"
-                />
-              </div>
-            </div>
-
-            {/* Transport Details */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Transport Details</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Transport Name *</Label>
-                  <Input
-                    value={requestDCFormData.transport_name}
-                    readOnly
-                    className="bg-neutral-50"
-                    placeholder="Transport name"
-                  />
-                </div>
-                <div>
-                  <Label>Transport Location *</Label>
-                  <Input
-                    value={requestDCFormData.transport_location}
-                    readOnly
-                    className="bg-neutral-50"
-                    placeholder="Transport location"
-                  />
-                </div>
-                <div>
-                  <Label>Transportation Landmark</Label>
-                  <Input
-                    value={requestDCFormData.transportation_landmark}
-                    readOnly
-                    className="bg-neutral-50"
-                    placeholder="Transportation landmark"
-                  />
-                </div>
-                <div>
-                  <Label>Pincode *</Label>
-                  <Input
-                    value={requestDCFormData.pincode}
-                    readOnly
-                    className="bg-neutral-50"
-                    placeholder="Pincode"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Products */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Products</h3>
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product Name</TableHead>
-                      <TableHead>Term</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Unit Price</TableHead>
-                      <TableHead>Total</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {requestDCProductRows.map((row, idx) => {
-                      const total = (row.quantity || 0) * (row.unit_price || 0)
-                      return (
-                        <TableRow key={row.id}>
-                          <TableCell>
-                            <Input
-                              value={row.product_name}
-                              readOnly
-                              className="h-9 bg-neutral-50"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={row.term || 'Term 1'}
-                              readOnly
-                              disabled
-                              className="h-9 bg-neutral-50"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={row.quantity}
-                              readOnly
-                              className="h-9 bg-neutral-50"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={row.unit_price}
-                              readOnly
-                              className="h-9 bg-neutral-50"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={total.toFixed(2)}
-                              readOnly
-                              className="h-9 bg-neutral-50"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRequestDCDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={requestClientDC} disabled={savingDC}>
-              {savingDC ? 'Requesting...' : 'Request'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

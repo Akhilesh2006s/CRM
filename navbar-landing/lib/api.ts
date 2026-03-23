@@ -58,4 +58,58 @@ export async function apiRequest<T>(
   }
 }
 
+const LOCAL_UPLOAD_API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+function uploadsApiOrigin(): string {
+  return LOCAL_UPLOAD_API_BASE_URL.replace(/\/$/, "");
+}
+
+function stripAirPlayPortFromUploadUrl(url: string): string {
+  // AirPlay receiver hijacks port 5000 on macOS — rewrite to configured port
+  try {
+    const u = new URL(url);
+    if (
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1") &&
+      u.port === "5000"
+    ) {
+      return url.replace(
+        ":5000",
+        `:${new URL(LOCAL_UPLOAD_API_BASE_URL).port || "5001"}`
+      );
+    }
+  } catch {}
+  return url;
+}
+
+export function resolveUploadUrl(url: string | null | undefined): string {
+  if (url == null || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) return trimmed;
+  if (trimmed.startsWith("uploads/")) {
+    return stripAirPlayPortFromUploadUrl(`${uploadsApiOrigin()}/${trimmed}`);
+  }
+  if (trimmed.startsWith("/uploads/")) {
+    return stripAirPlayPortFromUploadUrl(`${uploadsApiOrigin()}${trimmed}`);
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    try {
+      const u = new URL(trimmed);
+      if (u.pathname.startsWith("/uploads/")) {
+        return stripAirPlayPortFromUploadUrl(
+          `${uploadsApiOrigin()}${u.pathname}${u.search}${u.hash}`
+        );
+      }
+    } catch {}
+    return stripAirPlayPortFromUploadUrl(trimmed);
+  }
+  if (/^po-\d+-\d+\.[a-z0-9]+$/i.test(trimmed)) {
+    return stripAirPlayPortFromUploadUrl(
+      `${uploadsApiOrigin()}/uploads/po/${trimmed}`
+    );
+  }
+  return stripAirPlayPortFromUploadUrl(trimmed);
+}
+
 

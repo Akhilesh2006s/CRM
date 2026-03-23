@@ -70,6 +70,11 @@ const dcOrderSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    cluster_code: {
+      type: String,
+      trim: true,
+      index: true,
+    },
     schoolCategory: {
       type: String,
       enum: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],

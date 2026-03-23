@@ -219,9 +219,11 @@ const createLead = async (req, res) => {
     // Auto-generate school code if not provided
     // Use managed_by or assigned_by if available, otherwise use the creator
     if (!leadData.school_code) {
-      const executiveId = leadData.managed_by || leadData.assigned_by || req.user._id;
       try {
-        const schoolCode = await generateSchoolCode(executiveId);
+        const schoolCode = await generateSchoolCode({
+          region: leadData.region || '',
+          city: leadData.city || '',
+        });
         if (schoolCode) {
           leadData.school_code = schoolCode;
         }
@@ -442,6 +444,8 @@ const convertToClient = async (req, res) => {
       address: body.address || lead.address,
       location: body.location || lead.location,
       zone: body.zone || lead.zone,
+      region: body.region || lead.region || '',
+      city: body.city || lead.city || '',
       school_type: body.school_type || lead.school_type || 'New',
       products,
       status: 'saved',
