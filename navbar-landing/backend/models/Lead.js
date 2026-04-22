@@ -11,6 +11,21 @@ const productSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const followUpProductSchema = new mongoose.Schema(
+  {
+    product_name: { type: String, required: true, trim: true },
+    term: { type: String, enum: ['Term 1', 'Term 2', 'Both'], default: 'Term 1' },
+    status: {
+      type: String,
+      enum: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],
+      default: 'Warm',
+    },
+    strength: { type: Number, default: 0, min: 0 },
+    chance: { type: Number, default: 0, min: 0, max: 100 },
+  },
+  { _id: false }
+);
+
 const leadSchema = new mongoose.Schema(
   {
     // Core school/deal info
@@ -87,6 +102,10 @@ const leadSchema = new mongoose.Schema(
     follow_up_date: {
       type: Date,
     },
+    year: {
+      type: String,
+      trim: true,
+    },
     remarks: {
       type: String,
       default: '',
@@ -109,6 +128,14 @@ const leadSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    updateHistory: [{
+      follow_up_date: { type: Date },
+      remarks: { type: String },
+      priority: { type: String, enum: ['Hot', 'Warm', 'Cold', 'Visit Again', 'Not Met Management', 'Not Interested'] },
+      productsInterested: { type: [followUpProductSchema], default: [] },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      updatedAt: { type: Date, default: Date.now },
+    }],
 
     // Ownership
     createdBy: {

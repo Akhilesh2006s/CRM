@@ -256,9 +256,28 @@ const updateLead = async (req, res) => {
       return res.status(404).json({ message: 'Lead not found' });
     }
 
-    // For leads, we'll store history in a simple format
-    // Since Lead model doesn't have updateHistory, we'll update directly
-    // History can be tracked via timestamps and status changes
+    const hasFollowUpDate = req.body.follow_up_date !== undefined;
+    const hasRemarks = req.body.remarks !== undefined;
+    const hasPriority = req.body.priority !== undefined;
+    const hasProductsInterested = Array.isArray(req.body.productsInterested);
+    const normalizeProductsInterested = (rows = []) =>
+      rows
+        .filter((row) => row && (row.product_name || row.product))
+        .map((row) => ({
+          product_name: String(row.product_name || row.product || '').trim(),
+          term: ['Term 1', 'Term 2', 'Both'].includes(row.term) ? row.term : 'Term 1',
+          status: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'].includes(row.status)
+            ? row.status
+            : 'Warm',
+          strength: Number(row.strength) || 0,
+          chance: Math.max(0, Math.min(100, Number(row.chance) || 0)),
+          quantity: Number(row.strength) || 0,
+          unit_price: 0,
+        }));
+    const normalizedProductsInterested = hasProductsInterested
+      ? normalizeProductsInterested(req.body.productsInterested)
+      : [];
+
     // Normalize product terms if products are being updated
     if (req.body && Array.isArray(req.body.products)) {
       try {
@@ -267,10 +286,47 @@ const updateLead = async (req, res) => {
         return res.status(400).json({ message: termError.message || 'Invalid product term' });
       }
     }
+    if (hasProductsInterested) {
+      req.body.products = normalizeLeadProducts(normalizedProductsInterested);
+    }
+
+    // Remove transient payload key, not a Lead top-level field
+    if (req.body.productsInterested !== undefined) {
+      delete req.body.productsInterested;
+    }
+
+    const shouldTrackHistory = hasFollowUpDate || hasRemarks || hasPriority || hasProductsInterested;
+
+    if (shouldTrackHistory) {
+      req.body.$push = {
+        updateHistory: {
+          follow_up_date: hasFollowUpDate && req.body.follow_up_date
+            ? new Date(req.body.follow_up_date)
+            : null,
+          remarks: hasRemarks ? (req.body.remarks || '') : '',
+          priority: hasPriority ? (req.body.priority || 'Cold') : 'Cold',
+          productsInterested: normalizedProductsInterested,
+          updatedBy: req.user?._id || lead.createdBy,
+          updatedAt: new Date(),
+        },
+      };
+    }
+
+    const updateData = { ...req.body };
+    const pushData = updateData.$push;
+    delete updateData.$push;
+
+    const mongoUpdate = {};
+    if (Object.keys(updateData).length > 0) {
+      mongoUpdate.$set = updateData;
+    }
+    if (pushData) {
+      mongoUpdate.$push = pushData;
+    }
 
     const updatedLead = await Lead.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      mongoUpdate,
       { new: true, runValidators: true }
     )
       .populate('createdBy', 'name email');

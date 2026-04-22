@@ -343,7 +343,25 @@ const update = async (req, res) => {
     const hasFollowUpDate = req.body.follow_up_date !== undefined;
     const hasRemarks = req.body.remarks !== undefined;
     const hasPriority = req.body.priority !== undefined;
-    const shouldTrackHistory = hasFollowUpDate || hasRemarks || hasPriority;
+    const hasProductsInterested = Array.isArray(req.body.productsInterested);
+    const normalizeProductsInterested = (rows = []) =>
+      rows
+        .filter((row) => row && (row.product_name || row.product))
+        .map((row) => ({
+          product_name: String(row.product_name || row.product || '').trim(),
+          term: ['Term 1', 'Term 2', 'Both'].includes(row.term) ? row.term : 'Term 1',
+          status: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'].includes(row.status)
+            ? row.status
+            : 'Warm',
+          strength: Number(row.strength) || 0,
+          chance: Math.max(0, Math.min(100, Number(row.chance) || 0)),
+          quantity: Number(row.strength) || 0,
+          unit_price: 0,
+        }));
+    const normalizedProductsInterested = hasProductsInterested
+      ? normalizeProductsInterested(req.body.productsInterested)
+      : [];
+    const shouldTrackHistory = hasFollowUpDate || hasRemarks || hasPriority || hasProductsInterested;
     
     // Prepare update object using $set for field updates
     const updateData = {};
@@ -357,6 +375,9 @@ const update = async (req, res) => {
     }
     if (hasPriority) {
       updateData.priority = req.body.priority;
+    }
+    if (hasProductsInterested) {
+      updateData.products = normalizedProductsInterested;
     }
     
     // assigned_to: allow when closing lead → client so My Clients shows the record for current user
@@ -424,6 +445,7 @@ const update = async (req, res) => {
         follow_up_date: newFollowUp,
         remarks: newRemarks,
         priority: newPriority,
+        productsInterested: normalizedProductsInterested,
         updatedBy: req.user._id,
         updatedAt: new Date(),
       };
