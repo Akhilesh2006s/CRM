@@ -28,6 +28,26 @@ const followUpProductSchema = new mongoose.Schema(
 
 const leadSchema = new mongoose.Schema(
   {
+    // Segmentation: new school vs existing school (DcOrder) renewal
+    lead_type: {
+      type: String,
+      enum: ['new', 'renewal'],
+      default: 'new',
+      index: true,
+    },
+    // Existing client / school record (DcOrder) — required for renewal leads
+    school_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'DcOrder',
+      index: true,
+    },
+    // Audit snapshot when renewal lead was created
+    renewalSource: {
+      snapshotAt: { type: Date },
+      sourceSchoolName: { type: String, trim: true },
+      sourceSchoolCode: { type: String, trim: true },
+    },
+
     // Core school/deal info
     school_name: {
       type: String,
@@ -153,6 +173,9 @@ const leadSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+leadSchema.index({ lead_type: 1, status: 1 });
+leadSchema.index({ school_id: 1, lead_type: 1 });
 
 module.exports = mongoose.model('Lead', leadSchema);
 

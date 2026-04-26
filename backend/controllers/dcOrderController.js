@@ -1009,6 +1009,58 @@ const listPoChangeRequests = async (req, res) => {
   }
 };
 
-module.exports = { list, getOne, getHistory, create, update, submit, markInTransit, complete, hold, submitEdit, approveEdit, requestPoChange, approvePoChange, listPoChangeRequests };
+// @desc    Compact search for renewal lead school picker (name, school_code, dc_code)
+// @route   GET /api/dc-orders/renewal-search
+// @access  Private
+const renewalSearch = async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        message: 'Database connection is not available.',
+        error: 'DATABASE_CONNECTION_ERROR',
+      });
+    }
+    const raw = (req.query.q || '').trim();
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    if (raw.length < 2) {
+      return res.json({ data: [] });
+    }
+    const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(esc, 'i');
+    const filter = {
+      $or: [{ school_name: re }, { school_code: re }, { dc_code: re }],
+    };
+    const items = await DcOrder.find(filter)
+      .select(
+        'school_name school_code dc_code contact_person contact_mobile zone location city state region area pincode strength address school_type products status'
+      )
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean()
+      .maxTimeMS(15000);
+    return res.json({ data: items });
+  } catch (e) {
+    console.error('renewalSearch error:', e);
+    return res.status(500).json({ message: e.message || 'Search failed' });
+  }
+};
+
+module.exports = {
+  list,
+  getOne,
+  getHistory,
+  create,
+  update,
+  submit,
+  markInTransit,
+  complete,
+  hold,
+  submitEdit,
+  approveEdit,
+  requestPoChange,
+  approvePoChange,
+  listPoChangeRequests,
+  renewalSearch,
+};
 
 
