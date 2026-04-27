@@ -1760,18 +1760,13 @@ const uploadPO = async (req, res) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
-    // Generate URL for the uploaded file
-    // In production, you might want to use a cloud storage service like AWS S3, Cloudinary, etc.
+    // Save relative URL so it remains valid across host/port changes.
     const fileUrl = `/uploads/po/${req.file.filename}`;
-    
-    // For local development, return a full URL
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-    const fullUrl = `${baseUrl}${fileUrl}`;
 
     res.json({
       message: 'PO document uploaded successfully',
-      poPhotoUrl: fullUrl,
-      url: fullUrl, // Alias for backward compatibility
+      poPhotoUrl: fileUrl,
+      url: fileUrl, // Alias for backward compatibility
       filename: req.file.filename,
       originalName: req.file.originalname,
       size: req.file.size,
@@ -1780,6 +1775,39 @@ const uploadPO = async (req, res) => {
   } catch (error) {
     console.error('Error uploading PO document:', error);
     res.status(500).json({ message: error.message || 'Failed to upload PO document' });
+  }
+};
+
+// @desc    Download a PO file from uploads/po (authenticated; avoids static /uploads 403 in browsers)
+// @route   GET /api/dc/po-file?path=po/<filename>
+// @access  Private
+const servePoUpload = (req, res) => {
+  try {
+    const rel = req.query.path;
+    if (!rel || typeof rel !== 'string') {
+      return res.status(400).json({ message: 'Missing path' });
+    }
+    const m = /^po\/([^/\\]+)$/.exec(rel.trim());
+    if (!m) {
+      return res.status(400).json({ message: 'Invalid path' });
+    }
+    const filename = m[1];
+    if (!/^[a-zA-Z0-9._-]+$/.test(filename)) {
+      return res.status(400).json({ message: 'Invalid filename' });
+    }
+    const abs = path.join(__dirname, '../uploads/po', filename);
+    const root = path.resolve(path.join(__dirname, '../uploads/po'));
+    const resolved = path.resolve(abs);
+    if (!resolved.startsWith(root)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    if (!fs.existsSync(resolved)) {
+      return res.status(404).json({ message: 'File not found' });
+    }
+    res.sendFile(resolved);
+  } catch (error) {
+    console.error('servePoUpload:', error);
+    res.status(500).json({ message: error.message || 'Failed to serve file' });
   }
 };
 
@@ -1811,4 +1839,5 @@ module.exports = {
   exportSalesVisit,
   uploadPO,
   uploadPOMiddleware: upload.single('poPhoto'),
+  servePoUpload,
 };

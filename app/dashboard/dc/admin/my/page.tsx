@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, resolveUploadUrl } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -274,10 +274,10 @@ export default function AdminMyDCPage() {
                   <td className="py-2 px-3">
                     {d.poPhotoUrl ? (
                       <img
-                        src={d.poPhotoUrl}
+                        src={resolveUploadUrl(d.poPhotoUrl)}
                         alt="PO"
                         className="w-12 h-12 object-cover rounded border cursor-pointer"
-                        onClick={() => window.open(d.poPhotoUrl, '_blank')}
+                        onClick={() => window.open(resolveUploadUrl(d.poPhotoUrl), '_blank')}
                         title="Click to view full size"
                       />
                     ) : (
@@ -330,13 +330,13 @@ export default function AdminMyDCPage() {
               />
               {poPhotoUrl && poPhotoUrl.startsWith('data:') && (
                 <div className="mt-2">
-                  <img src={poPhotoUrl} alt="PO Preview" className="max-w-full h-auto max-h-48 rounded border" />
+                  <img src={resolveUploadUrl(poPhotoUrl)} alt="PO Preview" className="max-w-full h-auto max-h-48 rounded border" />
                 </div>
               )}
               {selectedDC?.poPhotoUrl && !poPhotoUrl.startsWith('data:') && poPhotoUrl === selectedDC.poPhotoUrl && (
                 <div className="mt-2">
                   <Label className="text-sm text-gray-600">Current Photo:</Label>
-                  <img src={selectedDC.poPhotoUrl} alt="Current PO" className="max-w-full h-auto max-h-48 rounded border mt-1" />
+                  <img src={resolveUploadUrl(selectedDC.poPhotoUrl)} alt="Current PO" className="max-w-full h-auto max-h-48 rounded border mt-1" />
                 </div>
               )}
             </div>

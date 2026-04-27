@@ -1,6 +1,35 @@
 const User = require('../models/User');
 const Lead = require('../models/Lead');
 
+// Enum values for Lead, DcOrder, DC - must match backend models (Lead.js, DcOrder.js, DC.js)
+const ENUMS = {
+  lead: {
+    status: ['Pending', 'Processing', 'Saved', 'Closed'],
+    priority: ['Hot', 'Warm', 'Cold'],
+    term: ['Term 1', 'Term 2', 'Both'],
+  },
+  dcOrder: {
+    status: ['saved', 'pending', 'in_transit', 'completed', 'hold', 'dc_requested', 'dc_accepted', 'dc_approved', 'dc_sent_to_senior'],
+    priority: ['Hot', 'Warm', 'Cold', 'Visit Again', 'Not Met Management', 'Not Interested'],
+    lead_status: ['Hot', 'Warm', 'Cold'],
+    schoolCategory: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'],
+  },
+  dc: {
+    status: ['created', 'po_submitted', 'sent_to_manager', 'pending_dc', 'warehouse_processing', 'completed', 'hold', 'scheduled_for_later'],
+  },
+};
+
+// @desc    Get enum values for status, priority, etc. (Lead, DcOrder, DC)
+// @route   GET /api/metadata/enums
+// @access  Private
+const getEnums = async (req, res) => {
+  try {
+    res.json(ENUMS);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Get inventory metadata options
 // @route   GET /api/metadata/inventory-options
 // @access  Private
@@ -93,6 +122,7 @@ const getCities = async (req, res) => {
 };
 
 module.exports = {
+  getEnums,
   getInventoryOptions,
   getStates,
   getCities,

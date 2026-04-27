@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, resolveUploadUrl } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -1739,7 +1739,8 @@ export default function ClosedSalesPage() {
                       // Check for PO photo in pod_proof_url or in associated DC
                       const dc = dealDCs[d._id] as any
                       const poUrl = d.pod_proof_url || dc?.poPhotoUrl || dc?.poDocument
-                      
+                      const poDisplayUrl = poUrl ? resolveUploadUrl(poUrl) : ''
+
                       if (poUrl) {
                         // Check if it's a PDF
                         const isPDF = poUrl.toLowerCase().endsWith('.pdf') || 
@@ -1755,7 +1756,7 @@ export default function ClosedSalesPage() {
                                 size="sm"
                                 className="text-xs"
                                 onClick={() => {
-                                  setSelectedPOPhotoUrl(poUrl)
+                                  setSelectedPOPhotoUrl(poDisplayUrl)
                                   setOpenPOPhotoDialog(true)
                                 }}
                               >
@@ -1768,11 +1769,11 @@ export default function ClosedSalesPage() {
                           return (
                             <div className="flex items-center justify-center">
                               <img
-                                src={poUrl}
+                                src={poDisplayUrl}
                                 alt="PO Document"
                                 className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
                                 onClick={() => {
-                                  setSelectedPOPhotoUrl(poUrl)
+                                  setSelectedPOPhotoUrl(poDisplayUrl)
                                   setOpenPOPhotoDialog(true)
                                 }}
                                 title="Click to view full size"
@@ -1787,7 +1788,7 @@ export default function ClosedSalesPage() {
                                     button.textContent = 'View PO'
                                     button.onclick = (ev) => {
                                       ev.preventDefault()
-                                      setSelectedPOPhotoUrl(poUrl)
+                                      setSelectedPOPhotoUrl(poDisplayUrl)
                                       setOpenPOPhotoDialog(true)
                                       return false
                                     }
@@ -2595,9 +2596,10 @@ export default function ClosedSalesPage() {
             </DialogDescription>
           </DialogHeader>
           {selectedPOPhotoUrl && (() => {
+            const displayUrl = resolveUploadUrl(selectedPOPhotoUrl)
             // Check if it's a PDF
-            const isPDF = selectedPOPhotoUrl.toLowerCase().endsWith('.pdf') || 
-                         selectedPOPhotoUrl.includes('application/pdf') ||
+            const isPDF = displayUrl.toLowerCase().endsWith('.pdf') || 
+                         displayUrl.includes('application/pdf') ||
                          (selectedPOPhotoUrl.startsWith('data:') && selectedPOPhotoUrl.includes('application/pdf'))
             
             if (isPDF) {
@@ -2605,7 +2607,7 @@ export default function ClosedSalesPage() {
               return (
                 <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
                   <iframe
-                    src={selectedPOPhotoUrl}
+                    src={selectedPOPhotoUrl.startsWith('data:') ? selectedPOPhotoUrl : displayUrl}
                     className="w-full h-[70vh] rounded-lg shadow-lg border border-slate-200"
                     title="PO Document PDF"
                     style={{ minHeight: '500px' }}
@@ -2617,7 +2619,7 @@ export default function ClosedSalesPage() {
               return (
                 <div className="py-4 flex items-center justify-center bg-slate-50 rounded-lg">
                   <img
-                    src={selectedPOPhotoUrl}
+                    src={selectedPOPhotoUrl.startsWith('data:') ? selectedPOPhotoUrl : displayUrl}
                     alt="PO Document Full Size"
                     className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg border border-slate-200"
                     onError={(e) => {
@@ -2628,7 +2630,7 @@ export default function ClosedSalesPage() {
                         parent.innerHTML = `
                           <div class="text-center p-8">
                             <p class="text-red-600 mb-4">Failed to load document</p>
-                            <a href="${selectedPOPhotoUrl}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">
+                            <a href="${displayUrl}" target="_blank" class="text-blue-600 hover:text-blue-800 underline">
                               Open in new tab
                             </a>
                           </div>
@@ -2660,7 +2662,7 @@ export default function ClosedSalesPage() {
                       const url = URL.createObjectURL(blob)
                       window.open(url, '_blank')
                     } else {
-                      window.open(selectedPOPhotoUrl, '_blank')
+                      window.open(resolveUploadUrl(selectedPOPhotoUrl), '_blank')
                     }
                   }
                 }}

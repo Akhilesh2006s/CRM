@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, resolveUploadUrl } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -555,15 +555,16 @@ export default function SavedDCPage() {
                     {(() => {
                       const dc = dealDCs[d._id]
                       const poUrl = dc?.poPhotoUrl || (typeof dc?.dcOrderId === 'object' && dc.dcOrderId && 'poPhotoUrl' in dc.dcOrderId ? (dc.dcOrderId as any).poPhotoUrl : null)
+                      const poDisplayUrl = poUrl ? resolveUploadUrl(poUrl) : ''
                       
                       if (poUrl) {
                         return (
                           <div className="flex items-center justify-center">
                             <img
-                              src={poUrl}
+                              src={poDisplayUrl}
                               alt="PO Document"
                               className="w-14 h-14 object-contain rounded border border-slate-200 cursor-pointer hover:opacity-75 hover:border-slate-400 transition-all shadow-sm bg-white p-1"
-                              onClick={() => window.open(poUrl, '_blank')}
+                              onClick={() => window.open(poDisplayUrl, '_blank')}
                               title="Click to view full size"
                               onError={(e) => {
                                 // If image fails to load, show a link instead
@@ -572,7 +573,7 @@ export default function SavedDCPage() {
                                 const parent = target.parentElement
                                 if (parent) {
                                   const link = document.createElement('a')
-                                  link.href = poUrl
+                                  link.href = poDisplayUrl
                                   link.target = '_blank'
                                   link.className = 'text-xs text-slate-600 hover:text-slate-800 underline'
                                   link.textContent = 'View PO'

@@ -397,7 +397,7 @@ const uploadTrainingFeedback = async (req, res) => {
     
     // Generate URL for the uploaded file
     const fileUrl = `/uploads/training-feedback/${req.file.filename}`;
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
     const fullUrl = `${baseUrl}${fileUrl}`;
     
     // Update training with feedback PDF URL

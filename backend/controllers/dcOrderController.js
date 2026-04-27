@@ -240,9 +240,11 @@ const create = async (req, res) => {
     // Auto-generate school code if not provided
     // Use assigned_to if available, otherwise use created_by (the user creating)
     if (!payload.school_code) {
-      const executiveId = payload.assigned_to || req.user._id;
       try {
-        const schoolCode = await generateSchoolCode(executiveId);
+        const schoolCode = await generateSchoolCode({
+          region: payload.region || '',
+          city: payload.city || '',
+        });
         if (schoolCode) {
           payload.school_code = schoolCode;
         }

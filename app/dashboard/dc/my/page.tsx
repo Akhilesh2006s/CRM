@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, resolveUploadUrl } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -356,9 +356,9 @@ export default function MyDCPage() {
                       </Button>
                     </div>
                     <div className="relative">
-                      {d.poPhotoUrl.startsWith('data:') || d.poPhotoUrl.startsWith('http') ? (
+                      {d.poPhotoUrl.startsWith('data:') || d.poPhotoUrl.startsWith('http') || d.poPhotoUrl.startsWith('/uploads/') ? (
                         <img 
-                          src={d.poPhotoUrl} 
+                          src={resolveUploadUrl(d.poPhotoUrl)} 
                           alt="PO Document" 
                           className="w-full h-auto rounded border max-h-48 object-contain bg-neutral-50"
                         />
@@ -422,9 +422,9 @@ export default function MyDCPage() {
                 accept="image/*,application/pdf"
                 onChange={handleFileChange}
               />
-              {poPhotoUrl && (poPhotoUrl.startsWith('data:') || poPhotoUrl.startsWith('http')) && (
+              {poPhotoUrl && (poPhotoUrl.startsWith('data:') || poPhotoUrl.startsWith('http') || poPhotoUrl.startsWith('/uploads/')) && (
                 <div className="mt-2">
-                  <img src={poPhotoUrl} alt="PO Preview" className="max-w-full h-auto max-h-48 rounded border object-contain bg-neutral-50" />
+                  <img src={resolveUploadUrl(poPhotoUrl)} alt="PO Preview" className="max-w-full h-auto max-h-48 rounded border object-contain bg-neutral-50" />
                 </div>
               )}
             </div>

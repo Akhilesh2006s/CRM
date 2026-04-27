@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { apiRequest, API_BASE_URL } from '@/lib/api'
+import { apiRequest, API_BASE_URL, resolveUploadUrl } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -83,6 +83,8 @@ export default function ClientDCPage() {
   const [dcCategory, setDcCategory] = useState('')
   const [dcNotes, setDcNotes] = useState('')
   const [dcPoPhotoUrl, setDcPoPhotoUrl] = useState('')
+  /** Resolved API origin for PO preview (never raw :5000 /uploads URLs). */
+  const dcPoDisplayUrl = dcPoPhotoUrl ? resolveUploadUrl(dcPoPhotoUrl) : ''
   const [savingClientDC, setSavingClientDC] = useState(false)
   // Invoice view state
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
@@ -2608,18 +2610,20 @@ export default function ClientDCPage() {
           </DialogHeader>
           
           <div className="py-4">
-            {viewingPoUrl && (
+            {viewingPoUrl && (() => {
+              const displayPoUrl = resolveUploadUrl(viewingPoUrl)
+              return (
               <div className="relative">
-                {viewingPoUrl.toLowerCase().endsWith('.pdf') || 
-                 viewingPoUrl.includes('application/pdf') || 
-                 viewingPoUrl.includes('.pdf') ||
+                {displayPoUrl.toLowerCase().endsWith('.pdf') || 
+                 displayPoUrl.includes('application/pdf') || 
+                 displayPoUrl.includes('.pdf') ||
                  (viewingPoUrl.startsWith('data:') && viewingPoUrl.includes('application/pdf')) ||
-                 (viewingPoUrl.startsWith('http') && viewingPoUrl.toLowerCase().includes('.pdf')) ? (
+                 (displayPoUrl.startsWith('http') && displayPoUrl.toLowerCase().includes('.pdf')) ? (
                   <div className="border rounded-lg p-4 bg-neutral-50">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">PO Document (PDF)</span>
                       <a 
-                        href={viewingPoUrl} 
+                        href={displayPoUrl} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:text-blue-800 text-sm underline"
@@ -2635,7 +2639,7 @@ export default function ClientDCPage() {
                       />
                     ) : (
                       <iframe 
-                        src={`${viewingPoUrl}#toolbar=0`} 
+                        src={`${displayPoUrl}#toolbar=0`} 
                         className="w-full h-[70vh] rounded border"
                         title="PO Document"
                       />
@@ -2644,7 +2648,7 @@ export default function ClientDCPage() {
                 ) : (
                   <div className="relative">
                     <img 
-                      src={viewingPoUrl} 
+                      src={displayPoUrl} 
                       alt="PO Document" 
                       className="w-full h-auto rounded border max-h-[70vh] object-contain bg-neutral-50 mx-auto"
                       onError={(e) => {
@@ -2672,7 +2676,7 @@ export default function ClientDCPage() {
                   </div>
                 )}
               </div>
-            )}
+            )})()}
           </div>
         </DialogContent>
       </Dialog>
@@ -2695,16 +2699,16 @@ export default function ClientDCPage() {
               </div>
               {dcPoPhotoUrl ? (
                 <div className="relative">
-                  {dcPoPhotoUrl.toLowerCase().endsWith('.pdf') || 
-                   dcPoPhotoUrl.includes('application/pdf') || 
-                   dcPoPhotoUrl.includes('.pdf') ||
+                  {dcPoDisplayUrl.toLowerCase().endsWith('.pdf') || 
+                   dcPoDisplayUrl.includes('application/pdf') || 
+                   dcPoDisplayUrl.includes('.pdf') ||
                    (dcPoPhotoUrl.startsWith('data:') && dcPoPhotoUrl.includes('application/pdf')) ||
-                   (dcPoPhotoUrl.startsWith('http') && dcPoPhotoUrl.toLowerCase().includes('.pdf')) ? (
+                   (dcPoDisplayUrl.startsWith('http') && dcPoDisplayUrl.toLowerCase().includes('.pdf')) ? (
                     <div className="border rounded-lg p-4 bg-neutral-50">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium">PO Document (PDF)</span>
                         <a 
-                          href={dcPoPhotoUrl} 
+                          href={dcPoDisplayUrl} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm underline"
@@ -2720,7 +2724,7 @@ export default function ClientDCPage() {
                         />
                       ) : (
                         <iframe 
-                          src={`${dcPoPhotoUrl}#toolbar=0`} 
+                          src={`${dcPoDisplayUrl}#toolbar=0`} 
                           className="w-full h-96 rounded border"
                           title="PO Document"
                         />
@@ -2728,7 +2732,7 @@ export default function ClientDCPage() {
                     </div>
                   ) : (
                     <img 
-                      src={dcPoPhotoUrl} 
+                      src={dcPoDisplayUrl} 
                       alt="PO Document" 
                       className="w-full h-auto rounded border max-h-64 object-contain bg-neutral-50"
                       onError={(e) => {
@@ -3173,7 +3177,7 @@ export default function ClientDCPage() {
                       </div>
                       <div className="flex flex-col gap-2">
                         <a
-                          href={editFormData.pod_proof_url}
+                          href={resolveUploadUrl(editFormData.pod_proof_url)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-sm text-blue-600 hover:underline"
