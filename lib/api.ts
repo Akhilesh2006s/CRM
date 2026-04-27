@@ -1,5 +1,6 @@
 /** Local dev default; must match `backend/server.js` when `PORT` is unset (5001 avoids macOS AirPlay on 5000). */
 export const LOCAL_API_BASE_URL = "http://localhost:5001";
+export const PROD_API_BASE_URL = "https://crm-backend-production-fc85.up.railway.app";
 
 /**
  * Never use port 5000 for the API in the browser: macOS AirPlay binds :5000, so requests get 403 from the wrong service.
@@ -8,17 +9,30 @@ export const LOCAL_API_BASE_URL = "http://localhost:5001";
 function normalizeClientApiBase(): string {
   const raw =
     process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-    "https://crm-backend-production-fc85.up.railway.app";
+    PROD_API_BASE_URL;
   try {
     const u = new URL(raw);
     const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    const isLocalHost = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+
+    // In production builds we never want localhost API origins.
+    if (process.env.NODE_ENV === "production" && isLocalHost) {
+      return PROD_API_BASE_URL;
+    }
+
     if (
-      (u.hostname === "localhost" || u.hostname === "127.0.0.1") &&
+      isLocalHost &&
       port === "5000"
     ) {
       return LOCAL_API_BASE_URL;
     }
   } catch {
+    if (
+      process.env.NODE_ENV === "production" &&
+      (raw.includes("localhost") || raw.includes("127.0.0.1"))
+    ) {
+      return PROD_API_BASE_URL;
+    }
     if (raw.includes("localhost:5000") || raw.includes("127.0.0.1:5000")) {
       return LOCAL_API_BASE_URL;
     }

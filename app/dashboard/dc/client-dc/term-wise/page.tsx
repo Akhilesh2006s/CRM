@@ -238,8 +238,8 @@ export default function TermWiseDCPage() {
       let dcOrder: any = null
       
       if (dc.dcOrderId) {
-        const dcOrderId = typeof dc.dcOrderId === 'object' 
-          ? dcOrderId._id 
+        const dcOrderId = typeof dc.dcOrderId === 'object'
+          ? dc.dcOrderId._id
           : dc.dcOrderId
         dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
         
