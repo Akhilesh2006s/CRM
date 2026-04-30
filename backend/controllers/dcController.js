@@ -1,7 +1,14 @@
 const DC = require('../models/DC');
 const Sale = require('../models/Sale');
+const DcOrder = require('../models/DcOrder');
+const ProgramBilling = require('../models/ProgramBilling');
 const Warehouse = require('../models/Warehouse');
 const StockMovement = require('../models/StockMovement');
+const {
+  recordLevelDelivery,
+  recomputeProgramPayable,
+  roundToTwo,
+} = require('../services/programBillingService');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
 const path = require('path');
@@ -97,6 +104,103 @@ const hasQuantityFieldsInUpdate = (body = {}) =>
   body.productDetails !== undefined ||
   body.availableQuantity !== undefined ||
   body.deliverableQuantity !== undefined;
+
+const deriveLevelNumber = (dc) => {
+  if (Number.isFinite(Number(dc.levelNumber)) && Number(dc.levelNumber) > 0) {
+    return Number(dc.levelNumber);
+  }
+  const terms = (dc.productDetails || []).map((row) => String(row.term || '').trim().toLowerCase());
+  if (terms.includes('term 2')) return 2;
+  if (terms.includes('term 3')) return 3;
+  return 1;
+};
+
+const deriveDeliveredStudents = (dc) =>
+  (Array.isArray(dc.productDetails) ? dc.productDetails : []).reduce((sum, row) => {
+    const delivered = Number(row.deliveredQuantity);
+    if (Number.isFinite(delivered) && delivered >= 0) return sum + delivered;
+    return sum;
+  }, 0);
+
+const deriveUnitPrice = async (dc) => {
+  const details = Array.isArray(dc.productDetails) ? dc.productDetails : [];
+  const detailPrices = details
+    .map((row) => Number(row.price))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  if (detailPrices.length > 0) {
+    return detailPrices[0];
+  }
+  if (!dc.dcOrderId) return 0;
+  const order = await DcOrder.findById(dc.dcOrderId).select('products').lean();
+  const firstProduct = Array.isArray(order?.products) && order.products.length > 0 ? order.products[0] : null;
+  return Number(firstProduct?.unit_price) || 0;
+};
+
+const deriveTotalLevels = async (dc) => {
+  if (Number.isFinite(Number(dc.totalLevels)) && Number(dc.totalLevels) > 0) {
+    return Number(dc.totalLevels);
+  }
+  if (!dc.dcOrderId) return 1;
+  const siblingDcs = await DC.find({ dcOrderId: dc.dcOrderId }).select('levelNumber productDetails').lean();
+  const levelsFromDcs = new Set();
+  siblingDcs.forEach((row) => {
+    if (Number.isFinite(Number(row.levelNumber)) && Number(row.levelNumber) > 0) {
+      levelsFromDcs.add(Number(row.levelNumber));
+      return;
+    }
+    const terms = (row.productDetails || []).map((p) => String(p.term || '').trim().toLowerCase());
+    if (terms.includes('term 1')) levelsFromDcs.add(1);
+    if (terms.includes('term 2')) levelsFromDcs.add(2);
+    if (terms.includes('term 3')) levelsFromDcs.add(3);
+  });
+  return Math.max(1, levelsFromDcs.size || 1);
+};
+
+const recomputeBillingForCompletedDC = async (dc) => {
+  const featureFlag = String(process.env.ENABLE_PROGRAM_BILLING_ABACUS || 'false').toLowerCase() === 'true';
+  if (!featureFlag) {
+    return null;
+  }
+  if (String(dc.product || '').toLowerCase() !== 'abacus') {
+    return null;
+  }
+
+  const deliveredStudents = deriveDeliveredStudents(dc);
+  const levelNumber = deriveLevelNumber(dc);
+  const totalLevels = await deriveTotalLevels(dc);
+  const unitPrice = await deriveUnitPrice(dc);
+  if (!dc.dcOrderId || deliveredStudents < 0 || unitPrice < 0) {
+    return null;
+  }
+
+  let program = await ProgramBilling.findOne({
+    dcOrderId: dc.dcOrderId,
+    product: dc.product,
+  });
+  if (!program) {
+    program = await ProgramBilling.create({
+      dcOrderId: dc.dcOrderId,
+      product: dc.product,
+      totalLevels,
+      unitPrice: roundToTwo(unitPrice),
+      currency: 'INR',
+    });
+  } else if (program.totalLevels !== totalLevels || program.unitPrice !== unitPrice) {
+    program.totalLevels = totalLevels;
+    program.unitPrice = roundToTwo(unitPrice);
+    await program.save();
+  }
+
+  await recordLevelDelivery({
+    programId: program._id,
+    levelNumber,
+    studentsCount: deliveredStudents,
+    dcId: dc._id,
+    deliveredAt: dc.completedAt || new Date(),
+  });
+
+  return recomputeProgramPayable(program._id, { sourceDcId: dc._id });
+};
 
 
 // @desc    Get all DCs with filtering
@@ -764,6 +868,12 @@ const completeDC = async (req, res) => {
       }
     }
 
+    try {
+      await recomputeBillingForCompletedDC(dc);
+    } catch (billingErr) {
+      console.error('Program billing recompute failed in completeDC:', billingErr.message);
+    }
+
     const populatedDC = await DC.findById(dc._id)
       .populate('saleId', 'customerName product quantity status')
       .populate('employeeId', 'name email')
@@ -1286,6 +1396,12 @@ const warehouseProcess = async (req, res) => {
           // Continue with other products even if one fails
         }
       }
+    }
+
+    try {
+      await recomputeBillingForCompletedDC(dc);
+    } catch (billingErr) {
+      console.error('Program billing recompute failed in warehouseProcess:', billingErr.message);
     }
 
     const populatedDC = await DC.findById(dc._id)

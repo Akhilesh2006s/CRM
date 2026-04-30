@@ -19,6 +19,7 @@ const getPayments = async (req, res) => {
       zone,
       paymentMethod,
       dcId,
+      programId,
     } = req.query;
     const filter = {};
 
@@ -29,6 +30,7 @@ const getPayments = async (req, res) => {
     if (mobileNo) filter.mobileNumber = { $regex: mobileNo, $options: 'i' };
     if (zone) filter.zone = { $regex: zone, $options: 'i' };
     if (dcId) filter.dcId = dcId;
+    if (programId) filter.programId = programId;
     if (createdBy) {
       // Filter by createdBy (ObjectId)
       filter.createdBy = createdBy;

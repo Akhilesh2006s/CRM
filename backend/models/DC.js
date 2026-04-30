@@ -13,6 +13,19 @@ const dcSchema = new mongoose.Schema({
     required: false,
     index: true,
   },
+  programId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ProgramBilling',
+    index: true,
+  },
+  totalLevels: {
+    type: Number,
+    min: 1,
+  },
+  levelNumber: {
+    type: Number,
+    min: 1,
+  },
   employeeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -328,6 +341,7 @@ dcSchema.index({ employeeId: 1, createdAt: -1 }); // Compound index for sorting 
 dcSchema.index({ clusterId: 1 }); // Index for cluster ID queries
 dcSchema.index({ parentDcId: 1 });
 dcSchema.index({ dcType: 1, status: 1 });
+dcSchema.index({ programId: 1, levelNumber: 1 });
 
 // Pre-save hook to generate DC code if not provided
 dcSchema.pre('save', async function (next) {

@@ -10,6 +10,11 @@ const paymentSchema = new mongoose.Schema({
     ref: 'DC',
     index: true,
   },
+  programId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ProgramBilling',
+    index: true,
+  },
   customerName: {
     type: String,
     required: true,
@@ -128,6 +133,20 @@ const paymentSchema = new mongoose.Schema({
   autoCreated: {
     type: Boolean,
     default: false,
+  },
+  adjustmentType: {
+    type: String,
+    enum: ['none', 'credit_note'],
+    default: 'none',
+    index: true,
+  },
+  adjustmentForPaymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payment',
+    index: true,
+  },
+  adjustmentReason: {
+    type: String,
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,

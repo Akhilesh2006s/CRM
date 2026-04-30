@@ -34,6 +34,7 @@ const sampleRequestRoutes = require('./routes/sampleRequestRoutes');
 const aiRoutes = require('./routes/aiRoutes');
 const apiKeyRoutes = require('./routes/apiKeyRoutes');
 const automationApiRoutes = require('./routes/automationApiRoutes');
+const programBillingRoutes = require('./routes/programBillingRoutes');
 
 dotenv.config();
 
@@ -174,6 +175,7 @@ app.use('/api/sample-requests', sampleRequestRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/automation', automationApiRoutes);
+app.use('/api/program-billing', programBillingRoutes);
 app.use('/api/zones-clusters', require('./routes/zoneClusterRoutes'));
 app.use('/api/zones', require('./routes/zoneRoutes'));
 app.use('/api/clusters', require('./routes/clusterRoutes'));

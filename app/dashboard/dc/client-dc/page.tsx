@@ -1599,128 +1599,14 @@ export default function ClientDCPage() {
         }
       }
 
-      // Create payment automatically when DC is requested
-      // For split DCs, create payment only for Term 1 DC (Term 2 is scheduled for later)
-      // For Term 1 or "Both" only, create payment normally
-      // For Term 2 only, don't create payment (will be created later)
+      // Program billing is now owned by backend delivery completion flows.
+      // Keep UI request flow billing-free to avoid stale or duplicated payable creation.
       if (totalAmount > 0 && (hasTerm1 || hasBothTerms || hasBothTerm)) {
-        try {
-          const currentUser = getCurrentUser()
-          
-          // For split DCs, calculate amount only for Term 1 products
-          let paymentAmount = totalAmount
-          let paymentBreakdownForPayment = paymentBreakdown
-          
-          if (hasBothTerms) {
-            // Recalculate amount for Term 1 products only
-            paymentAmount = 0
-            paymentBreakdownForPayment = []
-            
-            // Recalculate from DcOrder products for Term 1 only
-            if (selectedDC.dcOrderId) {
-              try {
-                const dcOrderId = typeof selectedDC.dcOrderId === 'object' 
-                  ? selectedDC.dcOrderId._id 
-                  : selectedDC.dcOrderId
-                const dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
-                
-                if (dcOrder.products && Array.isArray(dcOrder.products) && dcOrder.products.length > 0) {
-                  const usedIndices = new Set<number>()
-                  paymentBreakdownForPayment = term1Products.map((pd: any, index: number) => {
-                    let matchingProduct: any = null
-                    let matchingIndex = -1
-                    
-                    if (index < dcOrder.products.length && !usedIndices.has(index)) {
-                      matchingProduct = dcOrder.products[index]
-                      matchingIndex = index
-                      usedIndices.add(index)
-                    } else {
-                      const dcProductName = (pd.product || '').toLowerCase().trim()
-                      for (let i = 0; i < dcOrder.products.length; i++) {
-                        if (usedIndices.has(i)) continue
-                        const p = dcOrder.products[i]
-                        const orderProductName = (p.product_name || '').toLowerCase().trim()
-                        if (dcProductName === orderProductName || 
-                            dcProductName.includes(orderProductName) || 
-                            orderProductName.includes(dcProductName)) {
-                          matchingProduct = p
-                          matchingIndex = i
-                          usedIndices.add(i)
-                          break
-                        }
-                      }
-                    }
-                    
-                    const unitPrice = matchingProduct ? (Number(matchingProduct.unit_price) || 0) : 0
-                    const strength = Number(pd.strength) || 0
-                    const total = unitPrice * strength
-                    paymentAmount += total
-                    
-                    return {
-                      product: pd.product || '',
-                      class: pd.class || '1',
-                      category: pd.category || 'New School',
-                      specs: pd.specs || 'Regular',
-                      subject: pd.subject || undefined,
-                      quantity: Number(pd.quantity) || 0,
-                      strength: strength,
-                      level: pd.level || 'L2',
-                      unitPrice: unitPrice,
-                      total: total,
-                    }
-                  })
-                }
-              } catch (e) {
-                console.error('Failed to recalculate Term 1 payment:', e)
-                // Fallback: use proportional amount
-                const term1Quantity = term1Products.reduce((sum, p) => sum + (p.quantity || 0), 0)
-                paymentAmount = totalQuantity > 0 ? (totalAmount * term1Quantity) / totalQuantity : totalAmount
-              }
-            }
-          }
-          
-          const paymentPayload = {
-            dcId: updatedDC._id, // Use the Term 1 DC ID (or main DC if not split)
-            customerName: schoolInfo.customerName,
-            schoolCode: schoolInfo.schoolCode,
-            contactName: schoolInfo.contactName,
-            mobileNumber: schoolInfo.mobileNumber,
-            location: schoolInfo.location,
-            zone: schoolInfo.zone,
-            amount: paymentAmount,
-            paymentMethod: 'Other', // Will be updated when payment is received (Cash, UPI, etc.)
-            paymentDate: new Date().toISOString(),
-            status: 'Pending',
-            description: hasBothTerms 
-              ? `Auto-generated payment for Term 1 DC request - ${schoolInfo.customerName} (DC split into Term 1 and Term 2)`
-              : `Auto-generated payment for DC request - ${schoolInfo.customerName}`,
-            paymentBreakdown: paymentBreakdownForPayment,
-            autoCreated: true,
-            createdBy: currentUser?._id,
-          }
-
-          await apiRequest('/payments/create', {
-            method: 'POST',
-            body: JSON.stringify(paymentPayload),
-          })
-
-          console.log('✅ Payment created automatically for DC request:', {
-            dcId: updatedDC._id,
-            amount: paymentAmount,
-            customerName: schoolInfo.customerName,
-            isSplit: hasBothTerms,
-          })
-        } catch (paymentErr: any) {
-          console.error('❌ Failed to create payment automatically:', paymentErr)
-          // Don't fail the whole operation if payment creation fails
-          toast.warning('DC requested successfully, but failed to create payment automatically. Please create payment manually.')
-        }
+        console.log('ℹ️ Payment creation skipped in frontend; backend program-billing handles payable recomputation.')
       } else if (hasTerm2 && !hasTerm1 && !hasBothTerm) {
-        // Term 2 only (no Term 1, no "Both") - no payment created (will be created later when Term 2 is requested from Term-Wise DC)
-        console.log('📦 Term 2 only DC - skipping payment creation (will be created later when requested from Term-Wise DC)')
+        console.log('📦 Term 2 only DC - backend will handle cumulative billing at delivery completion')
       } else if (totalAmount === 0) {
-        console.warn('⚠️ Total amount is 0, skipping payment creation')
-        toast.warning('DC requested successfully, but no payment was created as total amount is 0.')
+        console.warn('⚠️ Total amount is 0; backend billing recompute will still run on delivery events')
       }
 
       // Update the related DcOrder status based on terms
