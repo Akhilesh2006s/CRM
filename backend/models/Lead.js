@@ -12,6 +12,10 @@ const productSchema = new mongoose.Schema(
       enum: ['Term 1', 'Term 2', 'Both'],
       default: 'Term 1',
     },
+    level: { type: String, trim: true },
+    subject: { type: String, trim: true },
+    selected_subjects: { type: [String], default: [] },
+    levels_snapshot: { type: [String], default: [] },
   },
   { _id: false }
 );

@@ -2,8 +2,10 @@ const DC = require('../models/DC');
 const Sale = require('../models/Sale');
 const DcOrder = require('../models/DcOrder');
 const ProgramBilling = require('../models/ProgramBilling');
+const Product = require('../models/Product');
 const Warehouse = require('../models/Warehouse');
 const StockMovement = require('../models/StockMovement');
+const { normalizeCalculationType } = require('../utils/paymentDivisor');
 const {
   recordLevelDelivery,
   recomputeProgramPayable,
@@ -156,18 +158,80 @@ const deriveTotalLevels = async (dc) => {
   return Math.max(1, levelsFromDcs.size || 1);
 };
 
+const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const findProductCatalogByDcProductName = async (name) => {
+  const n = String(name || '').trim();
+  if (!n) return null;
+  return Product.findOne({ productName: new RegExp(`^${escapeRegex(n)}$`, 'i') }).lean();
+};
+
+const deriveSubjectDivisorFromDc = (dc) => {
+  const target = String(dc.product || '').toLowerCase().trim();
+  const rows = Array.isArray(dc.productDetails) ? dc.productDetails : [];
+  const subs = new Set();
+  rows.forEach((row) => {
+    const pn = String(row.product || row.productName || '').toLowerCase().trim();
+    if (pn !== target) return;
+    const s = String(row.subject || '').trim().toLowerCase();
+    if (s) subs.add(s);
+  });
+  return Math.max(1, subs.size);
+};
+
+const deriveProgramPaymentDivisor = async (dc, productDoc) => {
+  const ct = normalizeCalculationType(productDoc?.calculationType);
+  if (ct === 'subject_based') {
+    const fromRows = deriveSubjectDivisorFromDc(dc);
+    const catalogCount = Array.isArray(productDoc?.subjects) ? productDoc.subjects.length : 0;
+    return Math.max(1, fromRows > 1 ? fromRows : catalogCount || 1);
+  }
+  if (ct === 'level_based') {
+    return deriveTotalLevels(dc);
+  }
+  return 1;
+};
+
+const deriveDeliverySlotNumber = (dc, productDoc) => {
+  const ct = normalizeCalculationType(productDoc?.calculationType);
+  if (ct !== 'subject_based') {
+    return deriveLevelNumber(dc);
+  }
+  const target = String(dc.product || '').toLowerCase().trim();
+  const rows = Array.isArray(dc.productDetails) ? dc.productDetails : [];
+  const row = rows.find(
+    (r) => String(r.product || '').toLowerCase().trim() === target && String(r.subject || '').trim()
+  );
+  const subj = String(row?.subject || '').trim().toLowerCase();
+  const list = Array.isArray(productDoc?.subjects) ? productDoc.subjects : [];
+  const idx = list.findIndex((s) => String(s).trim().toLowerCase() === subj);
+  if (idx >= 0) return idx + 1;
+  return deriveLevelNumber(dc);
+};
+
 const recomputeBillingForCompletedDC = async (dc) => {
   const featureFlag = String(process.env.ENABLE_PROGRAM_BILLING_ABACUS || 'false').toLowerCase() === 'true';
   if (!featureFlag) {
     return null;
   }
-  if (String(dc.product || '').toLowerCase() !== 'abacus') {
+  const isLegacyAbacus = String(dc.product || '').toLowerCase() === 'abacus';
+  let productDoc = await findProductCatalogByDcProductName(dc.product);
+  if (!productDoc && isLegacyAbacus) {
+    productDoc = { calculationType: 'level_based', subjects: [] };
+  } else if (
+    productDoc &&
+    normalizeCalculationType(productDoc.calculationType) === 'none' &&
+    isLegacyAbacus
+  ) {
+    productDoc = { ...productDoc, calculationType: 'level_based' };
+  }
+  if (!productDoc || normalizeCalculationType(productDoc.calculationType) === 'none') {
     return null;
   }
 
   const deliveredStudents = deriveDeliveredStudents(dc);
-  const levelNumber = deriveLevelNumber(dc);
-  const totalLevels = await deriveTotalLevels(dc);
+  const levelNumber = deriveDeliverySlotNumber(dc, productDoc);
+  const totalLevels = await deriveProgramPaymentDivisor(dc, productDoc);
   const unitPrice = await deriveUnitPrice(dc);
   if (!dc.dcOrderId || deliveredStudents < 0 || unitPrice < 0) {
     return null;

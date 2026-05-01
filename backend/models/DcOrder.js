@@ -32,6 +32,11 @@ const productSchema = new mongoose.Schema(
       min: 0,
     },
     deliverables: { type: [String], default: [] }, // Transaction-level: deliverables selected when closing lead
+    // Snapshot of enrollment shape for payment divisor / reporting (optional)
+    level: { type: String, trim: true },
+    subject: { type: String, trim: true },
+    selected_subjects: { type: [String], default: [] },
+    levels_snapshot: { type: [String], default: [] }, // distinct levels in bucket at close
   },
   { _id: false }
 );

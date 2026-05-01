@@ -21,6 +21,7 @@ import { Pencil, Package, Plus, Upload, X, Search, CreditCard, FileText, PlusCir
 import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
+import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
 import { useRouter } from 'next/navigation'
 
 type DC = {
@@ -189,7 +190,15 @@ export default function ClientDCPage() {
   // Track current DC being edited
   const [currentEditingDCId, setCurrentEditingDCId] = useState<string | null>(null)
   
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects } = useProducts()
+  const {
+    productNames: availableProducts,
+    getProductLevels,
+    getDefaultLevel,
+    getProductSpecs,
+    getProductSubjects,
+    getCalculationType,
+    getCatalogFallbackCount,
+  } = useProducts()
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
@@ -668,13 +677,23 @@ export default function ClientDCPage() {
         })
       }
       
-      // Recalculate totalAmount to ensure it's sum of (strength * price) for all products
-      // This ensures accuracy even if some products had stored totals
-      totalAmount = paymentBreakdown.reduce((sum: number, product: any) => {
-        const strength = Number(product.strength) || 0
-        const price = Number(product.unitPrice) || 0
-        return sum + (strength * price)
-      }, 0)
+      if (paymentBreakdown.length > 0) {
+        const adj = applyPaymentDivisorsToBreakdown(
+          paymentBreakdown.map((pb: any) => ({
+            ...pb,
+            product: pb.product || '',
+            class: pb.class || '1',
+            strength: Number(pb.strength) || 0,
+            unitPrice: Number(pb.unitPrice) || 0,
+            level: pb.level,
+            subject: pb.subject,
+          })),
+          getCalculationType,
+          getCatalogFallbackCount
+        )
+        paymentBreakdown = adj.paymentBreakdown
+        totalAmount = adj.totalAmount
+      }
 
       // Calculate payment and return totals
       let totalPaidAsOn = 0
@@ -1566,6 +1585,24 @@ export default function ClientDCPage() {
         } catch (e) {
           console.error('Failed to get total_amount from DcOrder:', e)
         }
+      }
+
+      if (paymentBreakdown.length > 0) {
+        const adj = applyPaymentDivisorsToBreakdown(
+          paymentBreakdown.map((pb: any) => ({
+            ...pb,
+            product: pb.product || '',
+            class: pb.class || '1',
+            strength: Number(pb.strength) || 0,
+            unitPrice: Number(pb.unitPrice) || 0,
+            level: pb.level,
+            subject: pb.subject,
+          })),
+          getCalculationType,
+          getCatalogFallbackCount
+        )
+        paymentBreakdown = adj.paymentBreakdown
+        totalAmount = adj.totalAmount
       }
 
       // Get school/client information for payment

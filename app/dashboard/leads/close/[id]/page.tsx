@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useProducts } from '@/hooks/useProducts'
+import { computeBucketAmount, type CalculationType } from '@/lib/paymentDivisor'
 
 type Lead = {
   _id: string
@@ -37,28 +38,77 @@ type Lead = {
   school_type?: string
 }
 
-// Group child product rows so that strength/quantity is counted per product + class,
-// not per spec row. This prevents double-counting when multiple specs exist
-// for the same class.
-const groupProductDetailsByProductAndClass = (details: any[]) => {
+type GroupProductOpts = {
+  getCalculationType: (productName: string) => CalculationType
+  getCatalogFallbackCount: (productName: string, ct: CalculationType) => number
+}
+
+// Group child product rows per product + class. For level_based / subject_based,
+// sum strengths across distinct levels/subjects; duplicate same level+subject uses max.
+const groupProductDetailsByProductAndClass = (
+  details: any[],
+  opts?: GroupProductOpts
+) => {
+  const getCt = (name: string) => opts?.getCalculationType(name) ?? ('none' as CalculationType)
+  const getFallback = (name: string, ct: CalculationType) =>
+    opts?.getCatalogFallbackCount(name, ct) ?? 0
+
+  const normLevel = (l: any) =>
+    String(l || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+  const normSubject = (s: any) => String(s || '').trim().toLowerCase()
+
   const map = new Map<string, any>()
 
   details.forEach((p) => {
     const key = `${p.product || ''}||${p.class || ''}`
     const strength = Number(p.strength) || 0
     const price = Number(p.price) || 0
+    const ct = getCt(p.product || '')
 
     const existing = map.get(key)
     if (!existing) {
+      if (ct === 'level_based' || ct === 'subject_based') {
+        map.set(key, {
+          ...p,
+          strength,
+          price,
+          _dimRows: [{ strength, level: p.level, subject: p.subject, price }],
+        })
+      } else {
+        map.set(key, {
+          ...p,
+          strength,
+          price,
+          total: strength * price,
+        })
+      }
+      return
+    }
+
+    const mergedPrice = Math.max(Number(existing.price) || 0, price)
+
+    if (ct === 'level_based' || ct === 'subject_based') {
+      const dimRows = [...(existing._dimRows || [])]
+      const prevDims = new Set(
+        dimRows.map((r: any) => `${normLevel(r.level)}|${normSubject(r.subject || '')}`)
+      )
+      const thisDim = `${normLevel(p.level)}|${normSubject(p.subject || '')}`
+      const duplicateDim = prevDims.has(thisDim)
+      const mergedStrength = duplicateDim
+        ? Math.max(Number(existing.strength) || 0, strength)
+        : (Number(existing.strength) || 0) + strength
+      dimRows.push({ strength, level: p.level, subject: p.subject, price })
       map.set(key, {
-        ...p,
-        strength,
-        price,
-        total: strength * price,
+        ...existing,
+        strength: mergedStrength,
+        price: mergedPrice,
+        _dimRows: dimRows,
       })
     } else {
       const mergedStrength = Math.max(Number(existing.strength) || 0, strength)
-      const mergedPrice = Math.max(Number(existing.price) || 0, price)
       map.set(key, {
         ...existing,
         strength: mergedStrength,
@@ -68,7 +118,20 @@ const groupProductDetailsByProductAndClass = (details: any[]) => {
     }
   })
 
-  return Array.from(map.values())
+  return Array.from(map.values()).map((row) => {
+    if (row._dimRows) {
+      const ct = getCt(row.product || '')
+      const total = computeBucketAmount({
+        calculationType: ct,
+        rows: row._dimRows,
+        unitPrice: Number(row.price) || 0,
+        catalogFallbackCount: getFallback(row.product || '', ct),
+      })
+      const { _dimRows, ...rest } = row
+      return { ...rest, total }
+    }
+    return row
+  })
 }
 
 const getCurrentAcademicYear = () => {
@@ -132,7 +195,24 @@ export default function CloseLeadPage() {
     totalQuantity: number
   } | null>(null)
   
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, hasProductSubjects, getProductCategories, hasProductCategories, getProductId } = useProducts()
+  const {
+    productNames: availableProducts,
+    getProductLevels,
+    getDefaultLevel,
+    getProductSpecs,
+    getProductSubjects,
+    hasProductSubjects,
+    getProductCategories,
+    hasProductCategories,
+    getProductId,
+    getCalculationType,
+    getCatalogFallbackCount,
+  } = useProducts()
+
+  const groupProductOpts: GroupProductOpts = {
+    getCalculationType,
+    getCatalogFallbackCount,
+  }
   const [deliverablesByProduct, setDeliverablesByProduct] = useState<Record<string, string[]>>({})
   const availableClasses = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
   const defaultCategories = ['New Students', 'Existing Students', 'Both']
@@ -140,7 +220,10 @@ export default function CloseLeadPage() {
 
   // Child (non-parent) rows and their grouped view by product + class
   const childProductRows = productDetails.filter(pd => !pd.isParentRow)
-  const groupedChildProductRows = groupProductDetailsByProductAndClass(childProductRows)
+  const groupedChildProductRows = groupProductDetailsByProductAndClass(
+    childProductRows,
+    groupProductOpts
+  )
 
   useEffect(() => {
     if (leadId) {
@@ -835,7 +918,10 @@ export default function CloseLeadPage() {
     // Filter out parent rows for validation
     const actualProductDetails = productDetails.filter(pd => !pd.isParentRow)
     
-    const groupedProductDetails = groupProductDetailsByProductAndClass(actualProductDetails)
+    const groupedProductDetails = groupProductDetailsByProductAndClass(
+      actualProductDetails,
+      groupProductOpts
+    )
     
     if (groupedProductDetails.length === 0) {
       toast.error('Please add at least one product and set class range to generate rows')
@@ -920,9 +1006,26 @@ export default function CloseLeadPage() {
         estimated_delivery_date: form.delivery_date ? new Date(form.delivery_date).toISOString() : undefined,
         year: currentAcademicYear,
         assigned_to: assignedEmployeeId,
-        products: groupedProductDetails.map(p => {
-          const parentRow = productDetails.find(parent => parent.isParentRow && p.id.startsWith(parent.id + '_'))
+        products: groupedProductDetails.map((p) => {
+          const parentRow = productDetails.find(
+            (parent) => parent.isParentRow && parent.product === p.product
+          )
           const deliverables = parentRow?.selectedDeliverables || []
+          const bucketRows = actualProductDetails.filter(
+            (r) =>
+              (r.product || '') === (p.product || '') &&
+              String(r.class || '') === String(p.class || '')
+          )
+          const levelSet = new Set<string>()
+          const subjectSet = new Set<string>()
+          bucketRows.forEach((r) => {
+            if (r.level) levelSet.add(String(r.level).trim())
+            if (r.subject) subjectSet.add(String(r.subject).trim())
+          })
+          const selectedSubjects =
+            parentRow?.selectedSubjects?.length && parentRow.selectedSubjects.length > 0
+              ? [...parentRow.selectedSubjects]
+              : Array.from(subjectSet)
           return {
             product_name: p.product,
             quantity: p.strength, // Use strength as quantity
@@ -930,6 +1033,10 @@ export default function CloseLeadPage() {
             deliverables,
             // Persist SKU category so Raise DC can prefill productCategory from Close Lead.
             productCategory: (p as any).productCategory || (p as any).category || undefined,
+            selected_subjects: selectedSubjects,
+            levels_snapshot: Array.from(levelSet),
+            level: levelSet.size === 1 ? Array.from(levelSet)[0] : undefined,
+            subject: subjectSet.size === 1 ? Array.from(subjectSet)[0] : undefined,
           }
         }),
       }
@@ -1380,11 +1487,12 @@ export default function CloseLeadPage() {
                       const childRows = productDetails.filter(
                         row => !row.isParentRow && row.id.startsWith(pd.id + '_')
                       )
-                      const groupedChildRows = groupProductDetailsByProductAndClass(childRows)
+                      const groupedChildRows = groupProductDetailsByProductAndClass(
+                        childRows,
+                        groupProductOpts
+                      )
                       const parentTotalAmount = groupedChildRows.reduce(
-                        (sum, row) =>
-                          sum +
-                          ((Number(row.strength) || 0) * (Number(row.price) || 0)),
+                        (sum, row) => sum + (Number(row.total) || 0),
                         0
                       )
                       
