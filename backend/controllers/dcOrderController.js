@@ -6,21 +6,40 @@ const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPri
 const { dealProductsToFollowUpSnapshot } = require('../utils/dealProductsToFollowUpSnapshot');
 const mongoose = require('mongoose');
 
-/** Undo legacy bug: empty products + Cold in history usually meant "unspecified", not a real Cold visit */
+const SCHOOL_LEAD_STATUSES = new Set(['Hot', 'Warm', 'Cold']);
+
+function resolveSchoolLeadStatus(...candidates) {
+  for (const value of candidates) {
+    const s = String(value || '').trim();
+    if (SCHOOL_LEAD_STATUSES.has(s)) return s;
+  }
+  return '';
+}
+
+/** Lead status badge for a history row — school lead_status (Hot/Warm/Cold) wins over product-derived Hot. */
 function resolveHistoryPriorityForResponse(entry = {}, doc = {}) {
+  const docLeadStatus = resolveSchoolLeadStatus(doc.lead_status);
+  if (docLeadStatus) return docLeadStatus;
+
   const rows = Array.isArray(entry.productsInterested) ? entry.productsInterested : [];
+  const stored = (entry.priority || '').trim();
+
+  if (SCHOOL_LEAD_STATUSES.has(stored)) return stored;
+
   const fromProducts = derivePriorityFromFollowUpProducts(rows);
-  if (fromProducts) return fromProducts;
-  const stored = entry.priority;
+  if (fromProducts && rows.length > 0) return fromProducts;
+
+  if (stored) return stored;
+
   if (
-    (stored === 'Cold' || stored == null || stored === '') &&
+    stored === 'Cold' &&
     rows.length === 0 &&
     doc.priority &&
-    doc.priority !== 'Cold'
+    !SCHOOL_LEAD_STATUSES.has(doc.priority)
   ) {
     return doc.priority;
   }
-  return stored || doc.priority || 'Warm';
+  return resolveSchoolLeadStatus(doc.priority) || 'Warm';
 }
 
 const list = async (req, res) => {
@@ -229,12 +248,15 @@ const getHistory = async (req, res) => {
     const productSnapshotForDisplay = dealProductsToFollowUpSnapshot(item.products || []);
 
     // If no history exists but item has data, create initial entry
-    if (history.length === 0 && (item.follow_up_date || item.remarks || item.priority || productSnapshotForDisplay.length)) {
+    if (
+      history.length === 0 &&
+      (item.follow_up_date || item.remarks || item.lead_status || item.priority || productSnapshotForDisplay.length)
+    ) {
       console.log('No history found, creating initial entry from current data');
       history = [{
         follow_up_date: item.follow_up_date || null,
         remarks: item.remarks || 'Lead created',
-        priority: item.priority || 'Hot',
+        priority: item.lead_status || item.priority || 'Warm',
         productsInterested: productSnapshotForDisplay,
         updatedAt: item.createdAt || new Date(),
         updatedBy: { name: 'System', _id: null },
@@ -295,13 +317,24 @@ const create = async (req, res) => {
       }
     }
     
+    if (payload.lead_status) {
+      payload.priority = payload.lead_status;
+    }
+
     const creationProductSnapshot = dealProductsToFollowUpSnapshot(payload.products || []);
+    const creationLeadStatus = payload.lead_status || payload.priority || 'Warm';
     // Initialize history with creation entry (includes per-product lead status from create form)
-    if (payload.follow_up_date || payload.remarks || payload.priority || creationProductSnapshot.length > 0) {
+    if (
+      payload.follow_up_date ||
+      payload.remarks ||
+      payload.lead_status ||
+      payload.priority ||
+      creationProductSnapshot.length > 0
+    ) {
       payload.updateHistory = [{
         follow_up_date: payload.follow_up_date ? new Date(payload.follow_up_date) : null,
         remarks: payload.remarks || '',
-        priority: payload.priority || 'Hot',
+        priority: creationLeadStatus,
         productsInterested: creationProductSnapshot,
         updatedBy: req.user._id,
         updatedAt: new Date(),
@@ -427,9 +460,22 @@ const update = async (req, res) => {
     if (hasProductsInterested) {
       // Keep latest product-interest snapshot on record as well.
       updateData.products = normalizedProductsInterested;
-      const derived = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
-      if (derived) {
-        updateData.priority = derived;
+      const schoolLeadStatus = resolveSchoolLeadStatus(req.body.lead_status, item.lead_status);
+      if (schoolLeadStatus) {
+        updateData.lead_status = schoolLeadStatus;
+        updateData.priority = schoolLeadStatus;
+      } else {
+        const derived = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
+        if (derived) {
+          updateData.priority = derived;
+        }
+      }
+    }
+    if (req.body.lead_status !== undefined) {
+      const schoolLeadStatus = resolveSchoolLeadStatus(req.body.lead_status);
+      if (schoolLeadStatus) {
+        updateData.lead_status = schoolLeadStatus;
+        updateData.priority = schoolLeadStatus;
       }
     }
     
@@ -491,12 +537,18 @@ const update = async (req, res) => {
         : null;
       const newRemarks = hasRemarks ? (req.body.remarks || '') : '';
       const derivedFromProducts = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
+      const schoolLeadStatus = resolveSchoolLeadStatus(req.body.lead_status, item.lead_status);
       const newPriority =
-        normalizedProductsInterested.length > 0 && derivedFromProducts
+        schoolLeadStatus ||
+        (normalizedProductsInterested.length > 0 && derivedFromProducts
           ? derivedFromProducts
-          : hasPriority && req.body.priority != null && req.body.priority !== ''
-            ? req.body.priority
-            : item.priority || 'Warm';
+          : '') ||
+        (hasPriority && req.body.priority != null && req.body.priority !== ''
+          ? req.body.priority
+          : '') ||
+        resolveSchoolLeadStatus(item.lead_status) ||
+        item.priority ||
+        'Warm';
 
       // Create a NEW history entry with the values being set
       // This entry represents this specific update/change

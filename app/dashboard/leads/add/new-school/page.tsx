@@ -16,6 +16,8 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useProducts } from '@/hooks/useProducts'
 
+const LEAD_STATUS_OPTIONS = ['Hot', 'Warm', 'Cold'] as const
+
 type ProductSelection = {
   name: string
   checked: boolean
@@ -45,7 +47,7 @@ export default function NewSchoolPage() {
     state: '',
     region: '',
     area: '',
-    priority: 'Hot',
+    lead_status: 'Warm',
     zone: '',
     branches: '',
     strength: '',
@@ -335,7 +337,7 @@ export default function NewSchoolPage() {
         region: form.region || undefined,
         area: form.area || undefined,
         zone: form.zone || undefined,
-        priority: form.priority || 'Hot',
+        lead_status: form.lead_status || 'Warm',
         branches: form.branches ? Number(form.branches) : undefined,
         strength: form.strength && form.strength.trim() ? Number(form.strength) : undefined,
         remarks: form.remarks || undefined,
@@ -631,19 +633,26 @@ export default function NewSchoolPage() {
           </div>
 
           <div>
-            <Label>Priority *</Label>
-            <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v }))} required>
+            <Label>Lead status *</Label>
+            <Select
+              value={form.lead_status}
+              onValueChange={(v) => setForm((f) => ({ ...f, lead_status: v }))}
+              required
+            >
               <SelectTrigger className="bg-white text-neutral-900">
-                <SelectValue placeholder="Select priority" />
+                <SelectValue placeholder="Select lead status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Hot">Hot</SelectItem>
-                <SelectItem value="Warm">Warm</SelectItem>
-                <SelectItem value="Visit Again">Visit Again</SelectItem>
-                <SelectItem value="Not Met Management">Not Met Management</SelectItem>
-                <SelectItem value="Not Interested">Not Interested</SelectItem>
+                {LEAD_STATUS_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-neutral-500 mt-1">
+              Pipeline status (Hot / Warm / Cold). Product rows below can have finer status per SKU.
+            </p>
           </div>
           <div>
             <Label>Zone</Label>

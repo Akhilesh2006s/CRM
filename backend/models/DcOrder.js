@@ -14,6 +14,7 @@ const productSchema = new mongoose.Schema(
     term: { type: String, enum: ['Term 1', 'Term 2', 'Both'], default: 'Term 1' },
     // School class (grade) — set at close lead / create client; used by Pending DC
     class: { type: String, trim: true, default: '1' },
+    specs: { type: String, trim: true },
     // Per-product lead metadata
     status: {
       type: String,

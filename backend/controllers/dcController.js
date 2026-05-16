@@ -70,6 +70,14 @@ const qtyFromRow = (row = {}) => {
     : (Number.isFinite(strength) && strength > 0 ? strength : 0);
 };
 
+const STUDENT_ENROLLMENT_CATEGORIES = new Set([
+  'new students',
+  'existing students',
+  'both',
+  'new school',
+  'existing school',
+]);
+
 const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
   (Array.isArray(rows) ? rows : []).map((p) => {
     const quantity = qtyFromRow(p);
@@ -79,12 +87,36 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       : (isShortage ? quantity : 0);
     const strength = Number.isFinite(Number(p.strength)) && Number(p.strength) > 0 ? Number(p.strength) : quantity;
     const price = Number(p.price) || 0;
+    const rawClass =
+      p.class !== undefined && p.class !== null && String(p.class).trim() !== ''
+        ? String(p.class).trim()
+        : '';
+    const classVal = rawClass && rawClass !== '0' ? rawClass : '1';
+    const catRaw = typeof p.category === 'string' ? p.category.trim() : '';
+    const catLower = catRaw.toLowerCase();
+    const studentLike = catLower && STUDENT_ENROLLMENT_CATEGORIES.has(catLower);
+    let productCategory =
+      typeof p.productCategory === 'string' ? p.productCategory.trim() : '';
+    if (productCategory && STUDENT_ENROLLMENT_CATEGORIES.has(productCategory.toLowerCase())) {
+      productCategory = '';
+    }
+    if (!productCategory && catRaw && !studentLike) {
+      productCategory = catRaw;
+    }
+    let specs =
+      p.specs !== undefined && p.specs !== null && String(p.specs).trim() !== ''
+        ? String(p.specs).trim()
+        : '';
+    if ((!specs || specs === 'Regular') && productCategory && !studentLike) {
+      specs = productCategory;
+    }
+    if (!specs) specs = 'Regular';
     return {
       product: p.product || p.productName || '',
-      class: p.class || '1',
+      class: classVal,
       category: isShortage ? 'Shortage' : (p.category || 'new Students'),
       productName: p.productName || p.product || '',
-      productCategory: p.productCategory || undefined,
+      productCategory: productCategory || undefined,
       quantity,
       deliveredQuantity,
       shortageQuantity,
@@ -92,7 +124,7 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       price,
       total: Number(p.total) || (price * strength),
       level: p.level || 'L2',
-      specs: p.specs || 'Regular',
+      specs,
       subject: p.subject || undefined,
       term: p.term || 'Term 1',
     };
