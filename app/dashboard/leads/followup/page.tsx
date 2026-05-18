@@ -443,13 +443,18 @@ export default function FollowupLeadsPage() {
       return
     }
 
-    const selectedProducts = updateForm.productsInterested
-      .filter((p) => p.product_name && p.product_name.trim())
+    const selectedProducts = updateForm.productsInterested.filter(
+      (p) => p.product_name && p.product_name.trim()
+    )
+    if (selectedProducts.length === 0) {
+      toast.error('Add at least one product with Strength (quantity) and Chance %')
+      return
+    }
     const missingStrengthOrChance = selectedProducts.some(
       (p) => (Number(p.strength) || 0) <= 0 || (Number(p.chance) || 0) <= 0
     )
     if (missingStrengthOrChance) {
-      toast.error('Strength and Chance are mandatory for all selected products')
+      toast.error('Each product must have Strength greater than 0 and Chance % greater than 0')
       return
     }
     
@@ -481,9 +486,7 @@ export default function FollowupLeadsPage() {
           derivedPriority || selectedLead.priority || updateForm.status || 'Warm'
       }
 
-      if (validProducts.length > 0) {
-        payload.productsInterested = validProducts
-      }
+      payload.productsInterested = validProducts
       
       console.log('Updating lead with payload:', payload)
       
@@ -904,7 +907,7 @@ export default function FollowupLeadsPage() {
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold text-neutral-700 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                    Products Interested
+                    Products Interested *
                   </Label>
                   <Button type="button" size="sm" variant="outline" onClick={addInterestedProduct}>
                     Add Product
@@ -1003,7 +1006,7 @@ export default function FollowupLeadsPage() {
                   )}
                 </div>
                 <p className="text-xs text-neutral-500">
-                  Select products, then set Term, Status, Strength, and Chance % for each.
+                  Required: add at least one product with Strength (quantity) and Chance % for each row.
                 </p>
               </div>
               
