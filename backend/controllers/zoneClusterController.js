@@ -1,4 +1,6 @@
 const ZoneCluster = require('../models/ZoneCluster');
+const Zone = require('../models/Zone');
+const Cluster = require('../models/Cluster');
 
 // Get all active zones and clusters
 const getZonesAndClusters = async (req, res) => {
@@ -13,12 +15,26 @@ const getZonesAndClusters = async (req, res) => {
 // Create or update a zone/cluster entry
 const upsertZoneCluster = async (req, res) => {
   try {
-    const { id, zone, cluster, isActive = true } = req.body;
+    const { id, zone, cluster, zoneId, clusterId, isActive = true } = req.body;
 
-    if (!zone || !zone.trim()) {
+    let zoneName = (zone || '').trim();
+    let clusterName = (cluster || '').trim();
+
+    if (!zoneName && zoneId) {
+      const z = await Zone.findById(zoneId);
+      if (!z) return res.status(400).json({ message: 'Invalid zone' });
+      zoneName = z.name;
+    }
+    if (!clusterName && clusterId) {
+      const c = await Cluster.findById(clusterId);
+      if (!c) return res.status(400).json({ message: 'Invalid cluster' });
+      clusterName = c.name;
+    }
+
+    if (!zoneName) {
       return res.status(400).json({ message: 'Zone is required' });
     }
-    if (!cluster || !cluster.trim()) {
+    if (!clusterName) {
       return res.status(400).json({ message: 'Cluster is required' });
     }
 
@@ -26,13 +42,13 @@ const upsertZoneCluster = async (req, res) => {
     if (id) {
       doc = await ZoneCluster.findByIdAndUpdate(
         id,
-        { zone: zone.trim(), cluster: cluster.trim(), isActive },
+        { zone: zoneName, cluster: clusterName, isActive },
         { new: true, upsert: false }
       );
     } else {
       doc = await ZoneCluster.create({
-        zone: zone.trim(),
-        cluster: cluster.trim(),
+        zone: zoneName,
+        cluster: clusterName,
         isActive,
       });
     }
@@ -46,8 +62,19 @@ const upsertZoneCluster = async (req, res) => {
   }
 };
 
+const deleteZoneCluster = async (req, res) => {
+  try {
+    const doc = await ZoneCluster.findByIdAndDelete(req.params.id);
+    if (!doc) return res.status(404).json({ message: 'Zone–cluster link not found' });
+    res.json({ message: 'Link removed' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   getZonesAndClusters,
   upsertZoneCluster,
+  deleteZoneCluster,
 };
 

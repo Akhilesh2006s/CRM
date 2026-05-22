@@ -27,7 +27,7 @@ This works from **anywhere** – phone, web, different networks. No local setup 
 - **Windows (PowerShell or CMD):** Run `ipconfig` and look for **IPv4 Address** under your WiFi adapter (e.g. `192.168.1.105`).
 - **Mac/Linux:** Run `ifconfig` or `ip addr` and look for `inet` on your WiFi interface (e.g. `192.168.1.105`).
 
-Use that IP in `.env` as `EXPO_PUBLIC_API_URL=http://YOUR_IP:5000/api` (see below).
+Use that IP in `.env` as `EXPO_PUBLIC_API_URL=http://YOUR_IP:5001/api` (see below).
 
 ---
 
@@ -35,11 +35,11 @@ Use that IP in `.env` as `EXPO_PUBLIC_API_URL=http://YOUR_IP:5000/api` (see belo
 
 | Cause | Fix |
 |-------|-----|
-| **App using localhost** | On a real device, `localhost` is the phone itself. Set `EXPO_PUBLIC_API_URL=http://YOUR_LAPTOP_IP:5000/api` in `.env` (use the IP from `ipconfig` / `ifconfig`). |
+| **App using localhost** | On a real device, `localhost` is the phone itself. Set `EXPO_PUBLIC_API_URL=http://YOUR_LAPTOP_IP:5001/api` in `.env` (use the IP from `ipconfig` / `ifconfig`). |
 | **Wrong or old IP** | Your laptop’s IP can change (e.g. new WiFi). Run `ipconfig` again and update `.env` with the new IPv4 address, then restart Expo. |
 | **Phone and laptop on different networks** | Use the **same WiFi** for both (no guest network, no mobile data for the app). |
 | **Backend not reachable** | Backend must listen on all interfaces. In `backend/server.js` it should use `HOST = '0.0.0.0'` (or listen on `0.0.0.0`) so the phone can connect to your laptop’s IP. |
-| **Firewall blocking port 5000** | Allow inbound TCP on port 5000 for your WiFi (e.g. Windows Firewall → allow Node/backend app). |
+| **Firewall blocking port 5001** | Allow inbound TCP on port 5001 for your WiFi (e.g. Windows Firewall → allow Node/backend app). |
 | **.env not loaded** | Restart Expo after editing `.env`: `Ctrl+C`, then `npx expo start` (or `npx expo start --clear`). |
 
 **Easiest fix if you don’t need local backend:** Set `EXPO_PUBLIC_USE_PRODUCTION=true` in `.env`. The app will use the production API and the phone will connect without caring about your laptop’s IP.
@@ -54,7 +54,7 @@ If you want to use your local backend (e.g. for development):
 ```
 EXPO_PUBLIC_USE_PRODUCTION=false
 # For device: use your computer's IP (run ipconfig or ifconfig)
-EXPO_PUBLIC_API_URL=http://192.168.1.XXX:5000/api
+EXPO_PUBLIC_API_URL=http://10.12.96.5:5001/api
 ```
 Replace `192.168.1.XXX` with your laptop’s IPv4 address from `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
 

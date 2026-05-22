@@ -4,6 +4,7 @@ const { authMiddleware, roleMiddleware } = require('../middleware/authMiddleware
 const {
   getZonesAndClusters,
   upsertZoneCluster,
+  deleteZoneCluster,
 } = require('../controllers/zoneClusterController');
 
 // Get all zones & clusters (any authenticated user)
@@ -15,6 +16,13 @@ router.post(
   authMiddleware,
   roleMiddleware('Admin', 'Super Admin'),
   upsertZoneCluster
+);
+
+router.delete(
+  '/:id',
+  authMiddleware,
+  roleMiddleware('Admin', 'Super Admin'),
+  deleteZoneCluster
 );
 
 module.exports = router;

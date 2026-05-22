@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "ab2b7747-1c2e-40b4-9aad-983e3477ee57"
+      }
+    },
+    "android": {
+      "package": "CRM.Am_"
+    },
+    "ios": {
+      "bundleIdentifier": "iOS",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

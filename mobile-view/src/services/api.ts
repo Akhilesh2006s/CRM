@@ -44,7 +44,9 @@ const getApiUrl = (): string => {
   const ip = envIp || getDevHostFromExpo();
   if (ip) return `http://${ip}:5001/api`;
 
-  // Fallback - likely wrong; user should set EXPO_PUBLIC_API_URL
+  // Fallback when .env is missing — set EXPO_PUBLIC_API_URL in mobile-view/.env
+  const fallbackIp = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_IP;
+  if (fallbackIp) return `http://${String(fallbackIp).trim()}:5001/api`;
   return 'http://localhost:5001/api';
 };
 
