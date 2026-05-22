@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useProducts } from '@/hooks/useProducts'
+import { lookupPincode } from '@/lib/pincode'
 
 type ProductSelection = {
   name: string
@@ -224,22 +225,9 @@ export default function EditLeadPage() {
         // If pincode exists, load areas
         if (lead.pincode && lead.pincode.length === 6) {
           try {
-            const response = await apiRequest<{
-              town?: string
-              district?: string
-              state?: string
-              region?: string
-              success: boolean
-              postOffices?: Array<{ Name: string; District: string; State: string; Division?: string; Region?: string; Block?: string; BranchType?: string }>
-            }>(`/location/get-town?pincode=${lead.pincode}`)
-            
-            if (response.success && response.postOffices && response.postOffices.length > 0) {
-              setAreas(response.postOffices.map(po => ({
-                name: po.Name,
-                district: po.District,
-                block: po.Block,
-                branchType: po.BranchType,
-              })))
+            const response = await lookupPincode(lead.pincode)
+            if (response.success && response.postOffices?.length) {
+              setAreas(response.postOffices)
             }
           } catch (err) {
             console.error('Failed to load areas for pincode:', err)
@@ -262,57 +250,36 @@ export default function EditLeadPage() {
   const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const pincode = e.target.value.replace(/\D/g, '').slice(0, 6)
     setForm((f) => ({ ...f, pincode }))
-    
+
     if (pincode.length === 6) {
       setLoadingPincode(true)
       try {
-        const response = await apiRequest<{
-          town?: string
-          district?: string
-          state?: string
-          region?: string
-          success: boolean
-          postOffices?: Array<{ Name: string; District: string; State: string; Division?: string; Region?: string; Block?: string; BranchType?: string }>
-        }>(`/location/get-town?pincode=${pincode}`)
-        
+        const response = await lookupPincode(pincode)
         if (response.success && response.town) {
           setForm((f) => ({
             ...f,
-            // Don't auto-fill location (landmark) - user should enter manually
             city: response.district || '',
             state: response.state || '',
             region: response.region || '',
-            // Don't auto-select area - user must select manually
           }))
-          
-          // Populate area dropdown with all post offices (exact areas)
-          if (response.postOffices && response.postOffices.length > 0) {
-            setAreas(response.postOffices.map(po => ({
-              name: po.Name,
-              district: po.District,
-              block: po.Block,
-              branchType: po.BranchType,
-            })))
-            // Don't auto-select - user must select manually
-          } else {
-            // Fallback: use town as area option
-            setAreas([{ name: response.town, district: response.district || '' }])
-            // Don't auto-select - user must select manually
-          }
+          setAreas(response.postOffices || [{ name: response.town, district: response.district || '' }])
+        } else {
+          setAreas([])
+          toast.error(response.message || 'Could not find this pincode.')
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Pincode lookup failed:', err)
         setAreas([])
+        toast.error(
+          err instanceof Error ? err.message : 'Pincode lookup failed. Enter location manually.',
+        )
       } finally {
         setLoadingPincode(false)
       }
-      } else {
-        if (pincode.length < 6) {
-          setAreas([])
-          setForm((f) => ({ ...f, city: '', state: '', region: '', area: '' }))
-          // Don't clear location (landmark) - user may have entered it manually
-        }
-      }
+    } else if (pincode.length < 6) {
+      setAreas([])
+      setForm((f) => ({ ...f, city: '', state: '', region: '', area: '' }))
+    }
   }
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
