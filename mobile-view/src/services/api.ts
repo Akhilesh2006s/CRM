@@ -2,7 +2,11 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Get dev machine IP from Expo - when running on physical device, Expo knows the dev server's IP
+/** Same production host as `navbar-landing/lib/api.ts` */
+export const PROD_API_URL = 'https://crm-backend-production-fc85.up.railway.app/api';
+
+const LOCAL_API_URL = 'http://localhost:5001/api';
+
 const getDevHostFromExpo = (): string | null => {
   try {
     const Constants = require('expo-constants').default;
@@ -21,44 +25,49 @@ const getDevHostFromExpo = (): string | null => {
   return null;
 };
 
-// API URL - set EXPO_PUBLIC_API_URL in .env to override
-// For web: always localhost. For device: Expo IP or EXPO_PUBLIC_API_IP
-const getApiUrl = (): string => {
-  const envUrl = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL;
+/** Local backend only when `EXPO_PUBLIC_USE_PRODUCTION=false` in `.env` */
+export function useLocalBackend(): boolean {
+  return (
+    typeof process !== 'undefined' &&
+    process.env?.EXPO_PUBLIC_USE_PRODUCTION === 'false'
+  );
+}
+
+/**
+ * API base URL (includes `/api` suffix).
+ * Default: production Railway (same as web). Override with `EXPO_PUBLIC_API_URL`.
+ * Local dev: set `EXPO_PUBLIC_USE_PRODUCTION=false` in `mobile-view/.env`.
+ */
+export const getApiUrl = (): string => {
+  const envUrl =
+    typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL;
   if (envUrl) {
     const url = String(envUrl).trim().replace(/\/$/, '');
     return url.includes('/api') ? url : `${url}/api`;
   }
-  if (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_USE_PRODUCTION === 'true') {
-    return 'https://crm-backend-production-2ffd.up.railway.app/api';
+
+  if (!useLocalBackend()) {
+    return PROD_API_URL;
   }
 
-  // Web (browser) or React Native Web - always use localhost
-  const isWeb = Platform.OS === 'web' || (typeof window !== 'undefined' && typeof document !== 'undefined');
+  const isWeb =
+    Platform.OS === 'web' ||
+    (typeof window !== 'undefined' && typeof document !== 'undefined');
   if (isWeb) {
-    return 'http://localhost:5001/api';
+    return LOCAL_API_URL;
   }
 
-  // Native (iOS/Android) - use Expo dev host IP so device can reach backend on same WiFi
   const envIp = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_IP;
   const ip = envIp || getDevHostFromExpo();
   if (ip) return `http://${ip}:5001/api`;
 
-  // Fallback when .env is missing — set EXPO_PUBLIC_API_URL in mobile-view/.env
-  const fallbackIp = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_IP;
-  if (fallbackIp) return `http://${String(fallbackIp).trim()}:5001/api`;
-  return 'http://localhost:5001/api';
+  return LOCAL_API_URL;
 };
 
-const DEV_API_URL = getApiUrl();
+const API_BASE_URL = getApiUrl();
 
-export { getApiUrl, DEV_API_URL };
-
-// Production API URL (Railway backend)
-const PROD_API_URL = 'https://crm-backend-production-2ffd.up.railway.app/api';
-
-// Use local development URL (change to PROD_API_URL for production)
-const API_BASE_URL = DEV_API_URL;
+/** @deprecated Use getApiUrl() */
+export const DEV_API_URL = API_BASE_URL;
 
 class ApiService {
   private baseURL: string;
@@ -73,36 +82,47 @@ class ApiService {
   }
 
   private async getHeaders() {
-    const headers: any = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      headers.Authorization = `Bearer ${this.token}`;
     }
 
-    // Try to get token from storage if not set
     if (!this.token) {
       const storedToken = await AsyncStorage.getItem('authToken');
       if (storedToken) {
-        headers['Authorization'] = `Bearer ${storedToken}`;
+        headers.Authorization = `Bearer ${storedToken}`;
       }
     }
 
     return headers;
   }
 
+  private connectionErrorHint(): string {
+    if (useLocalBackend()) {
+      return `Cannot connect to server (${this.baseURL}). For local dev: backend on port 5001, same WiFi, set EXPO_PUBLIC_API_URL=http://YOUR_LAPTOP_IP:5001/api. For production, remove EXPO_PUBLIC_USE_PRODUCTION=false from .env.`;
+    }
+    return `Cannot connect to production API (${this.baseURL}). Check internet connection and try again.`;
+  }
+
   async get(endpoint: string) {
     try {
       const headers = await this.getHeaders();
-      const response = await axios.get(`${this.baseURL}${endpoint}`, { 
+      const response = await axios.get(`${this.baseURL}${endpoint}`, {
         headers,
-        timeout: 10000, // 10 second timeout
+        timeout: 15000,
       });
       return response.data;
     } catch (error: any) {
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.message?.includes('Network Error') || error.message?.includes('timeout')) {
-        throw new Error(`Cannot connect to server. Make sure:\n1. Backend is running on port 5001\n2. API URL is correct (currently: ${this.baseURL})\n3. Device and computer are on same network\n4. Firewall allows port 5001`);
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.message?.includes('Network Error') ||
+        error.message?.includes('timeout')
+      ) {
+        throw new Error(this.connectionErrorHint());
       }
       throw error;
     }
@@ -111,35 +131,22 @@ class ApiService {
   async post(endpoint: string, data: any) {
     try {
       const headers = await this.getHeaders();
-      console.log(`POST ${this.baseURL}${endpoint}`, { data: { ...data, password: '***' } });
-      const response = await axios.post(`${this.baseURL}${endpoint}`, data, { 
+      const response = await axios.post(`${this.baseURL}${endpoint}`, data, {
         headers,
-        timeout: 30000, // 30 second timeout for posts (may have image uploads)
+        timeout: 30000,
       });
       return response.data;
     } catch (error: any) {
-      // Log error details for debugging
-      if (error.response) {
-        console.error(`API Error [${error.response.status}]:`, {
-          endpoint: `${this.baseURL}${endpoint}`,
-          status: error.response.status,
-          data: error.response.data,
-        });
-      } else {
-        console.error('Network Error:', {
-          endpoint: `${this.baseURL}${endpoint}`,
-          code: error.code,
-          message: error.message,
-        });
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
       }
-      
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.message?.includes('Network Error') || error.message?.includes('timeout')) {
-        throw new Error(`Cannot connect to server. Make sure:\n1. Backend is running on port 5001\n2. API URL is correct (currently: ${this.baseURL})\n3. Device and computer are on same network\n4. Firewall allows port 5001`);
-      }
-      // Throw with backend error message so UI can display it
-      const backendMsg = error.response?.data?.message;
-      if (backendMsg) {
-        throw new Error(backendMsg);
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.message?.includes('Network Error') ||
+        error.message?.includes('timeout')
+      ) {
+        throw new Error(this.connectionErrorHint());
       }
       throw error;
     }
@@ -151,10 +158,9 @@ class ApiService {
     return response.data;
   }
 
-  /** Upload file (FormData). Uses fetch for reliable React Native file uploads (axios can fail with file URIs). */
   async upload(endpoint: string, formData: FormData) {
     const headers = await this.getHeaders();
-    delete (headers as any)['Content-Type'];
+    delete (headers as Record<string, string>)['Content-Type'];
     const url = `${this.baseURL}${endpoint}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -175,16 +181,18 @@ class ApiService {
         } catch (_) {}
         throw new Error(message);
       }
-      const data = text ? JSON.parse(text) : {};
-      return data;
+      return text ? JSON.parse(text) : {};
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
         throw new Error('Upload timed out. Check your connection and try again.');
       }
       if (err.message?.includes('Upload failed')) throw err;
-      if (err.message?.includes('Network request failed') || err.message?.includes('Failed to fetch')) {
-        throw new Error(`Cannot connect to server. Ensure backend is running and API URL is correct (${this.baseURL}).`);
+      if (
+        err.message?.includes('Network request failed') ||
+        err.message?.includes('Failed to fetch')
+      ) {
+        throw new Error(this.connectionErrorHint());
       }
       throw err;
     }
@@ -199,4 +207,3 @@ class ApiService {
 
 export const apiService = new ApiService(API_BASE_URL);
 export default ApiService;
-

@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { navigateRoot } from '../../navigation/navigationRef';
-import { WebButton } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
 import ScreenShell, { PageSection } from '../../ui/ScreenShell';
-import { WebInput, WebButton, DataTable } from '../../ui/WebPrimitives';
+import { WebButton } from '../../ui/WebPrimitives';
 import { colors } from '../../theme/colors';
 
 export default function DeliverableViewScreen({ route }: any) {

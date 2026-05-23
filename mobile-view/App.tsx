@@ -2,7 +2,7 @@ import 'react-native-gesture-handler';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { rootNavigationRef } from './src/navigation/navigationRef';
-import MainDrawer from './src/navigation/MainDrawer';
+import MainTabs from './src/navigation/MainTabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
@@ -174,7 +174,7 @@ function AppNavigator() {
       if (!user) {
         navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
       } else {
-        navigationRef.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
+        navigationRef.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
       }
     }
   }, [user, loading, navigationRef]);
@@ -196,7 +196,7 @@ function AppNavigator() {
     },
     headerTintColor: '#171717',
     headerTitleStyle: {
-      fontWeight: '600',
+      fontWeight: '600' as const,
       fontSize: 17,
     },
   };
@@ -218,8 +218,14 @@ function AppNavigator() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="MainTabs"
+          component={MainTabs}
+          options={{ headerShown: false }}
+        />
+        {/* Alias for deep links / older resets */}
+        <Stack.Screen
           name="MainDrawer"
-          component={MainDrawer}
+          component={MainTabs}
           options={{ headerShown: false }}
         />
         <Stack.Screen

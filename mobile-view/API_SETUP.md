@@ -1,15 +1,16 @@
 # API Configuration Guide
 
-## Quick Fix: Use Production Backend
+## Production backend (default)
 
-The app is configured to use the **production backend** (Railway) by default via `.env`:
-```
-EXPO_PUBLIC_USE_PRODUCTION=true
-```
+The mobile app uses the **same production API as web** by default:
 
-This works from **anywhere** – phone, web, different networks. No local setup needed.
+`https://crm-backend-production-fc85.up.railway.app/api`
 
-**Restart Expo** after changing `.env`: stop with `Ctrl+C`, then run `npx expo start` again.
+No `.env` is required. Works from any network (phone on mobile data or WiFi).
+
+Optional: copy `env.example` to `.env` and set `EXPO_PUBLIC_API_URL` explicitly.
+
+**Restart Expo** after changing `.env`: `npx expo start -c`
 
 ---
 
@@ -42,7 +43,7 @@ Use that IP in `.env` as `EXPO_PUBLIC_API_URL=http://YOUR_IP:5001/api` (see belo
 | **Firewall blocking port 5001** | Allow inbound TCP on port 5001 for your WiFi (e.g. Windows Firewall → allow Node/backend app). |
 | **.env not loaded** | Restart Expo after editing `.env`: `Ctrl+C`, then `npx expo start` (or `npx expo start --clear`). |
 
-**Easiest fix if you don’t need local backend:** Set `EXPO_PUBLIC_USE_PRODUCTION=true` in `.env`. The app will use the production API and the phone will connect without caring about your laptop’s IP.
+**Production is already the default.** If you pointed the app at localhost, remove `EXPO_PUBLIC_USE_PRODUCTION=false` from `.env` or delete `.env`, then restart Expo.
 
 ---
 
@@ -53,8 +54,7 @@ If you want to use your local backend (e.g. for development):
 ### 1. Edit `.env`
 ```
 EXPO_PUBLIC_USE_PRODUCTION=false
-# For device: use your computer's IP (run ipconfig or ifconfig)
-EXPO_PUBLIC_API_URL=http://10.12.96.5:5001/api
+EXPO_PUBLIC_API_URL=http://YOUR_LAPTOP_IP:5001/api
 ```
 Replace `192.168.1.XXX` with your laptop’s IPv4 address from `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
 

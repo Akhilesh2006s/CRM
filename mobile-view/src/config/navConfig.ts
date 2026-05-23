@@ -9,16 +9,49 @@ export type NavLink = {
   label: string;
   screen: string;
   params?: object;
+  icon?: string;
 };
 
 export type NavSection = {
   title: string;
   items: NavLink[];
+  icon?: string;
+};
+
+const I = {
+  leads: '📋',
+  clients: '🏢',
+  employees: '👥',
+  managers: '🛡️',
+  leaves: '📅',
+  training: '🎓',
+  warehouse: '📦',
+  returns: '🔄',
+  payments: '💳',
+  expenses: '💸',
+  reports: '📊',
+  products: '📦',
+  settings: '⚙️',
+  partner: '🤝',
+  finance: '🏦',
 };
 
 export function getNavSections(user: CrmUser | null | undefined): NavSection[] {
   const flags = getRoleFlags(user);
-  const { role, isAdmin, isPartner, isManager, isExecutive, isTrainer, isWarehouseExecutive, isWarehouseManager, isFinanceManager, isExecutiveManager } = flags;
+  const {
+    role,
+    isAdmin,
+    isPartner,
+    isManager,
+    isCoordinator,
+    isSeniorCoordinator,
+    isExecutive,
+    isTrainer,
+    isWarehouseExecutive,
+    isWarehouseManager,
+    isFinanceManager,
+    isExecutiveManager,
+  } = flags;
 
   if (isPartner || role === 'Vendor') {
     return [
@@ -192,88 +225,160 @@ export function getNavSections(user: CrmUser | null | undefined): NavSection[] {
     ];
   }
 
-  // Admin / default
+  // Admin / default — aligned with web Sidebar (non-DMS, non-AI)
   const sections: NavSection[] = [
     {
       title: 'Leads',
+      icon: I.leads,
       items: [
-        { label: 'All Leads', screen: 'LeadsList' },
-        { label: 'Add Lead', screen: 'LeadAdd' },
-        { label: 'Renewal Leads', screen: 'LeadsRenewalList' },
+        { label: 'All Leads', screen: 'LeadsList', icon: '📋' },
+        { label: 'Add Lead', screen: 'LeadAdd', icon: '➕' },
+        { label: 'Renewal Leads', screen: 'LeadsRenewalList', icon: '🔄' },
+        { label: 'Followup Leads', screen: 'LeadFollowup', icon: '📞' },
       ],
     },
     {
-      title: 'Clients',
+      title: 'Clients & DC',
+      icon: I.clients,
       items: [
-        { label: 'Create Sale', screen: 'DCCreate' },
-        { label: 'Closed Sales', screen: 'DCClosed' },
-        { label: 'Admin DC', screen: 'DCAdmin' },
-        { label: 'Pending DC', screen: 'DCPending' },
+        { label: 'Create Sale', screen: 'DCCreate', icon: '➕' },
+        { label: 'Closed Sales', screen: 'DCClosed', icon: '✅' },
+        { label: 'Saved DC', screen: 'DCSaved', icon: '💾' },
+        { label: 'Pending DC', screen: 'DCPending', icon: '⏳' },
+        { label: 'EMP DC', screen: 'DCEmp', icon: '👤' },
+        { label: 'Term-Wise DC', screen: 'DCTermWise', icon: '📄' },
+        { label: 'Admin DC', screen: 'DCAdmin', icon: '🛡️' },
+        { label: 'Completed DC', screen: 'DCCompleted', icon: '📦' },
       ],
     },
     {
       title: 'Employees',
+      icon: I.employees,
       items: [
-        { label: 'New Employee', screen: 'EmployeeNew' },
-        { label: 'Active', screen: 'EmployeesActive' },
-        { label: 'Zones', screen: 'EmployeesZones' },
-        { label: 'Clusters', screen: 'EmployeesClusters' },
+        { label: 'New Employee', screen: 'EmployeeNew', icon: '➕' },
+        { label: 'Active Employees', screen: 'EmployeesActive', icon: '👥' },
+        { label: 'Inactive Employees', screen: 'EmployeesInactive', icon: '🚫' },
+        { label: 'Pending Leaves', screen: 'EmployeesLeaves', icon: '📅' },
+        { label: 'Zones', screen: 'EmployeesZones', icon: '🗺️' },
+        { label: 'Clusters', screen: 'EmployeesClusters', icon: '🔗' },
       ],
     },
     {
-      title: 'Payments',
+      title: 'Executive Managers',
+      icon: I.managers,
       items: [
-        { label: 'Payments', screen: 'PaymentList' },
-        { label: 'Pending Cash', screen: 'PaymentApprovalPendingCash' },
-        { label: 'Pending Cheques', screen: 'PaymentApprovalPendingCheques' },
+        { label: 'All Managers', screen: 'ExecutiveManagers', icon: '🛡️' },
+        { label: 'Create Manager', screen: 'ExecutiveManagerNew', icon: '➕' },
       ],
     },
     {
-      title: 'Expenses',
+      title: 'Leaves',
+      icon: I.leaves,
       items: [
-        { label: 'Pending', screen: 'ExpensePending' },
-        { label: 'Finance Pending', screen: 'ExpenseFinancePending' },
+        { label: 'Pending Leaves', screen: 'LeavesPending', icon: '⏳' },
+        { label: 'Leaves Report', screen: 'LeavesReport', icon: '📊' },
+        { label: 'Request Leave', screen: 'LeaveRequest', icon: '➕' },
       ],
     },
     {
-      title: 'Reports',
+      title: 'Training & Services',
+      icon: I.training,
       items: [
-        { label: 'Reports Hub', screen: 'ReportsLeads' },
-        { label: 'DC Report', screen: 'ReportsDC' },
-      ],
-    },
-    {
-      title: 'Training',
-      items: [
-        { label: 'Training List', screen: 'TrainingList' },
-        { label: 'Assign', screen: 'TrainingAssign' },
+        { label: 'Trainers Dashboard', screen: 'TrainingDashboard', icon: '📊' },
+        { label: 'Assign Training', screen: 'TrainingAssign', icon: '📋' },
+        { label: 'Trainings List', screen: 'TrainingList', icon: '📚' },
+        { label: 'Services List', screen: 'ServicesList', icon: '🔧' },
+        { label: 'New Trainer', screen: 'TrainersNew', icon: '➕' },
+        { label: 'Active Trainers', screen: 'TrainersActive', icon: '✅' },
+        { label: 'Inactive Trainers', screen: 'TrainersInactive', icon: '🚫' },
       ],
     },
     {
       title: 'Warehouse',
+      icon: I.warehouse,
       items: [
-        { label: 'Inventory', screen: 'WarehouseInventoryItems' },
-        { label: 'Search DC', screen: 'WarehouseSearchDC' },
+        { label: 'Inventory Items', screen: 'WarehouseInventoryItems', icon: '📋' },
+        { label: 'Stock', screen: 'WarehouseStock', icon: '📦' },
+        { label: 'DC @ Warehouse', screen: 'WarehouseDCAtWarehouse', icon: '🏭' },
+        { label: 'Completed DC', screen: 'WarehouseCompletedDC', icon: '✅' },
+        { label: 'Hold DC', screen: 'WarehouseHoldDC', icon: '⏸️' },
+        { label: 'DC Listed', screen: 'WarehouseDCListed', icon: '📝' },
+        { label: 'Search DC', screen: 'WarehouseSearchDC', icon: '🔍' },
+      ],
+    },
+    {
+      title: 'Stock Returns',
+      icon: I.returns,
+      items: [
+        { label: 'Employee Returns', screen: 'ReturnsEmployee', icon: '👤' },
+        { label: 'Warehouse Returns', screen: 'ReturnsWarehouse', icon: '🏢' },
+      ],
+    },
+    {
+      title: 'Payments',
+      icon: I.payments,
+      items: [
+        { label: 'Pending Payments', screen: 'PaymentList', icon: '⏳' },
+        { label: 'Add Payment', screen: 'PaymentAdd', icon: '➕' },
+        { label: 'Payments Done', screen: 'PaymentDone', icon: '✅' },
+        { label: 'Transaction Report', screen: 'PaymentTransactionReport', icon: '📊' },
+        { label: 'Pending Cash Approval', screen: 'PaymentApprovalPendingCash', icon: '💵' },
+        { label: 'Pending Cheques', screen: 'PaymentApprovalPendingCheques', icon: '🏦' },
+      ],
+    },
+    {
+      title: 'Expenses',
+      icon: I.expenses,
+      items: [
+        { label: 'Pending Expenses', screen: 'ExpensePending', icon: '⏳' },
+        { label: 'Finance Pending', screen: 'ExpenseFinancePending', icon: '🏦' },
+        { label: 'Create Expense', screen: 'ExpenseCreate', icon: '➕' },
+      ],
+    },
+    {
+      title: 'Reports',
+      icon: I.reports,
+      items: [
+        { label: 'Leads Reports', screen: 'ReportsLeads', icon: '📋' },
+        { label: 'Sales Visit', screen: 'ReportsSalesVisit', icon: '🚗' },
+        { label: 'Employee Track', screen: 'ReportsEmployeeTrack', icon: '📍' },
+        { label: 'DC Report', screen: 'ReportsDC', icon: '📦' },
+        { label: 'Stock Report', screen: 'ReportsStock', icon: '📊' },
+        { label: 'Returns Report', screen: 'ReportsReturns', icon: '🔄' },
+        { label: 'All Expenses', screen: 'ReportsExpenses', icon: '💸' },
       ],
     },
   ];
 
   if (isAdmin) {
+    const leavesIdx = sections.findIndex((s) => s.title === 'Leaves');
+    if (leavesIdx >= 0) {
+      sections[leavesIdx] = {
+        ...sections[leavesIdx],
+        items: sections[leavesIdx].items.filter(
+          (i) => i.screen !== 'LeaveRequest' && i.screen !== 'LeavesApproved'
+        ),
+      };
+    }
     sections.push({
-      title: 'Products (Admin)',
+      title: 'Products',
+      icon: I.products,
       items: [
-        { label: 'Products', screen: 'ProductsList' },
-        { label: 'Partners / Vendors', screen: 'VendorsList' },
-        { label: 'Deliverables', screen: 'DeliverablesList' },
+        { label: 'All Products', screen: 'ProductsList', icon: '📦' },
+        { label: 'Add Product', screen: 'ProductNew', icon: '➕' },
+        { label: 'Partners / Vendors', screen: 'VendorsList', icon: '🤝' },
+        { label: 'Deliverables', screen: 'DeliverablesList', icon: '📋' },
       ],
     });
     sections.push({
       title: 'Settings',
+      icon: I.settings,
       items: [
-        { label: 'Password', screen: 'SettingsPassword' },
-        { label: 'SMS', screen: 'SettingsSMS' },
-        { label: 'Backup', screen: 'SettingsBackup' },
-        { label: 'Expense Policy', screen: 'SettingsExpenses' },
+        { label: 'Change Password', screen: 'SettingsPassword', icon: '🔐' },
+        { label: 'Data Upload', screen: 'SettingsUpload', icon: '📤' },
+        { label: 'SMS Settings', screen: 'SettingsSMS', icon: '💬' },
+        { label: 'DB Backup', screen: 'SettingsBackup', icon: '💾' },
+        { label: 'Expense Policy', screen: 'SettingsExpenses', icon: '⚙️' },
       ],
     });
   }

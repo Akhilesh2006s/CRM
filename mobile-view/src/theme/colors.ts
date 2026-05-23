@@ -50,9 +50,9 @@ export const spacing = {
   xl: 32,
 };
 
-/** @deprecated Use neutral header in ScreenShell instead */
+/** Button / CTA gradients (headers use ScreenShell neutral bar, not these). */
 export const gradients = {
-  primary: ['#FFFFFF', '#FAFAFA'],
+  primary: ['#16A34A', '#15803D'],
   accent: ['#F5F5F5', '#E5E5E5'],
   success: ['#16A34A', '#15803D'],
   sunset: ['#F59E0B', '#EF4444'],

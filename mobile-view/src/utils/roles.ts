@@ -19,14 +19,20 @@ export function roleIncludes(user: CrmUser | null | undefined, match: string): b
 }
 
 export function getRoleFlags(user: CrmUser | null | undefined) {
-  const role = user?.role ?? '';
+  const role = (user?.role ?? '').trim();
+  const roleLower = role.toLowerCase();
   return {
     role,
-    isAdmin: role === 'Admin' || role === 'Super Admin',
-    isPartner: role === 'Partner' || role === 'Vendor',
-    isManager: role === 'Manager',
-    isCoordinator: role === 'Coordinator',
-    isSeniorCoordinator: role === 'Senior Coordinator',
+    isAdmin:
+      roleLower === 'admin' ||
+      roleLower === 'super admin' ||
+      role === 'Admin' ||
+      role === 'Super Admin',
+    isPartner: role === 'Partner' || role === 'Vendor' || roleLower === 'partner' || roleLower === 'vendor',
+    isManager: role === 'Manager' || roleLower === 'manager',
+    isCoordinator: role === 'Coordinator' || roleLower === 'coordinator',
+    isSeniorCoordinator:
+      role === 'Senior Coordinator' || roleLower === 'senior coordinator',
     isExecutiveManager: role === 'Executive Manager',
     isTrainer: role === 'Trainer',
     isWarehouseExecutive: role === 'Warehouse Executive',

@@ -15,7 +15,7 @@ export type RouteEntry = {
 };
 
 export const ROUTE_REGISTRY: RouteEntry[] = [
-  { webPath: '/dashboard', mobileScreen: 'MainDrawer', module: 'Core', status: 'done' },
+  { webPath: '/dashboard', mobileScreen: 'MainTabs', module: 'Core', status: 'done' },
   { webPath: '/auth/login', mobileScreen: 'Login', module: 'Auth', status: 'done' },
 
   { webPath: '/dashboard/leads', mobileScreen: 'LeadsList', module: 'Leads', status: 'done' },

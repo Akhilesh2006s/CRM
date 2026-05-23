@@ -10,6 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radii } from '../theme/colors';
 
 type Props = {
@@ -57,7 +58,7 @@ export default function ScreenShell({
       <View style={styles.topBar}>
         {showBack ? (
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
-            <Text style={styles.backText}>←</Text>
+            <Ionicons name="chevron-back" size={26} color={colors.primary} />
           </TouchableOpacity>
         ) : (
           <View style={styles.backBtn} />
@@ -104,7 +105,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backText: { fontSize: 22, color: colors.textPrimary, fontWeight: '600' },
   titleWrap: { flex: 1, paddingHorizontal: 8 },
   title: { fontSize: 20, fontWeight: '600', color: colors.textPrimary },
   subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },

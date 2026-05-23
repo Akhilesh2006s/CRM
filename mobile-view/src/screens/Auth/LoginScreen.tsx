@@ -40,11 +40,6 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require('../../../assets/logo.png')}
-        style={styles.backgroundLogo}
-        resizeMode="cover"
-      />
       <View style={styles.overlay}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -53,12 +48,12 @@ export default function LoginScreen() {
           <View style={styles.content}>
             <View style={styles.logoContainer}>
               <Image
-                source={require('../../../assets/logo.png')}
+                source={require('../../../assets/logo-login.png')}
                 style={styles.logoImage}
                 resizeMode="contain"
               />
-              <Text style={styles.title}>C-Forge</Text>
-              <Text style={styles.subtitle}>Employee Portal</Text>
+              <Text style={styles.title}>AMENITYFORGE</Text>
+              <Text style={styles.subtitle}>Building Digital Excellence</Text>
             </View>
 
             <View style={styles.card}>
@@ -126,21 +121,11 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    position: 'relative',
-    backgroundColor: colors.background,
-  },
-  backgroundLogo: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
+    backgroundColor: '#000000',
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(249, 250, 251, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   keyboardView: {
     flex: 1,
@@ -155,7 +140,7 @@ const styles = StyleSheet.create({
     marginBottom: 56,
   },
   logoImage: {
-    width: 120,
+    width: 280,
     height: 120,
     marginBottom: 24,
     shadowColor: colors.shadowDark,
@@ -166,12 +151,12 @@ const styles = StyleSheet.create({
   },
   title: {
     ...typography.display.medium,
-    color: colors.textPrimary,
+    color: '#F5F5F5',
     marginBottom: 12,
   },
   subtitle: {
     ...typography.body.large,
-    color: colors.textSecondary,
+    color: '#A3A3A3',
     fontWeight: '500',
   },
   card: {
@@ -241,7 +226,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonText: {
-    color: colors.textLight,
+    color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,

@@ -40,12 +40,32 @@ dotenv.config();
 
 const app = express();
 
-// Middleware - CORS: web (localhost) + mobile (Expo on device - allow all in dev)
+// Middleware - CORS: dev allows all; production allows web (Vercel) + local + env list
 const isDev = process.env.NODE_ENV !== 'production';
-app.use(cors({
-  origin: isDev ? true : ['http://localhost:8081', 'http://localhost:3000'],
-  credentials: true,
-}));
+const productionOrigins = [
+  'http://localhost:3000',
+  'http://localhost:8081',
+  'https://crm-frontend-gilt-five.vercel.app',
+  ...(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+];
+app.use(
+  cors({
+    origin: isDev
+      ? true
+      : (origin, callback) => {
+          // Same-origin or non-browser clients (curl, mobile native) may omit Origin
+          if (!origin || productionOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            callback(new Error(`CORS blocked for origin: ${origin}`));
+          }
+        },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '50mb' })); // Increase limit for base64 image uploads
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

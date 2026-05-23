@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { getExpensePolicy } = require('../utils/expensePolicy');
 const Expense = require('../models/Expense');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
@@ -72,6 +73,18 @@ const getExpenses = async (req, res) => {
       .sort({ createdAt: -1 });
 
     res.json(expenses);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get expense policy (create UI, sidebar finance nav)
+// @route   GET /api/expenses/policy
+// @access  Private
+const getExpensePolicySettings = async (req, res) => {
+  try {
+    const policy = await getExpensePolicy();
+    res.json(policy);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -721,6 +734,7 @@ const updateExpense = async (req, res) => {
 module.exports = {
   getExpenses,
   getExpense,
+  getExpensePolicySettings,
   createExpense,
   approveExpense,
   getManagerPendingExpenses,

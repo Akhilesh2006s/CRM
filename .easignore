@@ -1,0 +1,30 @@
+# Repo root is CRM-FORGE; EAS was packing ~469MB without this file.
+# Keep only what mobile-view needs — dependencies install on EAS servers.
+
+# Other apps / backends in monorepo
+navbar-landing/
+backend/
+app/
+docs/
+scripts/
+
+# Dependencies (reinstalled during build)
+**/node_modules/
+
+# Git & tooling
+.git/
+.cursor/
+.vscode/
+**/.expo/
+**/dist/
+**/web-build/
+
+# Large / non-build files
+**/*.md
+**/*.log
+**/.env
+**/.env.*
+!mobile-view/.env.example
+
+# Optional: shrink assets if needed (icons are required for build)
+# mobile-view/assets/logo.png

@@ -16,6 +16,7 @@ export default function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarStyle: { paddingBottom: 4, height: 56 },
+        lazy: true,
       }}
     >
       <Tab.Screen name="Home" component={DashboardScreen} options={{ tabBarLabel: 'Home' }} />

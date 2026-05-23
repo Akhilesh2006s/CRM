@@ -4,6 +4,7 @@ const multer = require('multer');
 const {
   getExpenses,
   getExpense,
+  getExpensePolicySettings,
   createExpense,
   approveExpense,
   getManagerPendingExpenses,
@@ -27,6 +28,7 @@ router.get('/finance-pending', authMiddleware, getFinancePendingExpenses);
 router.get('/report', authMiddleware, getExpensesReport);
 router.get('/export', authMiddleware, exportExpenses);
 router.get('/employee/:employeeId', authMiddleware, getExpensesByEmployee);
+router.get('/policy', authMiddleware, getExpensePolicySettings);
 // File upload - must be before /:id routes to avoid route conflicts
 router.post('/upload-bill', authMiddleware, (req, res, next) => {
   uploadExpenseBillMiddleware(req, res, (err) => {
