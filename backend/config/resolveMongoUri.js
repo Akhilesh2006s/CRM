@@ -109,15 +109,25 @@ async function expandSrvUri(srvUri) {
 /**
  * Pick the best URI: direct standard > expand srv > raw uri
  */
+function normalizeMongoUri(uri) {
+  let s = String(uri || '').trim();
+  if (/^mmongodb/i.test(s)) {
+    s = s.replace(/^mmongodb/i, 'mongodb');
+  }
+  return s;
+}
+
 async function resolveMongoConnectionString(rawUri) {
+  rawUri = normalizeMongoUri(rawUri);
   const direct =
     process.env.MONGO_URI_STANDARD ||
     process.env.MONGO_URI_DIRECT ||
     process.env.MONGODB_URI_STANDARD;
 
-  if (direct && direct.startsWith('mongodb://')) {
+  const directNorm = direct ? normalizeMongoUri(direct) : '';
+  if (directNorm && directNorm.startsWith('mongodb://')) {
     console.log('   Using MONGO_URI_STANDARD / MONGO_URI_DIRECT from .env');
-    return direct;
+    return directNorm;
   }
 
   if (rawUri.includes('mongodb+srv://')) {

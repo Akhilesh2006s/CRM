@@ -2,10 +2,19 @@ const mongoose = require('mongoose');
 const { resolveMongoConnectionString } = require('./resolveMongoUri');
 
 const connectDB = async (retryCount = 0, maxRetries = 3) => {
-  const rawUri =
+  let rawUri =
     process.env.MONGO_URI ||
     process.env.MONGODB_URI ||
     process.env.DATABASE_URL;
+
+  if (rawUri) {
+    rawUri = String(rawUri).trim();
+    // Common typo: "mmongodb+srv://" breaks mongoose ("Invalid scheme")
+    if (/^mmongodb/i.test(rawUri)) {
+      console.warn('⚠️  Fixing typo in MONGO_URI: mmongodb → mongodb');
+      rawUri = rawUri.replace(/^mmongodb/i, 'mongodb');
+    }
+  }
 
   if (!rawUri) {
     console.error('❌ MongoDB connection string not found!');
