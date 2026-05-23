@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, ActivityIndicator, Alert } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 interface StockItem {
   _id: string;
@@ -70,27 +70,14 @@ export default function ReportsStockScreen({ navigation }: any) {
 
   const statuses = ['all', 'In Stock', 'Low Stock', 'Out of Stock', 'Discontinued'];
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading stock report...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Stock Report</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <View style={styles.summaryRow}>
+    <ScreenShell
+      title="Stock Report"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Items</Text>
           <Text style={styles.summaryValue}>{summary.total}</Text>
@@ -109,11 +96,9 @@ export default function ReportsStockScreen({ navigation }: any) {
         </View>
       </View>
       <View style={styles.filters}>
-        <TextInput
+        <WebInput
           style={styles.searchInput}
-          placeholder="Search product, category, or location"
-          placeholderTextColor={colors.textSecondary}
-          value={search}
+          placeholder="Search product, category, or location" value={search}
           onChangeText={setSearch}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
@@ -151,7 +136,7 @@ export default function ReportsStockScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function EmployeeNewScreen({ navigation }: any) {
   const [form, setForm] = useState({
@@ -99,17 +99,10 @@ export default function EmployeeNewScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Employee</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="New Employee"
+    >
+<ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage ? (
           <View style={styles.successBanner}>
             <Text style={styles.successIcon}>✓</Text>
@@ -140,7 +133,7 @@ export default function EmployeeNewScreen({ navigation }: any) {
         <FormField label="Mobile *" value={form.mobile} onChangeText={(text: string) => setForm((f) => ({ ...f, mobile: text }))} placeholder="Mobile" keyboardType="phone-pad" />
         <View style={styles.textAreaContainer}>
           <Text style={styles.label}>Address 1</Text>
-          <TextInput style={styles.textArea} value={form.address1} onChangeText={(text: string) => setForm((f) => ({ ...f, address1: text }))} placeholder="Address 1" multiline numberOfLines={3} />
+          <WebInput style={styles.textArea} value={form.address1} onChangeText={(text: string) => setForm((f) => ({ ...f, address1: text }))} placeholder="Address 1" multiline numberOfLines={3} />
         </View>
         <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Location & User Type</Text>
         <FormField label="State *" value={form.state} onChangeText={(text: string) => setForm((f) => ({ ...f, state: text }))} placeholder="Enter Employee State" />
@@ -165,12 +158,9 @@ export default function EmployeeNewScreen({ navigation }: any) {
         </View>
         <FormField label="Password *" value={form.password} onChangeText={(text: string) => setForm((f) => ({ ...f, password: text }))} placeholder="Password" secureTextEntry />
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -178,7 +168,7 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType, secu
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textSecondary} keyboardType={keyboardType} secureTextEntry={secureTextEntry} />
+      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} keyboardType={keyboardType} secureTextEntry={secureTextEntry} />
     </View>
   );
 }

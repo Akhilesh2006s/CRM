@@ -6,33 +6,17 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
 export default function LeadAddScreen({ navigation }: any) {
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={gradients.primary}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Add Lead</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Add Lead"
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.subtitle}>Select the type of lead you want to add</Text>
 
         {/* New School Card */}
@@ -41,24 +25,7 @@ export default function LeadAddScreen({ navigation }: any) {
           activeOpacity={0.8}
           onPress={() => navigation.navigate('LeadAddNewSchool')}
         >
-          <LinearGradient
-            colors={['#3b82f6', '#2563eb']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>🏫</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>New School</Text>
-                <Text style={styles.cardSubtitle}>Add a new school lead</Text>
-              </View>
-              <Text style={styles.cardArrow}>›</Text>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
 
         {/* Renewal Cross Sale Card */}
         <TouchableOpacity
@@ -66,24 +33,7 @@ export default function LeadAddScreen({ navigation }: any) {
           activeOpacity={0.8}
           onPress={() => navigation.navigate('LeadAddRenewal')}
         >
-          <LinearGradient
-            colors={['#10b981', '#059669']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>🔄</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Renewal Cross Sale</Text>
-                <Text style={styles.cardSubtitle}>Add renewal or cross-sale lead for existing schools</Text>
-              </View>
-              <Text style={styles.cardArrow}>›</Text>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
 
         {/* Followup Leads Card */}
         <TouchableOpacity
@@ -91,26 +41,9 @@ export default function LeadAddScreen({ navigation }: any) {
           activeOpacity={0.8}
           onPress={() => navigation.navigate('LeadFollowup')}
         >
-          <LinearGradient
-            colors={['#f97316', '#ea580c']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>📞</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Followup Leads</Text>
-                <Text style={styles.cardSubtitle}>View your followup leads</Text>
-              </View>
-              <Text style={styles.cardArrow}>›</Text>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

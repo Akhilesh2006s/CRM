@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import LogoutButton from '../../components/LogoutButton';
 
 const cards = [
   {
@@ -31,30 +31,16 @@ const cards = [
 
 export default function ReportsLeadsScreen({ navigation }: any) {
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Leads Reports</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView contentContainerStyle={styles.content}>
+    <ScreenShell
+      title="Leads Reports"
+    >
+<ScrollView contentContainerStyle={styles.content}>
         {cards.map((card) => (
           <TouchableOpacity key={card.title} style={styles.card} onPress={() => navigation.navigate(card.route)} activeOpacity={0.8}>
-            <LinearGradient colors={card.colors} style={styles.cardGradient}>
-              <View style={styles.cardEmojiContainer}>
-                <Text style={styles.cardEmoji}>{card.emoji}</Text>
-              </View>
-              <Text style={styles.cardTitle}>{card.title}</Text>
-              <Text style={styles.cardDescription}>{card.description}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+            </TouchableOpacity>
         ))}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

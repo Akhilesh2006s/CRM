@@ -10,13 +10,13 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
-import LogoutButton from '../../components/LogoutButton';
 
 type ProductSelection = {
   product_name: string;
@@ -121,21 +121,11 @@ export default function SamplesRequestScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Sample Requests</Text>
-            <Text style={styles.headerSubtitle}>Request product samples</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Sample Requests"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner type="success" message={successMessage} onDismiss={clearMessages} />
         )}
@@ -147,7 +137,7 @@ export default function SamplesRequestScreen({ navigation }: any) {
           
           <View style={styles.formSection}>
             <Text style={styles.label}>Purpose</Text>
-            <TextInput
+            <WebInput
               style={styles.input}
               value={purpose}
               onChangeText={setPurpose}
@@ -258,7 +248,7 @@ export default function SamplesRequestScreen({ navigation }: any) {
                 ))}
               </ScrollView>
               <Text style={styles.modalLabel}>Quantity *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter quantity"
                 value={String(newProduct.quantity)}
@@ -284,7 +274,7 @@ export default function SamplesRequestScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 

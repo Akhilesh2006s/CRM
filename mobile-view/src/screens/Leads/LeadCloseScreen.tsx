@@ -12,15 +12,15 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Both'];
@@ -568,18 +568,11 @@ export default function LeadCloseScreen({ navigation, route }: any) {
   const actualProductDetails = productDetails.filter(pd => !pd.isParentRow);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Close Lead</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Close Lead"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <FormField label="School Name *" value={form.school_name} onChangeText={(text: string) => setForm({ ...form, school_name: text })} placeholder="Enter school name" />
         <FormField label="Person 1 *" value={form.contact_person} onChangeText={(text: string) => setForm({ ...form, contact_person: text })} placeholder="Enter contact person" />
         <FormField label="Email 1" value={form.email} onChangeText={(text: string) => setForm({ ...form, email: text })} placeholder="Enter email" keyboardType="email-address" />
@@ -675,14 +668,7 @@ export default function LeadCloseScreen({ navigation, route }: any) {
           onPress={handleTurnToClient} 
           disabled={submitting}
         >
-          <LinearGradient colors={[colors.success, '#059669']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {submitting ? (
-              <ActivityIndicator color={colors.textLight} />
-            ) : (
-              <Text style={styles.submitButtonText}>✅ Turn Lead to Client</Text>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
 
       {/* Product Selection Modal */}
@@ -893,14 +879,14 @@ export default function LeadCloseScreen({ navigation, route }: any) {
                           </View>
                           <Text style={[styles.tableCell, styles.colSpecs]} numberOfLines={1}>{pd.specs}</Text>
                           <Text style={[styles.tableCell, styles.colSubject]} numberOfLines={1}>{pd.subject || '-'}</Text>
-                          <TextInput
+                          <WebInput
                             style={[styles.tableInput, styles.colStrength]}
                             value={pd.strength.toString()}
                             onChangeText={(text) => updateProductDetail(pd.id, 'strength', Number(text) || 0)}
                             keyboardType="numeric"
                             placeholder="0"
                           />
-                          <TextInput
+                          <WebInput
                             style={[styles.tableInput, styles.colPrice]}
                             value={pd.price.toString()}
                             onChangeText={(text) => updateProductDetail(pd.id, 'price', Number(text) || 0)}
@@ -1023,7 +1009,7 @@ export default function LeadCloseScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -1031,13 +1017,11 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: an
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        keyboardType={keyboardType}
+        placeholder={placeholder} keyboardType={keyboardType}
       />
     </View>
   );

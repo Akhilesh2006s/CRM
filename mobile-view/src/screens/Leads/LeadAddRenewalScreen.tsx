@@ -8,13 +8,13 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function LeadAddRenewalScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -78,17 +78,10 @@ export default function LeadAddRenewalScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Renewal Cross Sale</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Renewal Cross Sale"
+    >
+<ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner
             type="success"
@@ -109,16 +102,13 @@ export default function LeadAddRenewalScreen({ navigation }: any) {
         <FormField label="Priority" value={form.priority} onChangeText={(text: string) => setForm((f) => ({ ...f, priority: text }))} placeholder="Hot/Warm/Cold" />
         <View style={styles.textAreaContainer}>
           <Text style={styles.label}>Remarks</Text>
-          <TextInput style={styles.textArea} value={form.remarks} onChangeText={(text: string) => setForm((f) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={4} />
+          <WebInput style={styles.textArea} value={form.remarks} onChangeText={(text: string) => setForm((f) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={4} />
         </View>
         <FormField label="Follow-up Date" value={form.follow_up_date} onChangeText={(text: string) => setForm((f) => ({ ...f, follow_up_date: text }))} placeholder="YYYY-MM-DD" />
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Create Lead</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -126,7 +116,7 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: an
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textSecondary} keyboardType={keyboardType} />
+      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} keyboardType={keyboardType} />
     </View>
   );
 }

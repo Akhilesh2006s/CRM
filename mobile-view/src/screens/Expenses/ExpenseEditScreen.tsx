@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function ExpenseEditScreen({ navigation, route }: any) {
   const { id } = route.params;
@@ -79,17 +79,11 @@ export default function ExpenseEditScreen({ navigation, route }: any) {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Expense</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+    <ScreenShell
+      title="Edit Expense"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <FormField label="Title *" value={form.title} onChangeText={(text) => setForm((f) => ({ ...f, title: text }))} />
         <FormField
           label="Amount *"
@@ -107,22 +101,17 @@ export default function ExpenseEditScreen({ navigation, route }: any) {
         />
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Description</Text>
-          <TextInput
+          <WebInput
             style={[styles.input, { minHeight: 100, textAlignVertical: 'top' }]}
             value={form.description}
             onChangeText={(text) => setForm((f) => ({ ...f, description: text }))}
-            placeholder="Enter description"
-            placeholderTextColor={colors.textSecondary}
-            multiline
+            placeholder="Enter description" multiline
           />
         </View>
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Update Expense</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -130,13 +119,11 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: an
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        keyboardType={keyboardType}
+        placeholder={placeholder} keyboardType={keyboardType}
       />
     </View>
   );

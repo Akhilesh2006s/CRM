@@ -8,13 +8,13 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function LeadAddNewSchoolScreen({ navigation }: any) {
   const { user } = useAuth();
@@ -182,26 +182,10 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={gradients.primary}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>New School</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="New School"
+    >
+<ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner
             type="success"
@@ -338,7 +322,7 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
         />
         <View style={styles.textAreaContainer}>
           <Text style={styles.label}>Remarks *</Text>
-          <TextInput
+          <WebInput
             style={styles.textArea}
             value={form.remarks}
             onChangeText={(text) => setForm((f) => ({ ...f, remarks: text }))}
@@ -359,21 +343,9 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
           onPress={handleSubmit}
           disabled={submitting}
         >
-          <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.submitButtonGradient}
-          >
-            {submitting ? (
-              <ActivityIndicator color={colors.textLight} />
-            ) : (
-              <Text style={styles.submitButtonText}>Create Lead</Text>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -388,13 +360,11 @@ function FormField({
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={[styles.input, !editable && styles.inputDisabled]}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        keyboardType={keyboardType}
+        placeholder={placeholder} keyboardType={keyboardType}
         editable={editable}
       />
     </View>

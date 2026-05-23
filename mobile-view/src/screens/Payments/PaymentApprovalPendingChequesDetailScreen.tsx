@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function PaymentApprovalPendingChequesDetailScreen({ navigation, route }: any) {
   const { id } = route.params;
@@ -88,17 +88,11 @@ export default function PaymentApprovalPendingChequesDetailScreen({ navigation, 
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Cheque Payment Details</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Cheque Payment Details"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {payment && (
           <>
             <View style={styles.infoCard}>
@@ -114,29 +108,20 @@ export default function PaymentApprovalPendingChequesDetailScreen({ navigation, 
             <FormField label="Reference Number" value={form.referenceNumber} onChangeText={(text: string) => setForm((f) => ({ ...f, referenceNumber: text }))} placeholder="Enter reference number" />
             <View style={styles.textAreaContainer}>
               <Text style={styles.label}>Admin Remarks</Text>
-              <TextInput style={styles.textArea} value={form.adminRemarks} onChangeText={(text: string) => setForm((f) => ({ ...f, adminRemarks: text }))} placeholder="Enter remarks (required for Hold/Reject)" multiline numberOfLines={4} />
+              <WebInput style={styles.textArea} value={form.adminRemarks} onChangeText={(text: string) => setForm((f) => ({ ...f, adminRemarks: text }))} placeholder="Enter remarks (required for Hold/Reject)" multiline numberOfLines={4} />
             </View>
             <View style={styles.buttonContainer}>
               <TouchableOpacity style={[styles.approveButton, saving && styles.buttonDisabled]} onPress={() => handleApprove('Approved')} disabled={saving}>
-                <LinearGradient colors={[colors.success, '#059669']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-                  {saving ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.buttonText}>Approve</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
               <TouchableOpacity style={[styles.holdButton, saving && styles.buttonDisabled]} onPress={() => handleApprove('Hold')} disabled={saving}>
-                <LinearGradient colors={[colors.warning, '#d97706']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-                  {saving ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.buttonText}>Hold</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
               <TouchableOpacity style={[styles.rejectButton, saving && styles.buttonDisabled]} onPress={() => handleApprove('Rejected')} disabled={saving}>
-                <LinearGradient colors={[colors.error || '#ef4444', '#dc2626']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-                  {saving ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.buttonText}>Reject</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
             </View>
           </>
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -144,7 +129,7 @@ function FormField({ label, value, onChangeText, placeholder }: any) {
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textSecondary} />
+      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} />
     </View>
   );
 }

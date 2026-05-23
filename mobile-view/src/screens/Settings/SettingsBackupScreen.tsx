@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function SettingsBackupScreen({ navigation }: any) {
   const [email, setEmail] = useState('');
@@ -28,34 +28,22 @@ export default function SettingsBackupScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Backup Settings</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView contentContainerStyle={styles.content}>
+    <ScreenShell
+      title="Backup Settings"
+    >
+<ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.label}>Notification Email *</Text>
-        <TextInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Enter email address" placeholderTextColor={colors.textSecondary} keyboardType="email-address" />
+        <WebInput style={styles.input} value={email} onChangeText={setEmail} placeholder="Enter email address" keyboardType="email-address" />
         <Text style={styles.label}>Schedule</Text>
-        <TextInput
+        <WebInput
           style={styles.input}
           value={schedule}
           onChangeText={setSchedule}
-          placeholder="e.g. Daily at 10:00 AM"
-          placeholderTextColor={colors.textSecondary}
-        />
+          placeholder="e.g. Daily at 10:00 AM" />
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleBackup} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Save Backup Settings</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

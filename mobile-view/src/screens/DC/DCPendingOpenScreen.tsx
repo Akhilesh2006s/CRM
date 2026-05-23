@@ -16,14 +16,14 @@ import {
   Modal,
   Platform,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
 
 const CLASSES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
@@ -344,21 +344,15 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
 
   if (!dc && !loading) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>{isTermWiseDc ? 'Edit PO' : 'Pending DC - Open'}</Text>
-            <LogoutButton />
-          </View>
-        </LinearGradient>
-        <View style={styles.errorBlock}>
+    <ScreenShell
+      title="{isTermWiseDc ? 'Edit PO' : 'Pending DC - Open'}"
+      loading={loading}
+    >
+<View style={styles.errorBlock}>
           <Text style={styles.errorText}>{errorMessage || 'DC not found'}</Text>
         </View>
-      </View>
-    );
+    </ScreenShell>
+  );
   }
 
   const order = dcOrder || (dc?.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId : null);
@@ -371,16 +365,6 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{isTermWiseDc ? 'Edit PO' : 'Pending DC - Open'}</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
       <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner type="success" message={successMessage} onDismiss={clearMessages} />
@@ -548,19 +532,19 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
                       ))}
                     </Picker>
                   </View>
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colSpecs]}
                     value={row.specs}
                     onChangeText={(v) => updateProductRow(row.id, 'specs', v)}
                     placeholder="Specs"
                   />
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colSubject]}
                     value={row.subject || ''}
                     onChangeText={(v) => updateProductRow(row.id, 'subject', v)}
                     placeholder="Subject"
                   />
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colStrength]}
                     value={String(row.strength)}
                     onChangeText={(v) => updateProductRow(row.id, 'strength', Number(v) || 0)}
@@ -612,13 +596,11 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
         <View style={styles.section}>
           <View style={styles.fieldContainer}>
             <Text style={styles.label}>SME Remarks</Text>
-            <TextInput
+            <WebInput
               style={styles.input}
               value={smeRemarks}
               onChangeText={setSmeRemarks}
-              placeholder="SME Remarks"
-              placeholderTextColor={colors.textSecondary}
-            />
+              placeholder="SME Remarks" />
           </View>
           <View style={styles.buttonRow}>
             <TouchableOpacity
@@ -664,13 +646,11 @@ function FormField({
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={[styles.input, !editable && styles.inputDisabled]}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        editable={editable}
+        placeholder={placeholder} editable={editable}
       />
     </View>
   );

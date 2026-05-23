@@ -11,11 +11,11 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function WarehouseSearchDCScreen({ navigation }: any) {
@@ -92,13 +92,16 @@ export default function WarehouseSearchDCScreen({ navigation }: any) {
   const isAdmin = user?.role === 'Admin' || user?.role === 'Super Admin';
   if (!isAdmin) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Access denied. Admin only.</Text>
+    <ScreenShell
+      title="Search DC"
+      loading={loading}
+    >
+<Text style={styles.errorText}>Access denied. Admin only.</Text>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backBtnText}>Go Back</Text>
         </TouchableOpacity>
-      </View>
-    );
+    </ScreenShell>
+  );
   }
 
   const getSchoolName = (dc: any) =>
@@ -106,15 +109,6 @@ export default function WarehouseSearchDCScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Search DC</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
       <ScrollView style={styles.content}>
         <View style={styles.filterRow}>
           <Text style={styles.label}>School</Text>
@@ -162,13 +156,11 @@ export default function WarehouseSearchDCScreen({ navigation }: any) {
         </View>
         <View style={styles.filterRow}>
           <Text style={styles.label}>Date</Text>
-          <TextInput
+          <WebInput
             style={styles.input}
             placeholder="YYYY-MM-DD"
             value={selectedDate}
-            onChangeText={setSelectedDate}
-            placeholderTextColor={colors.textSecondary}
-          />
+            onChangeText={setSelectedDate} />
         </View>
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.searchButton} onPress={handleSearch} disabled={searching}>

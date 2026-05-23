@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function ServiceEditScreen({ navigation, route }: any) {
   const { id } = route.params;
@@ -53,32 +53,23 @@ export default function ServiceEditScreen({ navigation, route }: any) {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Service</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Edit Service"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <FormField label="School Name" value={form.schoolName || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, schoolName: text }))} placeholder="Enter school name" />
         <FormField label="Service Type" value={form.serviceType || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, serviceType: text }))} placeholder="Enter service type" />
         <FormField label="Service Date" value={form.serviceDate || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, serviceDate: text }))} placeholder="YYYY-MM-DD" />
         <FormField label="Zone" value={form.zone || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, zone: text }))} placeholder="Enter zone" />
         <View style={styles.textAreaContainer}>
           <Text style={styles.label}>Remarks</Text>
-          <TextInput style={styles.textArea} value={form.remarks || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={4} />
+          <WebInput style={styles.textArea} value={form.remarks || ''} onChangeText={(text: string) => setForm((f: any) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={4} />
         </View>
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Update Service</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -86,7 +77,7 @@ function FormField({ label, value, onChangeText, placeholder }: any) {
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textSecondary} />
+      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} />
     </View>
   );
 }

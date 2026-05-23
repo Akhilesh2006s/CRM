@@ -9,11 +9,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ReturnsEmployeeScreen({ navigation }: any) {
@@ -75,21 +75,11 @@ export default function ReturnsEmployeeScreen({ navigation }: any) {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Employee Stock Returns</Text>
-            <Text style={styles.headerSubtitle}>Submit stock returns</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Employee Stock Returns"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <TouchableOpacity
           style={styles.addReturnButton}
           onPress={() => navigation.navigate('StockReturnAdd')}
@@ -158,7 +148,7 @@ export default function ReturnsEmployeeScreen({ navigation }: any) {
           )}
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

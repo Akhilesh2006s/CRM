@@ -10,12 +10,12 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { useFocusEffect } from '@react-navigation/native';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function DCTermWiseScreen({ navigation }: any) {
   const [dcs, setDcs] = useState<any[]>([]);
@@ -60,34 +60,19 @@ export default function DCTermWiseScreen({ navigation }: any) {
     ? dcs.filter((dc) => getSchoolName(dc).toLowerCase().includes(searchQuery.toLowerCase()))
     : dcs;
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading term-wise DCs...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Term-Wise DC</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <View style={styles.searchContainer}>
-        <TextInput
+    <ScreenShell
+      title="Term-Wise DC"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.searchContainer}>
+        <WebInput
           style={styles.searchInput}
           placeholder="Search by school..."
           value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor={colors.textSecondary}
-        />
+          onChangeText={setSearchQuery} />
       </View>
       <ScrollView
         style={styles.content}
@@ -125,7 +110,7 @@ export default function DCTermWiseScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

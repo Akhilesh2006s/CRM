@@ -11,13 +11,13 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import MessageBanner from '../../components/MessageBanner';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 
 const DEAL_PRODUCT_STATUS_ORDER = ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'] as const;
 
@@ -289,30 +289,14 @@ export default function LeadFollowupScreen({ navigation }: any) {
     }
   };
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading follow-up leads...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Follow-up Leads</Text>
-            <Text style={styles.headerSubtitle}>{leads.length} {leads.length === 1 ? 'lead' : 'leads'} pending</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView 
+    <ScreenShell
+      title="Follow-up Leads"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<ScrollView 
         style={styles.content} 
         contentContainerStyle={styles.contentContainer}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
@@ -457,7 +441,7 @@ export default function LeadFollowupScreen({ navigation }: any) {
                   <Text style={styles.modalLabel}>School: {selectedLead.school_name || 'Unknown'}</Text>
                   
                   <Text style={styles.modalLabel}>Next Follow-up Date *</Text>
-                  <TextInput
+                  <WebInput
                     style={styles.input}
                     placeholder="YYYY-MM-DD"
                     value={updateForm.follow_up_date}
@@ -489,7 +473,7 @@ export default function LeadFollowupScreen({ navigation }: any) {
                   </View>
 
                   <Text style={styles.modalLabel}>Remarks *</Text>
-                  <TextInput
+                  <WebInput
                     style={[styles.input, styles.textArea]}
                     placeholder="Enter remarks for this follow-up"
                     value={updateForm.remarks}
@@ -522,7 +506,7 @@ export default function LeadFollowupScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 

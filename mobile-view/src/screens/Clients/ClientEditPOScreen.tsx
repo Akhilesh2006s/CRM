@@ -17,12 +17,12 @@ import {
   Modal,
   Linking,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService, getApiUrl } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 let WebView: any;
 try {
@@ -190,17 +190,11 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
   const isInDcFlow = order.status != null && order.status !== 'saved';
   if (isInDcFlow) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Edit PO</Text>
-            <LogoutButton />
-          </View>
-        </LinearGradient>
-        <View style={styles.dcFlowBlock}>
+    <ScreenShell
+      title="Edit PO"
+      loading={loading}
+    >
+<View style={styles.dcFlowBlock}>
           <Text style={styles.dcFlowBlockMessage}>
             PO can only be changed before requesting DC. This client is already in the DC process.
           </Text>
@@ -208,22 +202,12 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
             <Text style={styles.dcFlowBlockButtonText}>Back to My Clients</Text>
           </TouchableOpacity>
         </View>
-      </View>
-    );
+    </ScreenShell>
+  );
   }
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit PO</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.clientName}>{order.school_name}</Text>
 
@@ -286,14 +270,14 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
           {products.map((p, idx) => (
             <View key={idx} style={styles.productRow}>
               <Text style={styles.productName} numberOfLines={1}>{p.product_name}</Text>
-              <TextInput
+              <WebInput
                 style={styles.inputSmall}
                 value={String(p.quantity)}
                 onChangeText={(t) => updateProduct(idx, 'quantity', parseInt(t, 10) || 0)}
                 keyboardType="number-pad"
                 placeholder="Qty"
               />
-              <TextInput
+              <WebInput
                 style={styles.inputSmall}
                 value={String(p.unit_price)}
                 onChangeText={(t) => updateProduct(idx, 'unit_price', parseFloat(t) || 0)}
@@ -325,7 +309,7 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
                 <Text style={styles.uploadButtonText}>{newPdfUrl ? 'New PDF selected' : 'Choose new PDF'}</Text>
               </TouchableOpacity>
               <Text style={styles.label}>Remarks (optional)</Text>
-              <TextInput
+              <WebInput
                 style={styles.remarksInput}
                 value={changeRemarks}
                 onChangeText={setChangeRemarks}

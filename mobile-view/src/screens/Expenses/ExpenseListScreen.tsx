@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { apiService } from '../../services/api';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, DataTable } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
 
 export default function ExpenseListScreen({ navigation, route }: any) {
@@ -115,8 +117,10 @@ export default function ExpenseListScreen({ navigation, route }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <ScreenShell title="Expense List"
+      loading={loading}>
+      <PageSection title="Expense List">
+<View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backButton}>← Back</Text>
         </TouchableOpacity>
@@ -186,7 +190,7 @@ export default function ExpenseListScreen({ navigation, route }: any) {
             )}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Date *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="YYYY-MM-DD"
                 value={date}
@@ -221,7 +225,7 @@ export default function ExpenseListScreen({ navigation, route }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Amount *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter amount"
                 value={amount}
@@ -232,7 +236,7 @@ export default function ExpenseListScreen({ navigation, route }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Description *</Text>
-              <TextInput
+              <WebInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Enter expense description"
                 value={description}
@@ -244,7 +248,7 @@ export default function ExpenseListScreen({ navigation, route }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Remarks</Text>
-              <TextInput
+              <WebInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Optional remarks"
                 value={remarks}
@@ -268,7 +272,8 @@ export default function ExpenseListScreen({ navigation, route }: any) {
           </View>
         </ScrollView>
       </Modal>
-    </View>
+      </PageSection>
+    </ScreenShell>
   );
 }
 

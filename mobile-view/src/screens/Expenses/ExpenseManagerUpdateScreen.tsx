@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 interface Expense {
   _id: string;
@@ -98,22 +98,16 @@ export default function ExpenseManagerUpdateScreen({ navigation, route }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{employeeName || 'Employee'} Expenses</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} contentContainerStyle={{ padding: 16 }}>
+    <ScreenShell
+      title="{employeeName || 'Employee'} Expenses"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={{ padding: 16 }}>
         <View style={styles.filterCard}>
           <Text style={styles.filterLabel}>From Date</Text>
-          <TextInput style={styles.input} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" />
+          <WebInput style={styles.input} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" />
           <Text style={[styles.filterLabel, { marginTop: 12 }]}>To Date</Text>
-          <TextInput style={styles.input} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" />
+          <WebInput style={styles.input} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" />
           <TouchableOpacity style={styles.searchButton} onPress={loadExpenses}>
             <Text style={styles.searchButtonText}>Search</Text>
           </TouchableOpacity>
@@ -138,14 +132,14 @@ export default function ExpenseManagerUpdateScreen({ navigation, route }: any) {
               <Text style={styles.infoText}>Date: {formatDate(expense.date)}</Text>
               {expense.description ? <Text style={styles.infoText}>Note: {expense.description}</Text> : null}
               <Text style={styles.label}>Approved Amount</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 value={formValues[expense._id]?.approvedAmount || ''}
                 onChangeText={(text) => handleChange(expense._id, 'approvedAmount', text)}
                 keyboardType="decimal-pad"
               />
               <Text style={styles.label}>Manager Remarks</Text>
-              <TextInput
+              <WebInput
                 style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
                 value={formValues[expense._id]?.managerRemarks || ''}
                 onChangeText={(text) => handleChange(expense._id, 'managerRemarks', text)}
@@ -160,7 +154,7 @@ export default function ExpenseManagerUpdateScreen({ navigation, route }: any) {
           {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.approveButtonText}>Approve Selected</Text>}
         </TouchableOpacity>
       </View>
-    </View>
+    </ScreenShell>
   );
 }
 

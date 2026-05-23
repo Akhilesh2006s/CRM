@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function SettingsSMSScreen({ navigation }: any) {
   const [senderId, setSenderId] = useState('');
@@ -29,37 +29,25 @@ export default function SettingsSMSScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>SMS Settings</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView contentContainerStyle={styles.content}>
+    <ScreenShell
+      title="SMS Settings"
+    >
+<ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.label}>Sender ID *</Text>
-        <TextInput style={styles.input} value={senderId} onChangeText={setSenderId} placeholder="Enter sender ID" placeholderTextColor={colors.textSecondary} />
+        <WebInput style={styles.input} value={senderId} onChangeText={setSenderId} placeholder="Enter sender ID" />
         <Text style={styles.label}>API Key *</Text>
-        <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="Enter SMS API key" placeholderTextColor={colors.textSecondary} secureTextEntry />
+        <WebInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="Enter SMS API key" secureTextEntry />
         <Text style={styles.label}>Default Template</Text>
-        <TextInput
+        <WebInput
           style={[styles.input, { minHeight: 120, textAlignVertical: 'top' }]}
           value={template}
           onChangeText={setTemplate}
-          placeholder="Enter default SMS template"
-          placeholderTextColor={colors.textSecondary}
-          multiline
+          placeholder="Enter default SMS template" multiline
         />
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSave} disabled={submitting}>
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.submitButtonGradient}>
-            {submitting ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.submitButtonText}>Save Settings</Text>}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

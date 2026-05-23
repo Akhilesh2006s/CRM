@@ -7,37 +7,36 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import AttendanceCard from '../../components/AttendanceCard';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { commonStyles } from '../../theme/styles';
 import { typography } from '../../theme/typography';
+import { navigateRoot } from '../../navigation/navigationRef';
+import { getRoleFlags } from '../../utils/roles';
 
 export default function DashboardScreen({ navigation }: any) {
   const { user, logout } = useAuth();
-  
-  // Determine user role and permissions (like web app)
+  const go = (screen: string, params?: object) => navigateRoot(screen, params);
+
   const userRole = user?.role || '';
   const userRoles = user?.roles || [];
-  const normalizedRole = userRole.toLowerCase();
-  const normalizedRoles = userRoles.map((role) => role.toLowerCase());
-  const roleIncludes = (match: string) =>
-    normalizedRole.includes(match.toLowerCase()) ||
-    normalizedRoles.some((role) => role.includes(match.toLowerCase()));
-  
-  // Role checks - matching navbar-landing Sidebar.tsx exactly
-  const isEmployee = userRole === 'Executive' || roleIncludes('sales bde');
-  const isManager = userRole === 'Manager';
-  const isCoordinator = userRole === 'Coordinator';
-  const isSeniorCoordinator = userRole === 'Senior Coordinator';
-  const isExecutiveManager = userRole === 'Executive Manager';
-  const isTrainer = userRole === 'Trainer';
-  const isWarehouseExecutive = userRole === 'Warehouse Executive';
-  const isWarehouseManager = userRole === 'Warehouse Manager';
-  const isFinanceManager = roleIncludes('finance manager');
-  const isExecutive = userRole === 'Executive';
-  const isAdmin = userRole === 'Admin' || userRole === 'Super Admin';
+  const flags = getRoleFlags(user);
+  const {
+    isAdmin,
+    isPartner,
+    isManager,
+    isCoordinator,
+    isSeniorCoordinator,
+    isExecutiveManager,
+    isTrainer,
+    isWarehouseExecutive,
+    isWarehouseManager,
+    isFinanceManager,
+    isExecutive,
+    isEmployee,
+  } = flags;
+  const isSalesBDE = userRole === 'Sales BDE';
   
   // Debug logging
   useEffect(() => {
@@ -77,612 +76,25 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeadsList')}
-        >
-          <LinearGradient
-            colors={['#3b82f6', '#2563eb']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>📋</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>My Leads</Text>
-                <Text style={styles.cardSubtitle}>View and manage leads</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeadAdd')}
+          onPress={() => go('LeadsList')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Add Lead</Text>
-              <Text style={styles.cardSubtitleWhite}>Create new lead</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeadFollowup')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📞</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Followup Leads</Text>
-              <Text style={styles.cardSubtitleWhite}>View follow-up leads</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.primary + '15' }]}>
-              <Text style={styles.sectionIconText}>📦</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>DC Management</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCList', { type: 'sales' })}
-        >
-          <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>📋</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>My DC</Text>
-                <Text style={styles.cardSubtitle}>View and manage my DC orders</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCClient')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>👥</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>My Clients</Text>
-              <Text style={styles.cardSubtitleWhite}>View my client DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCTermWise')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📄</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Term-Wise DC</Text>
-              <Text style={styles.cardSubtitleWhite}>Scheduled term-wise deliveries</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.success + '15' }]}>
-              <Text style={styles.sectionIconText}>💳</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Payments</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentList')}
-        >
-          <LinearGradient
-            colors={[colors.success, '#059669']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>⏳</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Pending Payments</Text>
-                <Text style={styles.cardSubtitle}>View pending payments</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentAdd')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Add Payment</Text>
-              <Text style={styles.cardSubtitleWhite}>Record new payment</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentDone')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>✅</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Payments Done</Text>
-              <Text style={styles.cardSubtitleWhite}>View completed payments</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.warning + '15' }]}>
-              <Text style={styles.sectionIconText}>💸</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Expenses</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExpenseCreate')}
-        >
-          <LinearGradient
-            colors={[colors.warning, '#D97706']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>➕</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Create Expense</Text>
-                <Text style={styles.cardSubtitle}>Submit new expense</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExpenseMy')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📊</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>My Expenses</Text>
-              <Text style={styles.cardSubtitleWhite}>View my submitted expenses</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.info + '15' }]}>
-              <Text style={styles.sectionIconText}>🏖️</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Leaves</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeaveRequest')}
-        >
-          <LinearGradient
-            colors={[colors.info, '#2563EB']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>➕</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Leave Request</Text>
-                <Text style={styles.cardSubtitle}>Submit leave request</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeavesApproved')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📅</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>My Leaves</Text>
-              <Text style={styles.cardSubtitleWhite}>View approved leaves</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: '#A855F7' + '15' }]}>
-              <Text style={styles.sectionIconText}>📦</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Employee Sample</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('SamplesRequest')}
-        >
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📦</Text>
-            </View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Request Sample</Text>
-              <Text style={styles.cardSubtitleWhite}>Request product samples</Text>
-            </View>
-            <View style={styles.cardArrowContainer}>
-              <Text style={styles.cardArrowWhite}>›</Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: '#14B8A6' + '15' }]}>
-              <Text style={styles.sectionIconText}>🔄</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Stock Returns</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReturnsEmployee')}
-        >
-          <LinearGradient
-            colors={['#14B8A6', '#0D9488']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.cardIconContainer}>
-                <Text style={styles.cardIcon}>🔄</Text>
-              </View>
-              <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Stock Returns</Text>
-                <Text style={styles.cardSubtitle}>Submit and view returns</Text>
-              </View>
-              <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  // Manager Dashboard (no Create Sale per web)
-  const renderManagerDashboard = () => (
-    <View style={styles.content}>
-      <AttendanceCard />
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.primary + '15' }]}>
-              <Text style={styles.sectionIconText}>📦</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Clients</Text>
-        </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCClosed')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Closed Sales</Text>
-              <Text style={styles.cardSubtitleWhite}>View closed sales</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCSaved')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💾</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Saved DC</Text>
-              <Text style={styles.cardSubtitleWhite}>View saved DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCPending')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Pending DC</Text>
-              <Text style={styles.cardSubtitleWhite}>Review pending DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCEmp')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👤</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>EMP DC</Text>
-              <Text style={styles.cardSubtitleWhite}>Employee DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCTermWise')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📄</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Term-Wise DC</Text>
-              <Text style={styles.cardSubtitleWhite}>Term-wise deliveries</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: '#F59E0B' + '15' }]}>
-              <Text style={styles.sectionIconText}>🏢</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Warehouse</Text>
-        </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCAtWarehouse')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📦</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>DC @ Warehouse</Text>
-              <Text style={styles.cardSubtitleWhite}>Process warehouse DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseCompletedDC')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Completed DC</Text>
-              <Text style={styles.cardSubtitleWhite}>View completed DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCListed')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>DC Listed</Text>
-              <Text style={styles.cardSubtitleWhite}>Listed DCs</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.warning + '15' }]}>
-              <Text style={styles.sectionIconText}>💸</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Expenses</Text>
-        </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExpensePending')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Pending Expenses</Text>
-              <Text style={styles.cardSubtitleWhite}>Approve pending expenses</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: colors.info + '15' }]}>
-              <Text style={styles.sectionIconText}>📊</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Reports</Text>
-        </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsLeads')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Leads</Text>
-              <Text style={styles.cardSubtitleWhite}>Leads report</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsSalesVisit')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📍</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Sales Visit</Text>
-              <Text style={styles.cardSubtitleWhite}>Sales visit report</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsEmployeeTrack')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👤</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Employee Track</Text>
-              <Text style={styles.cardSubtitleWhite}>Track employees</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsExpenses')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💰</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>All Expenses</Text>
-              <Text style={styles.cardSubtitleWhite}>Expense reports</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: '#6B7280' + '15' }]}>
-              <Text style={styles.sectionIconText}>⚙️</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Settings</Text>
-        </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SettingsPassword')}>
-          <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>🔐</Text></View>
-            <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitleWhite}>Change Password</Text>
-              <Text style={styles.cardSubtitleWhite}>Update password</Text>
-            </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
-          </View>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  // Trainer Dashboard (Training & Services, Expense, Leave - no DC per web)
-  const renderTrainerDashboard = () => (
-    <View style={styles.content}>
-      <AttendanceCard />
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionIconContainer}>
-            <View style={[styles.sectionIcon, { backgroundColor: '#8B5CF6' + '15' }]}>
-              <Text style={styles.sectionIconText}>🎓</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionTitle}>Training & Services</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.card}
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainingTrainerMy')}
-        >
-          <LinearGradient colors={['#8B5CF6', '#7C3AED']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardGradient}>
-            <View style={styles.cardContent}>
               <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📅</Text></View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Active / Upcoming</Text>
-                <Text style={styles.cardSubtitle}>My trainings and services</Text>
+                <Text style={styles.cardTitleWhite}>Active / Upcoming</Text>
+                <Text style={styles.cardSubtitleWhite}>My trainings and services</Text>
               </View>
-              <View style={styles.cardArrowContainer}><Text style={styles.cardArrow}>›</Text></View>
+              <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainingTrainerCompleted')}
+          onPress={() => go('TrainingTrainerCompleted')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Completed</Text>
               <Text style={styles.cardSubtitleWhite}>Completed trainings and services</Text>
@@ -700,9 +112,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Expense</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExpenseCreate')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ExpenseCreate')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>➕</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>➕</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Create Expense</Text>
               <Text style={styles.cardSubtitleWhite}>Submit expense</Text>
@@ -710,9 +122,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExpenseMy')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ExpenseMy')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📊</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📊</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>My Expenses</Text>
               <Text style={styles.cardSubtitleWhite}>View my expenses</Text>
@@ -730,9 +142,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Leave Management</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('LeaveRequest')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('LeaveRequest')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>➕</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>➕</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Leave Request</Text>
               <Text style={styles.cardSubtitleWhite}>Submit leave request</Text>
@@ -740,9 +152,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('LeavesApproved')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('LeavesApproved')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>My Leaves</Text>
               <Text style={styles.cardSubtitleWhite}>View approved leaves</Text>
@@ -761,18 +173,17 @@ export default function DashboardScreen({ navigation }: any) {
       <TouchableOpacity
         style={styles.card}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('ExecutiveManagerDashboard', { managerId: user?._id })}
+        onPress={() => go('ExecutiveManagerDashboard', { managerId: user?._id })}
       >
-        <LinearGradient colors={['#6366F1', '#4F46E5']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardGradient}>
-          <View style={styles.cardContent}>
+        <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📊</Text></View>
             <View style={styles.cardTextContainer}>
-              <Text style={styles.cardTitle}>My Dashboard</Text>
-              <Text style={styles.cardSubtitle}>View my executive dashboard</Text>
+              <Text style={styles.cardTitleWhite}>My Dashboard</Text>
+              <Text style={styles.cardSubtitleWhite}>View my executive dashboard</Text>
             </View>
-            <View style={styles.cardArrowContainer}><Text style={styles.cardArrow}>›</Text></View>
+            <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
-        </LinearGradient>
+        </View>
       </TouchableOpacity>
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
@@ -783,9 +194,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Executives</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExecutiveManagers')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ExecutiveManagers')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👥</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>👥</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>My Executives</Text>
               <Text style={styles.cardSubtitleWhite}>View executives</Text>
@@ -803,9 +214,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Clients</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ClientsClosedSales')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ClientsClosedSales')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✏️</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✏️</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>PO Edit Request</Text>
               <Text style={styles.cardSubtitleWhite}>Approve PO edit requests</Text>
@@ -823,12 +234,12 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Expenses</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExpensePending')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ExpenseExecutiveManagerPending')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏳</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Expenses</Text>
-              <Text style={styles.cardSubtitleWhite}>Approve pending expenses</Text>
+              <Text style={styles.cardSubtitleWhite}>Approve team expenses</Text>
             </View>
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
@@ -843,9 +254,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Leave Management</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ExecutiveManagerLeaves', { managerId: user?._id })}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ExecutiveManagerLeaves', { managerId: user?._id })}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>My Team Leaves</Text>
               <Text style={styles.cardSubtitleWhite}>Manage team leave requests</Text>
@@ -873,18 +284,17 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReturnsWarehouseExecutive')}
+          onPress={() => go('ReturnsWarehouseExecutive')}
         >
-          <LinearGradient colors={['#14B8A6', '#0D9488']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardGradient}>
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
               <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔄</Text></View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Stock Returns</Text>
-                <Text style={styles.cardSubtitle}>Verify executive returns</Text>
+                <Text style={styles.cardTitleWhite}>Stock Returns</Text>
+                <Text style={styles.cardSubtitleWhite}>Verify executive returns</Text>
               </View>
-              <View style={styles.cardArrowContainer}><Text style={styles.cardArrow}>›</Text></View>
+              <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -906,18 +316,17 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReturnsWarehouseManager')}
+          onPress={() => go('ReturnsWarehouseManager')}
         >
-          <LinearGradient colors={['#14B8A6', '#0D9488']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardGradient}>
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
               <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔄</Text></View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Stock Returns</Text>
-                <Text style={styles.cardSubtitle}>Approve return requests</Text>
+                <Text style={styles.cardTitleWhite}>Stock Returns</Text>
+                <Text style={styles.cardSubtitleWhite}>Approve return requests</Text>
               </View>
-              <View style={styles.cardArrowContainer}><Text style={styles.cardArrow}>›</Text></View>
+              <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -931,54 +340,54 @@ export default function DashboardScreen({ navigation }: any) {
         <Text style={styles.sectionTitle}>DC</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCList', { type: 'sales' })}
+          onPress={() => go('DCList', { type: 'sales' })}
         >
-          <Text style={styles.cardTitle}>My DC</Text>
-          <Text style={styles.cardSubtitle}>View and manage my DC orders</Text>
+          <Text style={styles.cardTitleWhite}>My DC</Text>
+          <Text style={styles.cardSubtitleWhite}>View and manage my DC orders</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCCapture', { type: 'sales' })}
+          onPress={() => go('DCCapture', { type: 'sales' })}
         >
-          <Text style={styles.cardTitle}>Create DC</Text>
-          <Text style={styles.cardSubtitle}>Create new DC entry</Text>
+          <Text style={styles.cardTitleWhite}>Create DC</Text>
+          <Text style={styles.cardSubtitleWhite}>Create new DC entry</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Payments</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('PaymentList')}
+          onPress={() => go('PaymentList')}
         >
-          <Text style={styles.cardTitle}>Add Payment</Text>
-          <Text style={styles.cardSubtitle}>Record new payment</Text>
+          <Text style={styles.cardTitleWhite}>Add Payment</Text>
+          <Text style={styles.cardSubtitleWhite}>Record new payment</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Expenses</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('ExpenseList')}
+          onPress={() => go('ExpenseList')}
         >
-          <Text style={styles.cardTitle}>Create Expense</Text>
-          <Text style={styles.cardSubtitle}>Submit new expense</Text>
+          <Text style={styles.cardTitleWhite}>Create Expense</Text>
+          <Text style={styles.cardSubtitleWhite}>Submit new expense</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('ExpenseList', { myExpenses: true })}
+          onPress={() => go('ExpenseList', { myExpenses: true })}
         >
-          <Text style={styles.cardTitle}>My Expenses</Text>
-          <Text style={styles.cardSubtitle}>View my submitted expenses</Text>
+          <Text style={styles.cardTitleWhite}>My Expenses</Text>
+          <Text style={styles.cardSubtitleWhite}>View my submitted expenses</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Leaves</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('LeaveList')}
+          onPress={() => go('LeaveList')}
         >
-          <Text style={styles.cardTitle}>My Leaves</Text>
-          <Text style={styles.cardSubtitle}>View and manage leaves</Text>
+          <Text style={styles.cardTitleWhite}>My Leaves</Text>
+          <Text style={styles.cardSubtitleWhite}>View and manage leaves</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -997,9 +406,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Clients</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCCreate')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCCreate')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>➕</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>➕</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Create Sale</Text>
               <Text style={styles.cardSubtitleWhite}>Create new sale</Text>
@@ -1007,9 +416,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCClosed')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCClosed')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Closed Sales</Text>
               <Text style={styles.cardSubtitleWhite}>View closed sales</Text>
@@ -1017,9 +426,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCSaved')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCSaved')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💾</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>💾</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Saved DC</Text>
               <Text style={styles.cardSubtitleWhite}>View saved DCs</Text>
@@ -1027,9 +436,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCPending')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCPending')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏳</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending DC</Text>
               <Text style={styles.cardSubtitleWhite}>Review pending DCs</Text>
@@ -1037,9 +446,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCEmp')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCEmp')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👤</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>👤</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>EMP DC</Text>
               <Text style={styles.cardSubtitleWhite}>EMP DC list</Text>
@@ -1047,9 +456,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCTermWise')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCTermWise')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Term-Wise DC</Text>
               <Text style={styles.cardSubtitleWhite}>Term-wise DC</Text>
@@ -1067,9 +476,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Warehouse</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseInventoryItems')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseInventoryItems')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📦</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📦</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Inventory Items</Text>
               <Text style={styles.cardSubtitleWhite}>Manage inventory</Text>
@@ -1077,9 +486,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseStock')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseStock')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📊</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📊</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Stock</Text>
               <Text style={styles.cardSubtitleWhite}>View stock</Text>
@@ -1087,9 +496,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCAtWarehouse')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseDCAtWarehouse')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📦</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📦</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>DC @ Warehouse</Text>
               <Text style={styles.cardSubtitleWhite}>Process warehouse DCs</Text>
@@ -1097,9 +506,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseCompletedDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseCompletedDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Completed DC</Text>
               <Text style={styles.cardSubtitleWhite}>View completed DCs</Text>
@@ -1107,9 +516,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCListed')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseDCListed')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>DC Listed</Text>
               <Text style={styles.cardSubtitleWhite}>Listed DCs</Text>
@@ -1117,9 +526,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseHoldDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseHoldDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏸️</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏸️</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Hold DC</Text>
               <Text style={styles.cardSubtitleWhite}>View hold DCs</Text>
@@ -1127,9 +536,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseSearchDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseSearchDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>🔍</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔍</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Search DC</Text>
               <Text style={styles.cardSubtitleWhite}>Search DCs</Text>
@@ -1147,9 +556,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Settings</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SettingsPassword')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('SettingsPassword')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>🔐</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔐</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Change Password</Text>
               <Text style={styles.cardSubtitleWhite}>Update password</Text>
@@ -1174,9 +583,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Clients</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCCreate')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCCreate')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>➕</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>➕</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Create Sale</Text>
               <Text style={styles.cardSubtitleWhite}>Create new sale</Text>
@@ -1184,9 +593,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCClosed')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCClosed')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Closed Sales</Text>
               <Text style={styles.cardSubtitleWhite}>View closed sales</Text>
@@ -1194,9 +603,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCSaved')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCSaved')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💾</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>💾</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Saved DC</Text>
               <Text style={styles.cardSubtitleWhite}>View saved DCs</Text>
@@ -1204,9 +613,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('DCPending')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('DCPending')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏳</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending DC</Text>
               <Text style={styles.cardSubtitleWhite}>Review pending DCs</Text>
@@ -1224,9 +633,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Employees</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('EmployeesActive')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('EmployeesActive')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👥</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>👥</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Active Employees</Text>
               <Text style={styles.cardSubtitleWhite}>View active employees</Text>
@@ -1244,9 +653,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Training & Services</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('TrainingDashboard')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('TrainingDashboard')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📊</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📊</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Trainers Dashboard</Text>
               <Text style={styles.cardSubtitleWhite}>View training dashboard</Text>
@@ -1254,9 +663,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('TrainingAssign')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('TrainingAssign')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Assign Training</Text>
               <Text style={styles.cardSubtitleWhite}>Assign training or service</Text>
@@ -1264,9 +673,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('TrainingList')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('TrainingList')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Trainings List</Text>
               <Text style={styles.cardSubtitleWhite}>View trainings</Text>
@@ -1274,9 +683,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ServicesList')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ServicesList')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Services List</Text>
               <Text style={styles.cardSubtitleWhite}>View services</Text>
@@ -1294,9 +703,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Warehouse</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCAtWarehouse')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseDCAtWarehouse')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📦</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📦</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>DC @ Warehouse</Text>
               <Text style={styles.cardSubtitleWhite}>Process warehouse DCs</Text>
@@ -1304,9 +713,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseCompletedDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseCompletedDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Completed DC</Text>
               <Text style={styles.cardSubtitleWhite}>View completed DCs</Text>
@@ -1314,9 +723,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseDCListed')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseDCListed')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>DC Listed</Text>
               <Text style={styles.cardSubtitleWhite}>Listed DCs</Text>
@@ -1324,9 +733,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WarehouseHoldDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('WarehouseHoldDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏸️</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏸️</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Hold DC</Text>
               <Text style={styles.cardSubtitleWhite}>View hold DCs</Text>
@@ -1344,9 +753,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Payments</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('PaymentList')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('PaymentList')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏳</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Payments</Text>
               <Text style={styles.cardSubtitleWhite}>View pending payments</Text>
@@ -1354,9 +763,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('PaymentDone')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('PaymentDone')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Payments Done</Text>
               <Text style={styles.cardSubtitleWhite}>Completed payments</Text>
@@ -1374,9 +783,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Reports</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsLeads')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ReportsLeads')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📋</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📋</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Leads</Text>
               <Text style={styles.cardSubtitleWhite}>Leads report</Text>
@@ -1384,9 +793,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsDC')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ReportsDC')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>📦</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>📦</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>DC</Text>
               <Text style={styles.cardSubtitleWhite}>DC report</Text>
@@ -1394,9 +803,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsReturns')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ReportsReturns')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>🔄</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔄</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Returns</Text>
               <Text style={styles.cardSubtitleWhite}>Returns report</Text>
@@ -1404,9 +813,9 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.cardArrowContainer}><Text style={styles.cardArrowWhite}>›</Text></View>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('ReportsExpenses')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('ReportsExpenses')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💰</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>💰</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>All Expenses</Text>
               <Text style={styles.cardSubtitleWhite}>Expense reports</Text>
@@ -1424,9 +833,9 @@ export default function DashboardScreen({ navigation }: any) {
           </View>
           <Text style={styles.sectionTitle}>Settings</Text>
         </View>
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('SettingsPassword')}>
+        <TouchableOpacity style={styles.card} onPress={() => go('SettingsPassword')}>
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>🔐</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>🔐</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Change Password</Text>
               <Text style={styles.cardSubtitleWhite}>Update password</Text>
@@ -1446,34 +855,34 @@ export default function DashboardScreen({ navigation }: any) {
         <Text style={styles.sectionTitle}>Sales BDE</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCList', { type: 'sales' })}
+          onPress={() => go('DCList', { type: 'sales' })}
         >
-          <Text style={styles.cardTitle}>My DC</Text>
-          <Text style={styles.cardSubtitle}>View and manage DC orders</Text>
+          <Text style={styles.cardTitleWhite}>My DC</Text>
+          <Text style={styles.cardSubtitleWhite}>View and manage DC orders</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCCapture', { type: 'sales' })}
+          onPress={() => go('DCCapture', { type: 'sales' })}
         >
-          <Text style={styles.cardTitle}>Create DC</Text>
-          <Text style={styles.cardSubtitle}>Create new DC entry</Text>
+          <Text style={styles.cardTitleWhite}>Create DC</Text>
+          <Text style={styles.cardSubtitleWhite}>Create new DC entry</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Trainer</Text>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCList', { type: 'training' })}
+          onPress={() => go('DCList', { type: 'training' })}
         >
-          <Text style={styles.cardTitle}>Training DC</Text>
-          <Text style={styles.cardSubtitle}>View training DC orders</Text>
+          <Text style={styles.cardTitleWhite}>Training DC</Text>
+          <Text style={styles.cardSubtitleWhite}>View training DC orders</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
-          onPress={() => navigation.navigate('DCCapture', { type: 'training' })}
+          onPress={() => go('DCCapture', { type: 'training' })}
         >
-          <Text style={styles.cardTitle}>Capture Training DC</Text>
-          <Text style={styles.cardSubtitle}>Create new training DC</Text>
+          <Text style={styles.cardTitleWhite}>Capture Training DC</Text>
+          <Text style={styles.cardSubtitleWhite}>Create new training DC</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -1494,36 +903,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExecutiveManagers')}
+          onPress={() => go('ExecutiveManagers')}
         >
-          <LinearGradient
-            colors={['#6366F1', '#4F46E5']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>🛡️</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>All Managers</Text>
-                <Text style={styles.cardSubtitle}>View executive managers</Text>
+                <Text style={styles.cardTitleWhite}>All Managers</Text>
+                <Text style={styles.cardSubtitleWhite}>View executive managers</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExecutiveManagerNew')}
+          onPress={() => go('ExecutiveManagerNew')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
+              <Text style={styles.cardIcon}>➕</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Create Manager</Text>
@@ -1548,36 +952,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('EmployeesActive')}
+          onPress={() => go('EmployeesActive')}
         >
-          <LinearGradient
-            colors={['#8B5CF6', '#7C3AED']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>👥</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Active Employees</Text>
-                <Text style={styles.cardSubtitle}>View and manage employees</Text>
+                <Text style={styles.cardTitleWhite}>Active Employees</Text>
+                <Text style={styles.cardSubtitleWhite}>View and manage employees</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('EmployeeNew')}
+          onPress={() => go('EmployeeNew')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
+              <Text style={styles.cardIcon}>➕</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Add Employee</Text>
@@ -1591,11 +990,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('EmployeesInactive')}
+          onPress={() => go('EmployeesInactive')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>👤</Text>
+              <Text style={styles.cardIcon}>👤</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Inactive Employees</Text>
@@ -1609,11 +1008,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('EmployeesLeaves')}
+          onPress={() => go('EmployeesLeaves')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📅</Text>
+              <Text style={styles.cardIcon}>📅</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Leaves</Text>
@@ -1638,11 +1037,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeavesPending')}
+          onPress={() => go('LeavesPending')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>⏳</Text>
+              <Text style={styles.cardIcon}>⏳</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Leaves</Text>
@@ -1656,11 +1055,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('LeavesReport')}
+          onPress={() => go('LeavesReport')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📊</Text>
+              <Text style={styles.cardIcon}>📊</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Leaves Report</Text>
@@ -1685,11 +1084,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainersNew')}
+          onPress={() => go('TrainersNew')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
+              <Text style={styles.cardIcon}>➕</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Add Trainer</Text>
@@ -1703,11 +1102,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainersActive')}
+          onPress={() => go('TrainersActive')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>👥</Text>
+              <Text style={styles.cardIcon}>👥</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Active Trainers</Text>
@@ -1721,11 +1120,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainingDashboard')}
+          onPress={() => go('TrainingDashboard')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📊</Text>
+              <Text style={styles.cardIcon}>📊</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Trainers Dashboard</Text>
@@ -1739,11 +1138,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainingAssign')}
+          onPress={() => go('TrainingAssign')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📋</Text>
+              <Text style={styles.cardIcon}>📋</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Assign Training</Text>
@@ -1757,11 +1156,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainingList')}
+          onPress={() => go('TrainingList')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📋</Text>
+              <Text style={styles.cardIcon}>📋</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Trainings List</Text>
@@ -1775,11 +1174,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ServicesList')}
+          onPress={() => go('ServicesList')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📋</Text>
+              <Text style={styles.cardIcon}>📋</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Services List</Text>
@@ -1793,11 +1192,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('TrainersInactive')}
+          onPress={() => go('TrainersInactive')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>👤</Text>
+              <Text style={styles.cardIcon}>👤</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Inactive Trainers</Text>
@@ -1822,10 +1221,10 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCCreate')}
+          onPress={() => go('DCCreate')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>➕</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>➕</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Create Sale</Text>
               <Text style={styles.cardSubtitleWhite}>Create new sale</Text>
@@ -1836,10 +1235,10 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCClosed')}
+          onPress={() => go('DCClosed')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>✅</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>✅</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Closed Sales</Text>
               <Text style={styles.cardSubtitleWhite}>View closed sales</Text>
@@ -1850,10 +1249,10 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCSaved')}
+          onPress={() => go('DCSaved')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>💾</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>💾</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Saved DC</Text>
               <Text style={styles.cardSubtitleWhite}>View saved DCs</Text>
@@ -1864,10 +1263,10 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCPending')}
+          onPress={() => go('DCPending')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>⏳</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>⏳</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending DC</Text>
               <Text style={styles.cardSubtitleWhite}>View pending DCs</Text>
@@ -1878,10 +1277,10 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCEmp')}
+          onPress={() => go('DCEmp')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
-            <View style={styles.cardIconContainer}><Text style={styles.cardIconWhite}>👤</Text></View>
+            <View style={styles.cardIconContainer}><Text style={styles.cardIcon}>👤</Text></View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>EMP DC</Text>
               <Text style={styles.cardSubtitleWhite}>Employee DCs</Text>
@@ -1903,36 +1302,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCAdminMy')}
+          onPress={() => go('DCAdminMy')}
         >
-          <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>📋</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>All Created DCs</Text>
-                <Text style={styles.cardSubtitle}>View all employee DCs</Text>
+                <Text style={styles.cardTitleWhite}>All Created DCs</Text>
+                <Text style={styles.cardSubtitleWhite}>View all employee DCs</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCPending')}
+          onPress={() => go('DCPending')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>⏳</Text>
+              <Text style={styles.cardIcon}>⏳</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending DCs</Text>
@@ -1946,11 +1340,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCClosed')}
+          onPress={() => go('DCClosed')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>✅</Text>
+              <Text style={styles.cardIcon}>✅</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Closed Sales</Text>
@@ -1964,11 +1358,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('DCCompleted')}
+          onPress={() => go('DCCompleted')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📦</Text>
+              <Text style={styles.cardIcon}>📦</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Completed DC</Text>
@@ -1982,11 +1376,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('WarehouseHoldDC')}
+          onPress={() => go('WarehouseHoldDC')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>⏸️</Text>
+              <Text style={styles.cardIcon}>⏸️</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Hold DC</Text>
@@ -2011,36 +1405,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ProductsList')}
+          onPress={() => go('ProductsList')}
         >
-          <LinearGradient
-            colors={['#10B981', '#059669']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>📦</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Products</Text>
-                <Text style={styles.cardSubtitle}>Manage products</Text>
+                <Text style={styles.cardTitleWhite}>Products</Text>
+                <Text style={styles.cardSubtitleWhite}>Manage products</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ProductNew')}
+          onPress={() => go('ProductNew')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
+              <Text style={styles.cardIcon}>➕</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Add Product</Text>
@@ -2065,36 +1454,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentApprovalPendingCash')}
+          onPress={() => go('PaymentApprovalPendingCash')}
         >
-          <LinearGradient
-            colors={[colors.warning, '#D97706']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>💰</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Pending Cash</Text>
-                <Text style={styles.cardSubtitle}>Approve cash payments</Text>
+                <Text style={styles.cardTitleWhite}>Pending Cash</Text>
+                <Text style={styles.cardSubtitleWhite}>Approve cash payments</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentApprovalPendingCheques')}
+          onPress={() => go('PaymentApprovalPendingCheques')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>💳</Text>
+              <Text style={styles.cardIcon}>💳</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Cheques</Text>
@@ -2108,11 +1492,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentList')}
+          onPress={() => go('PaymentList')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>⏳</Text>
+              <Text style={styles.cardIcon}>⏳</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Payments</Text>
@@ -2126,11 +1510,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentAdd')}
+          onPress={() => go('PaymentAdd')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>➕</Text>
+              <Text style={styles.cardIcon}>➕</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Add Payment</Text>
@@ -2144,11 +1528,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentDone')}
+          onPress={() => go('PaymentDone')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>✅</Text>
+              <Text style={styles.cardIcon}>✅</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Payments Done</Text>
@@ -2162,11 +1546,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PaymentTransactionReport')}
+          onPress={() => go('PaymentTransactionReport')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📊</Text>
+              <Text style={styles.cardIcon}>📊</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Transaction Report</Text>
@@ -2191,11 +1575,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExpensePending')}
+          onPress={() => go('ExpensePending')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>⏳</Text>
+              <Text style={styles.cardIcon}>⏳</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Pending Expenses</Text>
@@ -2209,11 +1593,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ExpenseFinancePending')}
+          onPress={() => go('ExpenseFinancePending')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>💰</Text>
+              <Text style={styles.cardIcon}>💰</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Finance Pending</Text>
@@ -2238,27 +1622,22 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReportsLeads')}
+          onPress={() => go('ReportsLeads')}
         >
-          <LinearGradient
-            colors={[colors.info, '#2563EB']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>📊</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Reports</Text>
-                <Text style={styles.cardSubtitle}>View all reports</Text>
+                <Text style={styles.cardTitleWhite}>Reports</Text>
+                <Text style={styles.cardSubtitleWhite}>View all reports</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -2274,36 +1653,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('WarehouseDCAtWarehouse')}
+          onPress={() => go('WarehouseDCAtWarehouse')}
         >
-          <LinearGradient
-            colors={['#F59E0B', '#D97706']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>📦</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>DC At Warehouse</Text>
-                <Text style={styles.cardSubtitle}>Process warehouse DCs</Text>
+                <Text style={styles.cardTitleWhite}>DC At Warehouse</Text>
+                <Text style={styles.cardSubtitleWhite}>Process warehouse DCs</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('WarehouseInventoryItems')}
+          onPress={() => go('WarehouseInventoryItems')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📋</Text>
+              <Text style={styles.cardIcon}>📋</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Inventory Items</Text>
@@ -2317,11 +1691,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('WarehouseSearchDC')}
+          onPress={() => go('WarehouseSearchDC')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>🔍</Text>
+              <Text style={styles.cardIcon}>🔍</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Search DC</Text>
@@ -2346,11 +1720,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReturnsEmployee')}
+          onPress={() => go('ReturnsEmployee')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>👤</Text>
+              <Text style={styles.cardIcon}>👤</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Employee Returns</Text>
@@ -2364,11 +1738,11 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('ReturnsWarehouse')}
+          onPress={() => go('ReturnsWarehouse')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>🏢</Text>
+              <Text style={styles.cardIcon}>🏢</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Warehouse Returns</Text>
@@ -2393,36 +1767,31 @@ export default function DashboardScreen({ navigation }: any) {
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('Sales')}
+          onPress={() => go('Sales')}
         >
-          <LinearGradient
-            colors={['#EC4899', '#DB2777']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardContent}>
+          <View style={[styles.cardContent, styles.cardContentWhite]}>
+<View style={styles.cardContent}>
               <View style={styles.cardIconContainer}>
                 <Text style={styles.cardIcon}>💰</Text>
               </View>
               <View style={styles.cardTextContainer}>
-                <Text style={styles.cardTitle}>Sales</Text>
-                <Text style={styles.cardSubtitle}>View sales overview</Text>
+                <Text style={styles.cardTitleWhite}>Sales</Text>
+                <Text style={styles.cardSubtitleWhite}>View sales overview</Text>
               </View>
               <View style={styles.cardArrowContainer}>
-                <Text style={styles.cardArrow}>›</Text>
+                <Text style={styles.cardArrowWhite}>›</Text>
               </View>
             </View>
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('Inventory')}
+          onPress={() => go('Inventory')}
         >
           <View style={[styles.cardContent, styles.cardContentWhite]}>
             <View style={styles.cardIconContainer}>
-              <Text style={styles.cardIconWhite}>📦</Text>
+              <Text style={styles.cardIcon}>📦</Text>
             </View>
             <View style={styles.cardTextContainer}>
               <Text style={styles.cardTitleWhite}>Stock Returns</Text>
@@ -2437,8 +1806,23 @@ export default function DashboardScreen({ navigation }: any) {
     </View>
   );
 
+  const renderPartnerDashboard = () => (
+    <View style={styles.content}>
+      <Text style={styles.sectionTitle}>Partner</Text>
+      <TouchableOpacity style={styles.card} onPress={() => go('PartnerStocks')}>
+        <Text style={styles.cardTitleWhite}>Stocks</Text>
+        <Text style={styles.cardSubtitleWhite}>View assigned product stock</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.card} onPress={() => go('PartnerDCs')}>
+        <Text style={styles.cardTitleWhite}>My DCs</Text>
+        <Text style={styles.cardSubtitleWhite}>Delivery challans for your products</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   // Determine which dashboard to show (order matches web Sidebar role precedence)
   const renderDashboardContent = () => {
+    if (isPartner || userRole === 'Vendor') return renderPartnerDashboard();
     if (isAdmin) return renderAdminDashboard();
     if (isExecutiveManager) return renderExecutiveManagerDashboard();
     if (isWarehouseExecutive) return renderWarehouseExecutiveDashboard();
@@ -2454,8 +1838,8 @@ export default function DashboardScreen({ navigation }: any) {
     return (
       <View style={styles.content}>
         <Text style={styles.sectionTitle}>Dashboard</Text>
-        <Text style={styles.cardSubtitle}>No specific dashboard available for your role: {userRole || 'Unknown'}</Text>
-        <Text style={[styles.cardSubtitle, { marginTop: 10, fontSize: 12 }]}>
+        <Text style={styles.cardSubtitleWhite}>No specific dashboard available for your role: {userRole || 'Unknown'}</Text>
+        <Text style={[styles.cardSubtitleWhite, { marginTop: 10, fontSize: 12 }]}>
           Roles: {JSON.stringify(userRoles)}
         </Text>
       </View>
@@ -2464,13 +1848,8 @@ export default function DashboardScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={gradients.primary}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
+      <View style={styles.header}>
+<View style={styles.headerContent}>
           <View style={styles.headerTextContainer}>
             <Text style={styles.greeting}>Welcome back,</Text>
             <Text style={styles.userName}>{user?.name?.split(' ')[0] || 'User'}</Text>
@@ -2489,7 +1868,7 @@ export default function DashboardScreen({ navigation }: any) {
             </View>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </View>
       <ScrollView 
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -2514,15 +1893,11 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: colors.shadowDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 12,
+    paddingTop: 56,
+    paddingBottom: 20,
+    backgroundColor: colors.backgroundLight,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   headerContent: {
     flexDirection: 'row',
@@ -2534,49 +1909,48 @@ const styles = StyleSheet.create({
   },
   greeting: {
     ...typography.body.medium,
-    color: colors.textLight,
+    color: colors.textPrimary,
     opacity: 0.95,
     marginBottom: 6,
   },
   userName: {
     ...typography.display.small,
-    color: colors.textLight,
+    color: colors.textPrimary,
     marginBottom: 16,
   },
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: colors.successLight,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderColor: colors.border,
     backdropFilter: 'blur(10px)',
   },
   roleBadgeDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.textLight,
+    backgroundColor: colors.primary,
     marginRight: 8,
-    opacity: 0.9,
   },
   roleBadgeText: {
     ...typography.label.small,
-    color: colors.textLight,
+    color: colors.textPrimary,
     textTransform: 'uppercase',
   },
   logoutButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: colors.backgroundMuted,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: colors.border,
     shadowColor: colors.shadowDark,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -2587,7 +1961,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: colors.backgroundLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2647,7 +2021,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: colors.successLight,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -2660,26 +2034,26 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     ...typography.heading.h3,
-    color: colors.textLight,
+    color: colors.textPrimary,
     marginBottom: 6,
   },
   cardSubtitle: {
     ...typography.body.medium,
-    color: colors.textLight,
+    color: colors.textPrimary,
     opacity: 0.9,
   },
   cardArrowContainer: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: colors.successLight,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   cardArrow: {
     fontSize: 20,
-    color: colors.textLight,
+    color: colors.textPrimary,
     fontWeight: '700',
   },
   cardContentWhite: {

@@ -13,11 +13,11 @@ import {
   Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function DCClientScreen({ navigation }: any) {
@@ -100,32 +100,15 @@ export default function DCClientScreen({ navigation }: any) {
     return customerName.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading client DCs...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>My Clients</Text>
-            <Text style={styles.headerSubtitle}>Converted clients & DC</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <View style={styles.searchContainer}>
-        <TextInput
+    <ScreenShell
+      title="My Clients"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.searchContainer}>
+        <WebInput
           style={styles.searchInput}
           placeholder="Search by customer name..."
           value={searchQuery}
@@ -242,7 +225,7 @@ export default function DCClientScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 

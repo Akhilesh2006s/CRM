@@ -13,11 +13,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 type ProductRow = {
   id: string;
@@ -137,18 +137,11 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
   if (!dc) return null;
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Request DC - {schoolName}</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Request DC - {schoolName}"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.subtitle}>Review PO details and request Delivery Challan. All fields are read-only.</Text>
 
         {/* School / Client info */}
@@ -229,7 +222,7 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

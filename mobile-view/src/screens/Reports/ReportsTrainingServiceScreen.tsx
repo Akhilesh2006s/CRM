@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, ActivityIndicator, Alert } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 interface Stats {
   total: number;
@@ -54,38 +54,25 @@ export default function ReportsTrainingServiceScreen({ navigation }: any) {
     loadStats();
   };
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading report...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Training & Service</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView
+    <ScreenShell
+      title="Training & Service"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<ScrollView
         style={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{ padding: 16 }}
       >
         <View style={styles.filterCard}>
           <Text style={styles.label}>From Date</Text>
-          <TextInput style={styles.input} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textSecondary} />
+          <WebInput style={styles.input} value={fromDate} onChangeText={setFromDate} placeholder="YYYY-MM-DD" />
           <Text style={[styles.label, { marginTop: 12 }]}>To Date</Text>
-          <TextInput style={styles.input} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textSecondary} />
+          <WebInput style={styles.input} value={toDate} onChangeText={setToDate} placeholder="YYYY-MM-DD" />
           <Text style={[styles.label, { marginTop: 12 }]}>Zone</Text>
-          <TextInput style={styles.input} value={zone} onChangeText={setZone} placeholder="Optional" placeholderTextColor={colors.textSecondary} />
+          <WebInput style={styles.input} value={zone} onChangeText={setZone} placeholder="Optional" />
           <TouchableOpacity style={styles.searchButton} onPress={loadStats}>
             <Text style={styles.searchButtonText}>Apply Filters</Text>
           </TouchableOpacity>
@@ -138,7 +125,7 @@ export default function ReportsTrainingServiceScreen({ navigation }: any) {
           </View>
         ) : null}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

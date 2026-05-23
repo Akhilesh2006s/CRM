@@ -1,6 +1,8 @@
 import 'react-native-gesture-handler';
 import React from 'react';
-import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
+import { rootNavigationRef } from './src/navigation/navigationRef';
+import MainDrawer from './src/navigation/MainDrawer';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text, Alert, TouchableOpacity } from 'react-native';
@@ -9,6 +11,7 @@ import FirstTimeAttendanceScreen from './src/screens/Attendance/FirstTimeAttenda
 import DashboardScreen from './src/screens/Dashboard/DashboardScreen';
 import DCCaptureScreen from './src/screens/DC/DCCaptureScreen';
 import DCListScreen from './src/screens/DC/DCListScreen';
+import DCHubScreen from './src/screens/DC/DCHubScreen';
 import DCClosedScreen from './src/screens/DC/DCClosedScreen';
 import DCCompletedScreen from './src/screens/DC/DCCompletedScreen';
 import PaymentListScreen from './src/screens/Payments/PaymentListScreen';
@@ -113,8 +116,27 @@ import ReportsDCScreen from './src/screens/Reports/ReportsDCScreen';
 import ReportsReturnsScreen from './src/screens/Reports/ReportsReturnsScreen';
 import ReportsExpensesScreen from './src/screens/Reports/ReportsExpensesScreen';
 import ReportsTrainingServiceScreen from './src/screens/Reports/ReportsTrainingServiceScreen';
-import PlaceholderScreen from './src/screens/Common/PlaceholderScreen';
+import DCAdminScreen from './src/screens/DC/DCAdminScreen';
+import ExpenseExecutiveManagerPendingScreen from './src/screens/Expenses/ExpenseExecutiveManagerPendingScreen';
+import ExpenseDetailScreen from './src/screens/Expenses/ExpenseDetailScreen';
+import ExpenseResubmitScreen from './src/screens/Expenses/ExpenseResubmitScreen';
+import EmployeesZonesScreen from './src/screens/Employees/EmployeesZonesScreen';
+import EmployeesZonesClustersScreen from './src/screens/Employees/EmployeesZonesClustersScreen';
+import EmployeesClustersScreen from './src/screens/Employees/EmployeesClustersScreen';
+import PartnerStocksScreen from './src/screens/Partner/PartnerStocksScreen';
+import PartnerDCsScreen from './src/screens/Partner/PartnerDCsScreen';
+import VendorsListScreen from './src/screens/Products/VendorsListScreen';
+import VendorNewScreen from './src/screens/Products/VendorNewScreen';
+import VendorDetailScreen from './src/screens/Products/VendorDetailScreen';
+import VendorAssignCostScreen from './src/screens/Products/VendorAssignCostScreen';
+import DeliverablesListScreen from './src/screens/Products/DeliverablesListScreen';
+import DeliverableViewScreen from './src/screens/Products/DeliverableViewScreen';
+import DeliverableAddScreen from './src/screens/Products/DeliverableAddScreen';
+import LeadsRenewalListScreen from './src/screens/Leads/LeadsRenewalListScreen';
+import ExecutiveManagerExecutivesScreen from './src/screens/ExecutiveManagers/ExecutiveManagerExecutivesScreen';
+import FranchiseDetailScreen from './src/screens/Franchises/FranchiseDetailScreen';
 import SettingsPasswordScreen from './src/screens/Settings/SettingsPasswordScreen';
+import SettingsExpensesScreen from './src/screens/Settings/SettingsExpensesScreen';
 import SettingsUploadScreen from './src/screens/Settings/SettingsUploadScreen';
 import SettingsSMSScreen from './src/screens/Settings/SettingsSMSScreen';
 import SettingsBackupScreen from './src/screens/Settings/SettingsBackupScreen';
@@ -125,7 +147,7 @@ const Stack = createNativeStackNavigator();
 
 function AppNavigator() {
   const { user, loading, logout } = useAuth();
-  const navigationRef = useNavigationContainerRef();
+  const navigationRef = rootNavigationRef;
 
   // Debug logging
   console.log('AppNavigator - user:', user?.email || 'null', 'loading:', loading);
@@ -152,7 +174,7 @@ function AppNavigator() {
       if (!user) {
         navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
       } else {
-        navigationRef.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
+        navigationRef.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
       }
     }
   }, [user, loading, navigationRef]);
@@ -168,23 +190,15 @@ function AppNavigator() {
 
   // Default screen options with logout button for all authenticated screens
   const defaultScreenOptions = {
-    headerShown: true,
+    headerShown: false,
     headerStyle: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#FFFFFF',
     },
-    headerTintColor: '#fff',
+    headerTintColor: '#171717',
     headerTitleStyle: {
-      fontWeight: 'bold',
+      fontWeight: '600',
+      fontSize: 17,
     },
-    headerRight: () => (
-      <TouchableOpacity
-        onPress={handleLogout}
-        style={styles.logoutHeaderButton}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.logoutHeaderText}>Logout</Text>
-      </TouchableOpacity>
-    ),
   };
 
   return (
@@ -203,9 +217,14 @@ function AppNavigator() {
           component={FirstTimeAttendanceScreen} 
           options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="Dashboard" 
-          component={DashboardScreen} 
+        <Stack.Screen
+          name="MainDrawer"
+          component={MainDrawer}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Dashboard"
+          component={DashboardScreen}
           options={{ headerShown: false }}
         />
         {/* Leads */}
@@ -216,8 +235,10 @@ function AppNavigator() {
         <Stack.Screen name="LeadFollowup" component={LeadFollowupScreen} />
         <Stack.Screen name="LeadEdit" component={LeadEditScreen} />
         <Stack.Screen name="LeadClose" component={LeadCloseScreen} />
-        
+        <Stack.Screen name="LeadsRenewalList" component={LeadsRenewalListScreen} />
+
         {/* DC Management */}
+        <Stack.Screen name="DCHub" component={DCHubScreen} />
         <Stack.Screen name="DCList" component={DCListScreen} />
         <Stack.Screen name="DCCapture" component={DCCaptureScreen} />
         <Stack.Screen name="DCClosed" component={DCClosedScreen} />
@@ -233,10 +254,13 @@ function AppNavigator() {
         <Stack.Screen name="DCRequestSummary" component={DCRequestSummaryScreen} />
         <Stack.Screen name="ClientEditPO" component={ClientEditPOScreen} />
         <Stack.Screen name="DCEmp" component={DCEmpScreen} />
-        <Stack.Screen name="DCAdmin" component={PlaceholderScreen} />
-        
+        <Stack.Screen name="DCAdmin" component={DCAdminScreen} />
+
         {/* Employees */}
         <Stack.Screen name="EmployeeNew" component={EmployeeNewScreen} />
+        <Stack.Screen name="EmployeesZones" component={EmployeesZonesScreen} />
+        <Stack.Screen name="EmployeesZonesClusters" component={EmployeesZonesClustersScreen} />
+        <Stack.Screen name="EmployeesClusters" component={EmployeesClustersScreen} />
         <Stack.Screen name="EmployeesActive" component={EmployeesActiveScreen} />
         <Stack.Screen name="EmployeesInactive" component={EmployeesInactiveScreen} />
         <Stack.Screen name="EmployeesLeaves" component={EmployeesLeavesScreen} />
@@ -248,7 +272,8 @@ function AppNavigator() {
         <Stack.Screen name="ExecutiveManagerLeaves" component={ExecutiveManagerLeavesScreen} />
         <Stack.Screen name="POChangeRequests" component={POChangeRequestsScreen} />
         <Stack.Screen name="POChangeRequestDetail" component={POChangeRequestDetailScreen} />
-        
+        <Stack.Screen name="ExecutiveManagerExecutives" component={ExecutiveManagerExecutivesScreen} />
+
         {/* Leave Management */}
         <Stack.Screen name="LeavesPending" component={LeavesPendingScreen} />
         <Stack.Screen name="LeavesReport" component={LeavesReportScreen} />
@@ -305,7 +330,10 @@ function AppNavigator() {
         <Stack.Screen name="ExpenseFinancePending" component={ExpenseFinancePendingScreen} />
         <Stack.Screen name="ExpenseMy" component={ExpenseMyScreen} />
         <Stack.Screen name="ExpenseManagerUpdate" component={ExpenseManagerUpdateScreen} />
-        
+        <Stack.Screen name="ExpenseExecutiveManagerPending" component={ExpenseExecutiveManagerPendingScreen} />
+        <Stack.Screen name="ExpenseDetail" component={ExpenseDetailScreen} />
+        <Stack.Screen name="ExpenseResubmit" component={ExpenseResubmitScreen} />
+
         {/* Reports */}
         <Stack.Screen name="ReportsLeads" component={ReportsLeadsScreen} />
         <Stack.Screen name="ReportsLeadsOpen" component={ReportsLeadsOpenScreen} />
@@ -325,7 +353,21 @@ function AppNavigator() {
         <Stack.Screen name="ProductsList" component={ProductsListScreen} />
         <Stack.Screen name="ProductNew" component={ProductNewScreen} />
         <Stack.Screen name="ProductEdit" component={ProductEditScreen} />
-        
+        <Stack.Screen name="VendorsList" component={VendorsListScreen} />
+        <Stack.Screen name="VendorNew" component={VendorNewScreen} />
+        <Stack.Screen name="VendorDetail" component={VendorDetailScreen} />
+        <Stack.Screen name="VendorAssignCost" component={VendorAssignCostScreen} />
+        <Stack.Screen name="DeliverablesList" component={DeliverablesListScreen} />
+        <Stack.Screen name="DeliverableView" component={DeliverableViewScreen} />
+        <Stack.Screen name="DeliverableAdd" component={DeliverableAddScreen} />
+
+        {/* Partner */}
+        <Stack.Screen name="PartnerStocks" component={PartnerStocksScreen} />
+        <Stack.Screen name="PartnerDCs" component={PartnerDCsScreen} />
+
+        {/* Franchises */}
+        <Stack.Screen name="FranchiseDetail" component={FranchiseDetailScreen} />
+
         {/* Sales */}
         <Stack.Screen name="Sales" component={SalesScreen} />
         
@@ -355,7 +397,8 @@ function AppNavigator() {
         <Stack.Screen name="SettingsUpload" component={SettingsUploadScreen} />
         <Stack.Screen name="SettingsSMS" component={SettingsSMSScreen} />
         <Stack.Screen name="SettingsBackup" component={SettingsBackupScreen} />
-        
+        <Stack.Screen name="SettingsExpenses" component={SettingsExpensesScreen} />
+
         {/* Leaves */}
         <Stack.Screen name="LeaveList" component={LeaveListScreen} />
       </Stack.Navigator>

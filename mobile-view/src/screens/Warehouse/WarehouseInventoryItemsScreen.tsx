@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
 
 export default function WarehouseInventoryItemsScreen({ navigation }: any) {
@@ -42,31 +43,16 @@ export default function WarehouseInventoryItemsScreen({ navigation }: any) {
     return catOk && lvlOk;
   });
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading inventory...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Inventory Items</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('WarehouseInventoryItemNew')} style={styles.addButton}>
-            <Text style={styles.addIcon}>+</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-      <View style={styles.filterContainer}>
-        <TextInput style={styles.filterInput} value={category} onChangeText={setCategory} placeholder="Filter by category" placeholderTextColor={colors.textSecondary} />
-        <TextInput style={styles.filterInput} value={level} onChangeText={setLevel} placeholder="Filter by level" placeholderTextColor={colors.textSecondary} />
+    <ScreenShell
+      title="Inventory Items"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.filterContainer}>
+        <WebInput style={styles.filterInput} value={category} onChangeText={setCategory} placeholder="Filter by category" />
+        <WebInput style={styles.filterInput} value={level} onChangeText={setLevel} placeholder="Filter by level" />
       </View>
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {filtered.length === 0 ? (
@@ -98,7 +84,7 @@ export default function WarehouseInventoryItemsScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

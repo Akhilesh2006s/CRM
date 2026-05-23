@@ -12,11 +12,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
   return (
@@ -81,18 +81,11 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
   const totalAmount = products.reduce((s: number, p: any) => s + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0), 0);
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Request DC</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Request DC"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <Text style={styles.subtitle}>Review details. Tap Request DC to move this to Closed Sales.</Text>
 
         <View style={styles.section}>
@@ -156,7 +149,7 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
           )}
         </TouchableOpacity>
       </View>
-    </View>
+    </ScreenShell>
   );
 }
 

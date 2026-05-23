@@ -6,28 +6,17 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function InventoryScreen({ navigation }: any) {
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Stock Returns</Text>
-            <Text style={styles.headerSubtitle}>Inventory Management</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Stock Returns"
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Choose a section:</Text>
           <TouchableOpacity
@@ -53,7 +42,7 @@ export default function InventoryScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

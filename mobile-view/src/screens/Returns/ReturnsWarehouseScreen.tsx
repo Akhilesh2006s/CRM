@@ -9,11 +9,11 @@ import {
   ActivityIndicator,
   TextInput,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function ReturnsWarehouseScreen({ navigation }: any) {
   const [returns, setReturns] = useState<any[]>([]);
@@ -80,27 +80,17 @@ export default function ReturnsWarehouseScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Warehouse Returns</Text>
-            <Text style={styles.headerSubtitle}>Submit warehouse returns</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Warehouse Returns"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>Submit New Return</Text>
           <View style={styles.formRow}>
             <View style={styles.formGroup}>
               <Text style={styles.label}>Return Date *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="YYYY-MM-DD"
                 value={form.returnDate}
@@ -109,7 +99,7 @@ export default function ReturnsWarehouseScreen({ navigation }: any) {
             </View>
             <View style={styles.formGroup}>
               <Text style={styles.label}>LR No (optional)</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="e.g. C062455"
                 value={form.lrNumber}
@@ -119,7 +109,7 @@ export default function ReturnsWarehouseScreen({ navigation }: any) {
           </View>
           <View style={styles.formGroup}>
             <Text style={styles.label}>Fin Year (optional)</Text>
-            <TextInput
+            <WebInput
               style={styles.input}
               placeholder="e.g. 2025-26"
               value={form.finYear}
@@ -128,7 +118,7 @@ export default function ReturnsWarehouseScreen({ navigation }: any) {
           </View>
           <View style={styles.formGroup}>
             <Text style={styles.label}>Remarks</Text>
-            <TextInput
+            <WebInput
               style={[styles.input, styles.textArea]}
               placeholder="Reason/notes or items summary"
               value={form.remarks}
@@ -177,7 +167,7 @@ export default function ReturnsWarehouseScreen({ navigation }: any) {
           )}
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ProductsListScreen({ navigation }: any) {
@@ -48,30 +49,15 @@ export default function ProductsListScreen({ navigation }: any) {
 
   const filtered = products.filter((p) => p.productName?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading products...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Products</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('ProductNew')} style={styles.addButton}>
-            <Text style={styles.addIcon}>+</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-      <View style={styles.filterContainer}>
-        <TextInput style={styles.searchInput} value={searchTerm} onChangeText={setSearchTerm} placeholder="Search products..." placeholderTextColor={colors.textSecondary} />
+    <ScreenShell
+      title="Products"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.filterContainer}>
+        <WebInput style={styles.searchInput} value={searchTerm} onChangeText={setSearchTerm} placeholder="Search products..." />
         <View style={styles.filterTabs}>
           {(['all', '1', '0'] as const).map((filterType) => (
             <TouchableOpacity key={filterType} style={[styles.filterTab, statusFilter === filterType && styles.filterTabActive]} onPress={() => setStatusFilter(filterType)}>
@@ -117,7 +103,7 @@ export default function ProductsListScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

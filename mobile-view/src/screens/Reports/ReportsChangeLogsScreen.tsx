@@ -1,55 +1,57 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
-import { typography } from '../../theme/typography';
+import { View, Text, StyleSheet } from 'react-native';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { colors, radii, spacing } from '../../theme/colors';
 
-export default function ReportsChangeLogsScreen({ navigation }: any) {
+/** Matches navbar-landing/app/dashboard/reports/change-logs/page.tsx */
+export default function ReportsChangeLogsScreen() {
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Change Logs</Text>
+    <ScreenShell title="Change Logs" subtitle="Track all system changes and updates">
+      <View style={styles.hero}>
+        <Text style={styles.heroEmoji}>✨</Text>
+        <Text style={styles.heroTitle}>Change Logs Coming Soon</Text>
+        <Text style={styles.heroBody}>
+          We're working on bringing you a comprehensive change log system to track all updates,
+          improvements, and modifications to the CRM platform.
+        </Text>
+      </View>
+
+      <View style={styles.grid}>
+        <View style={[styles.feature, styles.featureBlue]}>
+          <Text style={styles.featureTitle}>Version History</Text>
+          <Text style={styles.featureDesc}>Track version updates</Text>
         </View>
-      </LinearGradient>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.hero}>
-          <Text style={styles.heroIcon}>✨</Text>
-          <Text style={styles.heroTitle}>Change Logs Coming Soon</Text>
-          <Text style={styles.heroSubtitle}>
-            We are building a detailed change log to help you track feature updates, bug fixes, and improvements to the CRM platform.
-          </Text>
+        <View style={[styles.feature, styles.featurePurple]}>
+          <Text style={styles.featureTitle}>Feature Updates</Text>
+          <Text style={styles.featureDesc}>New features & improvements</Text>
         </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>What to expect</Text>
-          <Text style={styles.cardText}>• Version history for every release</Text>
-          <Text style={styles.cardText}>• Feature additions and enhancements</Text>
-          <Text style={styles.cardText}>• Fixes and performance updates</Text>
+        <View style={[styles.feature, styles.featureGreen]}>
+          <Text style={styles.featureTitle}>System Changes</Text>
+          <Text style={styles.featureDesc}>All system modifications</Text>
         </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Need updates now?</Text>
-          <Text style={styles.cardText}>
-            Contact the product team for the latest deployment notes or subscribe to the release newsletter from the settings module.
-          </Text>
-        </View>
-      </ScrollView>
-    </View>
+      </View>
+    </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: 20, paddingTop: 60, paddingBottom: 40, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerContent: { alignItems: 'center' },
-  headerTitle: { ...typography.heading.h1, color: colors.textLight },
-  content: { padding: 20, gap: 16 },
-  hero: { alignItems: 'center', padding: 24, borderRadius: 20, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border },
-  heroIcon: { fontSize: 48, marginBottom: 12 },
-  heroTitle: { ...typography.heading.h2, color: colors.textPrimary, textAlign: 'center', marginBottom: 8 },
-  heroSubtitle: { ...typography.body.medium, color: colors.textSecondary, textAlign: 'center' },
-  card: { padding: 16, borderRadius: 16, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border },
-  cardTitle: { ...typography.heading.h4, color: colors.textPrimary, marginBottom: 8 },
-  cardText: { ...typography.body.medium, color: colors.textSecondary, marginBottom: 4 },
+  hero: {
+    alignItems: 'center',
+    padding: spacing.lg,
+    backgroundColor: colors.backgroundLight,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  heroEmoji: { fontSize: 48, marginBottom: spacing.sm },
+  heroTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, textAlign: 'center', marginBottom: 8 },
+  heroBody: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  grid: { gap: spacing.sm },
+  feature: { padding: spacing.md, borderRadius: radii.lg, borderWidth: 1 },
+  featureBlue: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  featurePurple: { backgroundColor: '#F5F3FF', borderColor: '#DDD6FE' },
+  featureGreen: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+  featureTitle: { fontSize: 14, fontWeight: '600', marginBottom: 4 },
+  featureDesc: { fontSize: 12 },
 });
-
-

@@ -1,11 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function WarehouseDCAtWarehouseScreen({ navigation }: any) {
   const [dcs, setDcs] = useState<any[]>([]);
@@ -52,30 +52,14 @@ export default function WarehouseDCAtWarehouseScreen({ navigation }: any) {
     }
   };
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading DCs at warehouse...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>DC At Warehouse</Text>
-            <Text style={styles.headerSubtitle}>{dcs.length} {dcs.length === 1 ? 'order' : 'orders'} pending</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView 
+    <ScreenShell
+      title="DC At Warehouse"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<ScrollView 
         style={styles.content} 
         contentContainerStyle={styles.contentContainer}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
@@ -161,7 +145,7 @@ export default function WarehouseDCAtWarehouseScreen({ navigation }: any) {
           </>
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

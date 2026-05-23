@@ -9,11 +9,11 @@ import {
   TextInput,
   Switch,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ProductNewScreen({ navigation }: any) {
@@ -156,27 +156,16 @@ export default function ProductNewScreen({ navigation }: any) {
 
   if (!user || (user.role !== 'Admin' && user.role !== 'Super Admin')) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Access denied. Admin privileges required.</Text>
-      </View>
-    );
+    <ScreenShell
+      title="Add New Product"
+    >
+<Text style={styles.errorText}>Access denied. Admin privileges required.</Text>
+    </ScreenShell>
+  );
   }
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Add New Product</Text>
-            <Text style={styles.headerSubtitle}>Create a new product</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
       <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage ? (
           <View style={styles.successBanner}>
@@ -202,7 +191,7 @@ export default function ProductNewScreen({ navigation }: any) {
         <View style={styles.formCard}>
           <View style={styles.formSection}>
             <Text style={styles.label}>Product Name *</Text>
-            <TextInput
+            <WebInput
               style={styles.input}
               placeholder="Enter product name"
               value={form.productName}
@@ -249,7 +238,7 @@ export default function ProductNewScreen({ navigation }: any) {
             <Text style={styles.label}>Product Levels</Text>
             <Text style={styles.hint}>Add levels like L1, L2, L3, etc.</Text>
             <View style={styles.addRow}>
-              <TextInput
+              <WebInput
                 style={[styles.input, styles.addInput]}
                 placeholder="Enter level (e.g., L1, L2)"
                 value={form.newLevel}
@@ -291,7 +280,7 @@ export default function ProductNewScreen({ navigation }: any) {
               <Text style={styles.label}>Subjects *</Text>
               <Text style={styles.hint}>Add one or multiple subjects</Text>
               <View style={styles.addRow}>
-                <TextInput
+                <WebInput
                   style={[styles.input, styles.addInput]}
                   placeholder="Enter subject name"
                   value={form.newSubject}
@@ -334,7 +323,7 @@ export default function ProductNewScreen({ navigation }: any) {
               <Text style={styles.label}>Specs *</Text>
               <Text style={styles.hint}>Add one or multiple specs</Text>
               <View style={styles.addRow}>
-                <TextInput
+                <WebInput
                   style={[styles.input, styles.addInput]}
                   placeholder="Enter spec name"
                   value={form.newSpec}

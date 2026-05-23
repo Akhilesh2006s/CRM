@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function PaymentTransactionReportScreen({ navigation }: any) {
   const [payments, setPayments] = useState<any[]>([]);
@@ -61,29 +61,16 @@ export default function PaymentTransactionReportScreen({ navigation }: any) {
 
   const totalAmount = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading transaction report...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Transaction Report</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <View style={styles.filterContainer}>
-        <TextInput style={styles.filterInput} value={filters.startDate} onChangeText={(text: string) => setFilters((f) => ({ ...f, startDate: text }))} placeholder="Start Date (YYYY-MM-DD)" placeholderTextColor={colors.textSecondary} />
-        <TextInput style={styles.filterInput} value={filters.endDate} onChangeText={(text: string) => setFilters((f) => ({ ...f, endDate: text }))} placeholder="End Date (YYYY-MM-DD)" placeholderTextColor={colors.textSecondary} />
+    <ScreenShell
+      title="Transaction Report"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.filterContainer}>
+        <WebInput style={styles.filterInput} value={filters.startDate} onChangeText={(text: string) => setFilters((f) => ({ ...f, startDate: text }))} placeholder="Start Date (YYYY-MM-DD)" />
+        <WebInput style={styles.filterInput} value={filters.endDate} onChangeText={(text: string) => setFilters((f) => ({ ...f, endDate: text }))} placeholder="End Date (YYYY-MM-DD)" />
         <View style={styles.filterTabs}>
           <TouchableOpacity style={[styles.filterTab, filters.status === 'all' && styles.filterTabActive]} onPress={() => setFilters((f) => ({ ...f, status: 'all' }))}>
             <Text style={[styles.filterTabText, filters.status === 'all' && styles.filterTabTextActive]}>All</Text>
@@ -141,7 +128,7 @@ export default function PaymentTransactionReportScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

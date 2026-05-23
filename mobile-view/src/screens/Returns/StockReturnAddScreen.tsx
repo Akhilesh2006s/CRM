@@ -11,14 +11,14 @@ import {
   FlatList,
   Image,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService, getApiUrl } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 const RETURN_TYPES = ['Damaged', 'Expired', 'Excess', 'Wrong item', 'Replacement'];
@@ -316,18 +316,11 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{returnIdParam ? (isViewMode ? 'View Return' : 'Edit Draft Return') : 'Add Return'}</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <View style={styles.stepTabs}>
+    <ScreenShell
+      title="{returnIdParam ? (isViewMode ? 'View Return' : 'Edit Draft Return') : 'Add Return'}"
+      loading={loading}
+    >
+<View style={styles.stepTabs}>
         {[1, 2, 3, 4].map((s) => (
           <TouchableOpacity
             key={s}
@@ -402,7 +395,7 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
             </View>
 
             <Text style={styles.label}>Return Date *</Text>
-            <TextInput
+            <WebInput
               style={styles.input}
               value={returnDate}
               onChangeText={setReturnDate}
@@ -447,7 +440,7 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
                   <View key={row.id} style={styles.tableRow}>
                     <Text style={[styles.td, styles.colProduct]} numberOfLines={1}>{row.product}</Text>
                     <Text style={[styles.td, styles.colQty]}>{row.soldQty}</Text>
-                    <TextInput
+                    <WebInput
                       style={[styles.inputSmall, styles.colQty]}
                       value={row.returnQty}
                       onChangeText={(v) => /^\d*$/.test(v) && updateProductRow(row.id, 'returnQty', v)}
@@ -456,14 +449,14 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
                       editable={!isViewMode}
                       maxLength={6}
                     />
-                    <TextInput
+                    <WebInput
                       style={[styles.inputSmall, styles.colReason]}
                       value={row.reason}
                       onChangeText={(v) => updateProductRow(row.id, 'reason', v)}
                       placeholder="Reason *"
                       editable={!isViewMode}
                     />
-                    <TextInput
+                    <WebInput
                       style={[styles.inputSmall, styles.colRemarks]}
                       value={row.remarks}
                       onChangeText={(v) => updateProductRow(row.id, 'remarks', v)}
@@ -506,7 +499,7 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
               />
             )}
             <Text style={styles.label}>Executive remarks * (mandatory for Damaged/Expired)</Text>
-            <TextInput
+            <WebInput
               style={[styles.input, styles.textArea]}
               value={executiveRemarks}
               onChangeText={setExecutiveRemarks}
@@ -571,7 +564,7 @@ export default function StockReturnAddScreen({ navigation, route }: any) {
           </TouchableOpacity>
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

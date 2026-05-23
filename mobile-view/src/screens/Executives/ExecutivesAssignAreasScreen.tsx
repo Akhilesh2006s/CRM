@@ -10,11 +10,11 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ExecutivesAssignAreasScreen({ navigation }: any) {
@@ -98,22 +98,12 @@ export default function ExecutivesAssignAreasScreen({ navigation }: any) {
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Assign Areas</Text>
-            <Text style={styles.headerSubtitle}>Assign areas to executives</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <View style={styles.filtersContainer}>
-        <TextInput
+    <ScreenShell
+      title="Assign Areas"
+      loading={loading}
+    >
+<View style={styles.filtersContainer}>
+        <WebInput
           style={styles.searchInput}
           placeholder="Search employees..."
           value={searchTerm}
@@ -181,7 +171,7 @@ export default function ExecutivesAssignAreasScreen({ navigation }: any) {
               <Text style={styles.modalLabel}>Employee: {selectedEmployee?.name}</Text>
               <Text style={styles.modalLabel}>City: {selectedEmployee?.assignedCity}</Text>
               <Text style={styles.modalLabel}>Area *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter area name"
                 value={area}
@@ -210,7 +200,7 @@ export default function ExecutivesAssignAreasScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 

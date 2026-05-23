@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { apiService } from '../../services/api';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, DataTable } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
 
 export default function PaymentListScreen({ navigation }: any) {
@@ -97,8 +99,10 @@ export default function PaymentListScreen({ navigation }: any) {
   const paymentMethods = ['Cash', 'Cheque', 'Online Transfer', 'UPI', 'Other'];
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <ScreenShell title="Payment List"
+      loading={loading}>
+      <PageSection title="Payment List">
+<View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backButton}>← Back</Text>
         </TouchableOpacity>
@@ -165,7 +169,7 @@ export default function PaymentListScreen({ navigation }: any) {
             )}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>School Code *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter school code"
                 value={schoolCode}
@@ -175,7 +179,7 @@ export default function PaymentListScreen({ navigation }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Customer Name *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter customer name"
                 value={customerName}
@@ -185,7 +189,7 @@ export default function PaymentListScreen({ navigation }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Mobile Number</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter mobile number"
                 value={mobileNumber}
@@ -196,7 +200,7 @@ export default function PaymentListScreen({ navigation }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Amount *</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="Enter amount"
                 value={amount}
@@ -232,7 +236,7 @@ export default function PaymentListScreen({ navigation }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Payment Date</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 placeholder="YYYY-MM-DD"
                 value={paymentDate}
@@ -242,7 +246,7 @@ export default function PaymentListScreen({ navigation }: any) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Remarks</Text>
-              <TextInput
+              <WebInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Optional remarks"
                 value={remarks}
@@ -266,7 +270,8 @@ export default function PaymentListScreen({ navigation }: any) {
           </View>
         </ScrollView>
       </Modal>
-    </View>
+      </PageSection>
+    </ScreenShell>
   );
 }
 

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 export default function WarehouseDCAtWarehouseDetailScreen({ navigation, route }: any) {
   const { id } = route.params;
@@ -97,17 +97,11 @@ export default function WarehouseDCAtWarehouseDetailScreen({ navigation, route }
   }
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>DC Details</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="DC Details"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {dc && (
           <>
             <View style={styles.infoCard}>
@@ -123,32 +117,26 @@ export default function WarehouseDCAtWarehouseDetailScreen({ navigation, route }
             <FormField label="Cluster" value={form.cluster} onChangeText={(text: string) => setForm((f) => ({ ...f, cluster: text }))} placeholder="Enter cluster" />
             <View style={styles.textAreaContainer}>
               <Text style={styles.label}>DC Remarks</Text>
-              <TextInput style={styles.textArea} value={form.dcRemarks} onChangeText={(text: string) => setForm((f) => ({ ...f, dcRemarks: text }))} placeholder="Enter remarks" multiline numberOfLines={3} />
+              <WebInput style={styles.textArea} value={form.dcRemarks} onChangeText={(text: string) => setForm((f) => ({ ...f, dcRemarks: text }))} placeholder="Enter remarks" multiline numberOfLines={3} />
             </View>
             <View style={styles.textAreaContainer}>
               <Text style={styles.label}>DC Notes</Text>
-              <TextInput style={styles.textArea} value={form.dcNotes} onChangeText={(text: string) => setForm((f) => ({ ...f, dcNotes: text }))} placeholder="Enter notes" multiline numberOfLines={3} />
+              <WebInput style={styles.textArea} value={form.dcNotes} onChangeText={(text: string) => setForm((f) => ({ ...f, dcNotes: text }))} placeholder="Enter notes" multiline numberOfLines={3} />
             </View>
             <View style={styles.textAreaContainer}>
               <Text style={styles.label}>Remarks</Text>
-              <TextInput style={styles.textArea} value={form.remarks} onChangeText={(text: string) => setForm((f) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={3} />
+              <WebInput style={styles.textArea} value={form.remarks} onChangeText={(text: string) => setForm((f) => ({ ...f, remarks: text }))} placeholder="Enter remarks" multiline numberOfLines={3} />
             </View>
             <View style={styles.buttonContainer}>
               <TouchableOpacity style={[styles.processButton, processing && styles.processButtonDisabled]} onPress={handleProcess} disabled={processing}>
-                <LinearGradient colors={[colors.success, '#059669']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-                  {processing ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.buttonText}>Process DC</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
               <TouchableOpacity style={[styles.holdButton, processing && styles.holdButtonDisabled]} onPress={handleHold} disabled={processing}>
-                <LinearGradient colors={[colors.warning, '#d97706']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.buttonGradient}>
-                  {processing ? <ActivityIndicator color={colors.textLight} /> : <Text style={styles.buttonText}>Hold DC</Text>}
-                </LinearGradient>
-              </TouchableOpacity>
+                </TouchableOpacity>
             </View>
           </>
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -156,7 +144,7 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: an
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.textSecondary} keyboardType={keyboardType} />
+      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} keyboardType={keyboardType} />
     </View>
   );
 }

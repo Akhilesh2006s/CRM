@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Alert, ActivityIndicator, Modal } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
 
 export default function WarehouseStockScreen({ navigation }: any) {
@@ -75,30 +76,15 @@ export default function WarehouseStockScreen({ navigation }: any) {
     return [i.productName, i.category, i.level, i.itemType].filter(Boolean).some((v) => v!.toString().toLowerCase().includes(q));
   });
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading stock...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Inventory Qty List</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('WarehouseStockAdd')} style={styles.addButton}>
-            <Text style={styles.addIcon}>+</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-      <View style={styles.searchContainer}>
-        <TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Search products..." placeholderTextColor={colors.textSecondary} />
+    <ScreenShell
+      title="Inventory Qty List"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.searchContainer}>
+        <WebInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Search products..." />
       </View>
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {filtered.length === 0 ? (
@@ -141,7 +127,7 @@ export default function WarehouseStockScreen({ navigation }: any) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Add Quantity</Text>
             <Text style={styles.modalSubtitle}>{selectedItem?.productName || 'Item'}</Text>
-            <TextInput style={styles.modalInput} value={quantity} onChangeText={setQuantity} placeholder="Enter quantity" placeholderTextColor={colors.textSecondary} keyboardType="decimal-pad" />
+            <WebInput style={styles.modalInput} value={quantity} onChangeText={setQuantity} placeholder="Enter quantity" keyboardType="decimal-pad" />
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.modalCancelButton} onPress={() => setModalVisible(false)}>
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
@@ -153,7 +139,7 @@ export default function WarehouseStockScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 

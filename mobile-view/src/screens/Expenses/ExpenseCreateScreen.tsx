@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService, getApiUrl } from '../../services/api';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
-import LogoutButton from '../../components/LogoutButton';
 
 interface DcItem {
   _id: string;
@@ -196,17 +196,10 @@ export default function ExpenseCreateScreen({ navigation }: any) {
   const isTravelType = form.type === 'travel';
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Expense</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Create Expense"
+    >
+<ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner
             type="success"
@@ -348,16 +341,9 @@ export default function ExpenseCreateScreen({ navigation }: any) {
           onPress={handleSubmit} 
           disabled={submitting || uploadingBill}
         >
-          <LinearGradient colors={[colors.primary, colors.primaryDark]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.submitButtonGradient}>
-            {(submitting || uploadingBill) ? (
-              <ActivityIndicator color={colors.textLight} />
-            ) : (
-              <Text style={styles.submitButtonText}>Submit Expense</Text>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
+          </TouchableOpacity>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -365,13 +351,11 @@ function FormField({ label, value, onChangeText, placeholder, keyboardType }: an
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput 
+      <WebInput 
         style={styles.input} 
         value={value} 
         onChangeText={onChangeText} 
-        placeholder={placeholder} 
-        placeholderTextColor={colors.textSecondary} 
-        keyboardType={keyboardType} 
+        placeholder={placeholder} keyboardType={keyboardType} 
       />
     </View>
   );
@@ -381,13 +365,11 @@ function TextAreaField({ label, value, onChangeText, placeholder }: any) {
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={[styles.input, { minHeight: 100, textAlignVertical: 'top' }]}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        multiline
+        placeholder={placeholder} multiline
       />
     </View>
   );

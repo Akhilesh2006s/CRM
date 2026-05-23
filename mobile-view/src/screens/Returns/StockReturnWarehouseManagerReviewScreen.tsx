@@ -10,12 +10,12 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 const DECISION_OPTIONS = ['Approve', 'Partial Approve', 'Reject', 'Send Back'];
 const STOCK_BUCKET_OPTIONS = ['Sellable', 'Damaged', 'Expired', 'QC / Hold'];
@@ -146,18 +146,11 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
   const products = returnDoc.products || [];
 
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Review return</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+    <ScreenShell
+      title="Review return"
+      loading={loading}
+    >
+<ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {/* Read-only: Executive request */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Executive request (read-only)</Text>
@@ -237,7 +230,7 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
               {(p.managerDecision === 'Approve' || p.managerDecision === 'Partial Approve') && (
                 <>
                   <Text style={styles.label}>Approved qty (≤ {p.receivedQty})</Text>
-                  <TextInput
+                  <WebInput
                     style={styles.input}
                     value={p.approvedQty}
                     onChangeText={(v) => /^\d*$/.test(v) && updateDecision(index, 'approvedQty', v)}
@@ -261,7 +254,7 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
                 </>
               )}
               <Text style={styles.label}>Remark (optional)</Text>
-              <TextInput
+              <WebInput
                 style={styles.input}
                 value={p.managerRemark}
                 onChangeText={(v) => updateDecision(index, 'managerRemark', v)}
@@ -274,7 +267,7 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
         {/* Manager remarks (general) */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Manager remarks</Text>
-          <TextInput
+          <WebInput
             style={[styles.input, styles.textArea]}
             value={managerRemarks}
             onChangeText={setManagerRemarks}
@@ -310,7 +303,7 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
             {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionButtonText}>Approve return</Text>}
           </TouchableOpacity>
           <Text style={styles.label}>Rejection reason (required for Reject)</Text>
-          <TextInput
+          <WebInput
             style={[styles.input, styles.textArea]}
             value={rejectionReason}
             onChangeText={setRejectionReason}
@@ -334,7 +327,7 @@ export default function StockReturnWarehouseManagerReviewScreen({ navigation, ro
           <Text style={styles.hint}>Send back: return appears again in warehouse exec queue for re-verification.</Text>
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
