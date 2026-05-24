@@ -362,7 +362,8 @@ const feedbackStorage = multer.diskStorage({
 });
 
 const feedbackFileFilter = (req, file, cb) => {
-  if (file.mimetype === 'application/pdf') {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (file.mimetype === 'application/pdf' || ext === '.pdf') {
     cb(null, true);
   } else {
     cb(new Error('Only PDF files are allowed'), false);
@@ -390,8 +391,8 @@ const uploadTrainingFeedback = async (req, res) => {
       return res.status(404).json({ message: 'Training not found' });
     }
     
-    // Verify trainer owns this training
-    if (training.trainerId.toString() !== req.user._id.toString()) {
+    const trainerOwnerId = training.trainerId?._id ?? training.trainerId;
+    if (String(trainerOwnerId) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Not authorized to upload feedback for this training' });
     }
     

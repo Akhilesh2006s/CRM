@@ -5,8 +5,12 @@ const zoneSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
+    },
+    nameLower: {
+      type: String,
+      trim: true,
+      lowercase: true,
     },
     isActive: {
       type: Boolean,
@@ -18,6 +22,7 @@ const zoneSchema = new mongoose.Schema(
   }
 );
 
+zoneSchema.index({ nameLower: 1 }, { unique: true, sparse: true });
 zoneSchema.index({ name: 1 }, { unique: true });
 
 module.exports = mongoose.model('Zone', zoneSchema);

@@ -140,6 +140,11 @@ const leadSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    recommendations: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     priority: {
       type: String,
       enum: ['Hot', 'Warm', 'Cold'],
@@ -160,6 +165,7 @@ const leadSchema = new mongoose.Schema(
     updateHistory: [{
       follow_up_date: { type: Date },
       remarks: { type: String },
+      recommendations: { type: String, trim: true },
       priority: { type: String, enum: ['Hot', 'Warm', 'Cold', 'Visit Again', 'Not Met Management', 'Not Interested'] },
       productsInterested: { type: [followUpProductSchema], default: [] },
       updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

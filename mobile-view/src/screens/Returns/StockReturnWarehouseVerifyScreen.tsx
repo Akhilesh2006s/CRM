@@ -21,6 +21,36 @@ import { apiService, getApiUrl } from '../../services/api';
 
 const CONDITION_OPTIONS = ['Sellable', 'Damaged', 'Expired', 'Missing'];
 
+function normalizeQty(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function isQuantityMismatch(returnQty: unknown, receivedQty: unknown): boolean {
+  const expected = normalizeQty(returnQty);
+  const received = normalizeQty(receivedQty);
+  if (Number.isNaN(expected) || Number.isNaN(received)) return false;
+  return expected > 0 && received !== expected;
+}
+
+function resolveInitialReceivedQty(
+  returnQty: unknown,
+  receivedQty: unknown,
+  condition?: string
+): number {
+  const expected = normalizeQty(returnQty);
+  const received = normalizeQty(receivedQty);
+  const hasPriorVerification =
+    Boolean(String(condition || '').trim()) ||
+    (Number.isFinite(received) && receivedQty != null && receivedQty !== '' && received > 0);
+
+  if (hasPriorVerification && Number.isFinite(received)) {
+    return received;
+  }
+
+  return Number.isFinite(expected) ? expected : 0;
+}
+
 function formatDate(d: string | undefined) {
   if (!d) return '-';
   try {
@@ -59,18 +89,23 @@ export default function StockReturnWarehouseVerifyScreen({ navigation, route }: 
         setLoading(true);
         const doc = await apiService.get(`/stock-returns/warehouse-executive/${returnId}`);
         setReturnDoc(doc);
-        const rows: ProductVerification[] = (doc.products || []).map((p: any) => ({
-          product: p.product || '',
-          returnQty: Number(p.returnQty) || 0,
-          reason: p.reason || '',
-          remarks: p.remarks,
-          receivedQty: String(p.receivedQty ?? ''),
-          condition: p.condition || '',
-          batchLot: p.batchLot || '',
-          storageLocation: p.storageLocation || '',
-          quantityMismatch: Boolean(p.quantityMismatch),
-          mismatchRemark: p.mismatchRemark || '',
-        }));
+        const rows: ProductVerification[] = (doc.products || []).map((p: any) => {
+          const returnQty = normalizeQty(p.returnQty) || 0;
+          const receivedQty = resolveInitialReceivedQty(p.returnQty, p.receivedQty, p.condition);
+          const mismatch = isQuantityMismatch(p.returnQty, receivedQty);
+          return {
+            product: p.product || '',
+            returnQty,
+            reason: p.reason || '',
+            remarks: p.remarks,
+            receivedQty: String(receivedQty),
+            condition: p.condition || '',
+            batchLot: p.batchLot || '',
+            storageLocation: p.storageLocation || '',
+            quantityMismatch: mismatch,
+            mismatchRemark: mismatch ? (p.mismatchRemark || '') : '',
+          };
+        });
         setProductRows(rows);
         setWarehousePhotos(Array.isArray(doc.warehousePhotos) ? doc.warehousePhotos : []);
       } catch (e: any) {
@@ -89,8 +124,11 @@ export default function StockReturnWarehouseVerifyScreen({ navigation, route }: 
       if (!p) return prev;
       (p as any)[field] = value;
       if (field === 'receivedQty') {
-        const received = typeof value === 'string' ? parseInt(value, 10) : value;
-        p.quantityMismatch = !isNaN(received) && p.returnQty > 0 && received !== p.returnQty;
+        const received = typeof value === 'string' ? parseInt(value, 10) : Number(value);
+        p.quantityMismatch = isQuantityMismatch(p.returnQty, received);
+        if (!p.quantityMismatch) {
+          p.mismatchRemark = '';
+        }
       }
       return next;
     });
@@ -143,8 +181,10 @@ export default function StockReturnWarehouseVerifyScreen({ navigation, route }: 
     return !isNaN(received) && p.condition && (p.condition.trim() !== '');
   });
 
-  const hasAnyMismatch = productRows.some((p) => p.quantityMismatch);
-  const mismatchRemarkRequired = productRows.some((p) => p.quantityMismatch && !(p.mismatchRemark || '').trim());
+  const hasAnyMismatch = productRows.some((p) => isQuantityMismatch(p.returnQty, p.receivedQty));
+  const mismatchRemarkRequired = productRows.some(
+    (p) => isQuantityMismatch(p.returnQty, p.receivedQty) && !(p.mismatchRemark || '').trim()
+  );
   const canSubmitWithMismatch = !mismatchRemarkRequired;
 
   const handleSubmit = async () => {
@@ -158,18 +198,22 @@ export default function StockReturnWarehouseVerifyScreen({ navigation, route }: 
     }
     setSubmitting(true);
     try {
-      const products = productRows.map((p) => ({
-        product: p.product,
-        returnQty: p.returnQty,
-        reason: p.reason,
-        remarks: p.remarks,
-        receivedQty: parseInt(p.receivedQty, 10) || 0,
-        condition: p.condition,
-        batchLot: p.batchLot,
-        storageLocation: p.storageLocation,
-        quantityMismatch: p.quantityMismatch,
-        mismatchRemark: p.quantityMismatch ? (p.mismatchRemark || '').trim() : '',
-      }));
+      const products = productRows.map((p) => {
+        const receivedQty = normalizeQty(p.receivedQty) || 0;
+        const mismatch = isQuantityMismatch(p.returnQty, receivedQty);
+        return {
+          product: p.product,
+          returnQty: p.returnQty,
+          reason: p.reason,
+          remarks: p.remarks,
+          receivedQty,
+          condition: p.condition,
+          batchLot: p.batchLot,
+          storageLocation: p.storageLocation,
+          quantityMismatch: mismatch,
+          mismatchRemark: mismatch ? (p.mismatchRemark || '').trim() : '',
+        };
+      });
       const totalReceivedQty = products.reduce((s, p) => s + p.receivedQty, 0);
       await apiService.put(`/stock-returns/${returnId}/warehouse-verify`, {
         products,
@@ -285,7 +329,7 @@ export default function StockReturnWarehouseVerifyScreen({ navigation, route }: 
                 placeholder="Optional"
                 editable={canEdit}
               />
-              {p.quantityMismatch && (
+              {isQuantityMismatch(p.returnQty, p.receivedQty) && (
                 <>
                   <Text style={styles.mismatchLabel}>Quantity mismatch — remark required</Text>
                   <WebInput
