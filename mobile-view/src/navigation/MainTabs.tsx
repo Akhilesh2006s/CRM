@@ -20,7 +20,7 @@ export default function MainTabs() {
       }}
     >
       <Tab.Screen name="Home" component={DashboardScreen} options={{ tabBarLabel: 'Home' }} />
-      <Tab.Screen name="Work" component={WorkHubScreen} options={{ tabBarLabel: 'Work' }} />
+      <Tab.Screen name="Menu" component={WorkHubScreen} options={{ tabBarLabel: 'Menu' }} />
       <Tab.Screen name="Reports" component={ReportsLeadsScreen} options={{ tabBarLabel: 'Reports' }} />
       <Tab.Screen name="More" component={MoreHubScreen} options={{ tabBarLabel: 'More' }} />
     </Tab.Navigator>

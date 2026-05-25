@@ -42,11 +42,11 @@ import DCRequestSummaryScreen from './src/screens/DC/DCRequestSummaryScreen';
 import ClientEditPOScreen from './src/screens/Clients/ClientEditPOScreen';
 import DCEmpScreen from './src/screens/DC/DCEmpScreen';
 import EmployeeNewScreen from './src/screens/Employees/EmployeeNewScreen';
+import EmployeeEditScreen from './src/screens/Employees/EmployeeEditScreen';
 import EmployeesActiveScreen from './src/screens/Employees/EmployeesActiveScreen';
 import EmployeesInactiveScreen from './src/screens/Employees/EmployeesInactiveScreen';
 import EmployeesLeavesScreen from './src/screens/Employees/EmployeesLeavesScreen';
 import ExecutiveManagersScreen from './src/screens/ExecutiveManagers/ExecutiveManagersScreen';
-import ExecutiveManagerNewScreen from './src/screens/ExecutiveManagers/ExecutiveManagerNewScreen';
 import ExecutiveManagerDashboardScreen from './src/screens/ExecutiveManagers/ExecutiveManagerDashboardScreen';
 import ExecutiveManagerLeavesScreen from './src/screens/ExecutiveManagers/ExecutiveManagerLeavesScreen';
 import POChangeRequestsScreen from './src/screens/ExecutiveManagers/POChangeRequestsScreen';
@@ -60,6 +60,7 @@ import TrainingListScreen from './src/screens/Training/TrainingListScreen';
 import TrainingDashboardScreen from './src/screens/Training/TrainingDashboardScreen';
 import TrainingEditScreen from './src/screens/Training/TrainingEditScreen';
 import TrainersNewScreen from './src/screens/Training/TrainersNewScreen';
+import TrainersEditScreen from './src/screens/Training/TrainersEditScreen';
 import TrainersActiveScreen from './src/screens/Training/TrainersActiveScreen';
 import TrainersInactiveScreen from './src/screens/Training/TrainersInactiveScreen';
 import ServicesListScreen from './src/screens/Training/ServicesListScreen';
@@ -264,6 +265,7 @@ function AppNavigator() {
 
         {/* Employees */}
         <Stack.Screen name="EmployeeNew" component={EmployeeNewScreen} />
+        <Stack.Screen name="EmployeeEdit" component={EmployeeEditScreen} />
         <Stack.Screen name="EmployeesZones" component={EmployeesZonesScreen} />
         <Stack.Screen name="EmployeesZonesClusters" component={EmployeesZonesClustersScreen} />
         <Stack.Screen name="EmployeesClusters" component={EmployeesClustersScreen} />
@@ -273,7 +275,6 @@ function AppNavigator() {
         
         {/* Executive Managers */}
         <Stack.Screen name="ExecutiveManagers" component={ExecutiveManagersScreen} />
-        <Stack.Screen name="ExecutiveManagerNew" component={ExecutiveManagerNewScreen} />
         <Stack.Screen name="ExecutiveManagerDashboard" component={ExecutiveManagerDashboardScreen} />
         <Stack.Screen name="ExecutiveManagerLeaves" component={ExecutiveManagerLeavesScreen} />
         <Stack.Screen name="POChangeRequests" component={POChangeRequestsScreen} />
@@ -292,6 +293,7 @@ function AppNavigator() {
         <Stack.Screen name="TrainingDashboard" component={TrainingDashboardScreen} />
         <Stack.Screen name="TrainingEdit" component={TrainingEditScreen} />
         <Stack.Screen name="TrainersNew" component={TrainersNewScreen} />
+        <Stack.Screen name="TrainersEdit" component={TrainersEditScreen} />
         <Stack.Screen name="TrainersActive" component={TrainersActiveScreen} />
         <Stack.Screen name="TrainersInactive" component={TrainersInactiveScreen} />
         <Stack.Screen name="ServicesList" component={ServicesListScreen} />

@@ -1,28 +1,55 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Modal,
+  Platform,
+} from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import ScreenShell, { PageSection } from '../../ui/ScreenShell';
-import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
+import ScreenShell from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
+
+const todayDateString = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const isBeforeToday = (dateStr: string) => dateStr && dateStr < todayDateString();
+
+const LEAVE_TYPE_OPTIONS = [
+  { label: 'Sick Leave', value: 'Sick Leave' },
+  { label: 'Annual Leave', value: 'Annual Leave' },
+  { label: 'Casual Leave', value: 'Casual Leave' },
+  { label: 'Emergency Leave', value: 'Emergency Leave' },
+  { label: 'Other', value: 'Other' },
+];
 
 export default function LeaveRequestScreen({ navigation }: any) {
   const { user } = useAuth();
   const [form, setForm] = useState({
     startDate: '',
     endDate: '',
-    leaveType: 'Sick Leave',
+    leaveType: 'Casual Leave',
     reason: '',
     days: 0,
   });
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-
-  const leaveTypes = ['Sick Leave', 'Casual Leave', 'Earned Leave', 'Compensatory Off', 'Other'];
 
   const clearMessages = () => {
     setSuccessMessage(null);
@@ -31,11 +58,15 @@ export default function LeaveRequestScreen({ navigation }: any) {
 
   useEffect(() => {
     if (form.startDate && form.endDate) {
-      const start = new Date(form.startDate);
-      const end = new Date(form.endDate);
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      setForm((f) => ({ ...f, days: diffDays }));
+      const start = new Date(form.startDate + 'T00:00:00');
+      const end = new Date(form.endDate + 'T00:00:00');
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end >= start) {
+        const diffTime = end.getTime() - start.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        setForm((f) => ({ ...f, days: diffDays }));
+      } else {
+        setForm((f) => ({ ...f, days: 0 }));
+      }
     }
   }, [form.startDate, form.endDate]);
 
@@ -51,26 +82,43 @@ export default function LeaveRequestScreen({ navigation }: any) {
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
+    if (isBeforeToday(form.startDate) || isBeforeToday(form.endDate)) {
+      setErrorMessage('Past dates cannot be selected for leave');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    if (new Date(form.endDate) < new Date(form.startDate)) {
+      setErrorMessage('End date must be on or after start date');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
     if (!form.reason?.trim()) {
-      setErrorMessage('Reason is required');
+      setErrorMessage('Please provide a reason for your leave request');
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
 
     setSubmitting(true);
     try {
-      const payload = {
-        ...form,
+      await apiService.post('/leaves/create', {
+        leaveType: form.leaveType,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        reason: form.reason.trim(),
+        days: form.days,
         employeeId: user?._id,
-        status: 'Pending',
-      };
-      await apiService.post('/leaves', payload);
-      setSuccessMessage('Leave request submitted successfully.');
-      setErrorMessage(null);
+      });
+      setSuccessMessage('Leave request submitted successfully!');
+      setForm({
+        startDate: '',
+        endDate: '',
+        leaveType: 'Casual Leave',
+        reason: '',
+        days: 0,
+      });
       scrollRef.current?.scrollTo({ y: 0, animated: true });
     } catch (error: any) {
       setErrorMessage(error.message || 'Failed to submit leave request');
-      setSuccessMessage(null);
       scrollRef.current?.scrollTo({ y: 0, animated: true });
     } finally {
       setSubmitting(false);
@@ -79,80 +127,236 @@ export default function LeaveRequestScreen({ navigation }: any) {
 
   return (
     <ScreenShell
-      title="Request Leave"
+      noScroll
+      title="Apply for Leave"
+      headerRight={
+        <TouchableOpacity onPress={() => navigation.navigate('LeavesApproved')}>
+          <Text style={styles.headerLink}>My Leaves</Text>
+        </TouchableOpacity>
+      }
     >
-<ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+      >
         {successMessage && (
           <MessageBanner
             type="success"
             message={successMessage}
             actionLabel="View My Leaves"
-            onAction={() => navigation.navigate('LeaveList')}
+            onAction={() => navigation.navigate('LeavesApproved')}
           />
         )}
         {errorMessage && (
           <MessageBanner type="error" message={errorMessage} onDismiss={clearMessages} />
         )}
-        <FormField label="Leave Type" value={form.leaveType} onChangeText={(text: string) => setForm((f) => ({ ...f, leaveType: text }))} placeholder="Select leave type" />
-        <View style={styles.leaveTypeContainer}>
-          {leaveTypes.map((type) => (
-            <TouchableOpacity key={type} style={[styles.leaveTypeOption, form.leaveType === type && styles.leaveTypeOptionSelected]} onPress={() => setForm((f) => ({ ...f, leaveType: type }))}>
-              <Text style={[styles.leaveTypeOptionText, form.leaveType === type && styles.leaveTypeOptionTextSelected]}>{type}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <FormField label="Start Date *" value={form.startDate} onChangeText={(text: string) => setForm((f) => ({ ...f, startDate: text }))} placeholder="YYYY-MM-DD" />
-        <FormField label="End Date *" value={form.endDate} onChangeText={(text: string) => setForm((f) => ({ ...f, endDate: text }))} placeholder="YYYY-MM-DD" />
+
+        <WebSelect
+          label="Leave Type *"
+          value={form.leaveType}
+          onValueChange={(v) => setForm((f) => ({ ...f, leaveType: v }))}
+          items={LEAVE_TYPE_OPTIONS}
+        />
+
+        <DateField
+          label="Start Date *"
+          value={form.startDate}
+          onPress={() => setShowStartPicker(true)}
+        />
+        <DateField label="End Date *" value={form.endDate} onPress={() => setShowEndPicker(true)} />
+
         {form.days > 0 && (
           <View style={styles.daysContainer}>
-            <Text style={styles.daysText}>Total Days: {form.days}</Text>
+            <Text style={styles.daysText}>Total days: {form.days}</Text>
           </View>
         )}
-        <View style={styles.textAreaContainer}>
+
+        <View style={styles.fieldContainer}>
           <Text style={styles.label}>Reason *</Text>
-          <WebInput style={styles.textArea} value={form.reason} onChangeText={(text: string) => setForm((f) => ({ ...f, reason: text }))} placeholder="Enter reason for leave" multiline numberOfLines={4} />
+          <WebInput
+            style={styles.textArea}
+            value={form.reason}
+            onChangeText={(text) => setForm((f) => ({ ...f, reason: text }))}
+            placeholder="Brief reason for leave"
+            multiline
+            numberOfLines={4}
+          />
         </View>
-        <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          </TouchableOpacity>
+
+        <WebButton
+          title={submitting ? 'Submitting…' : 'Submit Request'}
+          onPress={handleSubmit}
+          loading={submitting}
+          disabled={submitting}
+        />
+
+        <WebButton
+          title="Cancel"
+          onPress={() => navigation.goBack()}
+          variant="outline"
+        />
       </ScrollView>
+
+      {showStartPicker && (
+        <DatePickerModal
+          title="Start date"
+          value={form.startDate}
+          minimumDate={startOfToday()}
+          onClose={() => setShowStartPicker(false)}
+          onChange={(d) =>
+            setForm((f) => ({
+              ...f,
+              startDate: d,
+              endDate: f.endDate && f.endDate < d ? '' : f.endDate,
+            }))
+          }
+        />
+      )}
+      {showEndPicker && (
+        <DatePickerModal
+          title="End date"
+          value={form.endDate}
+          minimumDate={
+            form.startDate && form.startDate >= todayDateString()
+              ? startOfDayFromIso(form.startDate)
+              : startOfToday()
+          }
+          onClose={() => setShowEndPicker(false)}
+          onChange={(d) => setForm((f) => ({ ...f, endDate: d }))}
+        />
+      )}
     </ScreenShell>
   );
 }
 
-function FormField({ label, value, onChangeText, placeholder }: any) {
+function DateField({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <WebInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} />
+      <TouchableOpacity style={styles.dateTouchable} onPress={onPress}>
+        <Text style={[styles.dateText, !value && styles.datePlaceholder]}>
+          {value
+            ? new Date(value + 'T00:00:00').toLocaleDateString('en-IN')
+            : 'Tap to pick date'}
+        </Text>
+        <Text>📅</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfDayFromIso(iso: string) {
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d.getTime()) ? startOfToday() : d;
+}
+
+function DatePickerModal({
+  title,
+  value,
+  minimumDate,
+  onClose,
+  onChange,
+}: {
+  title: string;
+  value: string;
+  minimumDate: Date;
+  onClose: () => void;
+  onChange: (isoDate: string) => void;
+}) {
+  return (
+    <Modal visible transparent animationType="slide">
+      <TouchableOpacity style={styles.dateOverlay} activeOpacity={1} onPress={onClose} />
+      <View style={styles.datePickerBox}>
+        <View style={styles.datePickerHeader}>
+          <Text style={styles.datePickerTitle}>{title}</Text>
+          <TouchableOpacity onPress={onClose}>
+            <Text style={styles.doneText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+        <DateTimePicker
+          value={value ? startOfDayFromIso(value) : minimumDate}
+          mode="date"
+          minimumDate={minimumDate}
+          display={Platform.OS === 'ios' ? 'spinner' : 'calendar'}
+          onChange={(_, d) => {
+            if (d) {
+              const picked = d.toISOString().split('T')[0];
+              if (!isBeforeToday(picked)) onChange(picked);
+            }
+            if (Platform.OS === 'android') onClose();
+          }}
+        />
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: 20, paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { fontSize: 24, color: colors.textLight, fontWeight: 'bold' },
-  headerTitle: { ...typography.heading.h1, color: colors.textLight, flex: 1, textAlign: 'center' },
-  placeholder: { width: 40 },
-  content: { flex: 1 },
-  contentContainer: { padding: 20, paddingBottom: 40 },
+  scroll: { flex: 1 },
+  contentContainer: { padding: 20, paddingBottom: 48, gap: 4 },
+  headerLink: { color: colors.primary, fontWeight: '600', fontSize: 14 },
   fieldContainer: { marginBottom: 16 },
   label: { ...typography.label.medium, color: colors.textPrimary, marginBottom: 8 },
-  input: { ...typography.body.medium, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, color: colors.textPrimary },
-  leaveTypeContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  leaveTypeOption: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border },
-  leaveTypeOptionSelected: { backgroundColor: colors.primary + '20', borderColor: colors.primary },
-  leaveTypeOptionText: { ...typography.body.medium, color: colors.textPrimary },
-  leaveTypeOptionTextSelected: { color: colors.primary, fontWeight: '600' },
-  daysContainer: { marginBottom: 16, padding: 12, backgroundColor: colors.primary + '10', borderRadius: 12 },
+  textArea: {
+    ...typography.body.medium,
+    backgroundColor: colors.backgroundLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 14,
+    color: colors.textPrimary,
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  dateTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.backgroundLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 14,
+  },
+  dateText: { ...typography.body.medium, color: colors.textPrimary },
+  datePlaceholder: { color: colors.textSecondary },
+  daysContainer: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: colors.primary + '10',
+    borderRadius: 12,
+  },
   daysText: { ...typography.body.medium, color: colors.primary, fontWeight: '600', textAlign: 'center' },
-  textAreaContainer: { marginBottom: 16 },
-  textArea: { ...typography.body.medium, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, color: colors.textPrimary, minHeight: 100, textAlignVertical: 'top' },
-  submitButton: { marginTop: 24, borderRadius: 12, overflow: 'hidden' },
-  submitButtonDisabled: { opacity: 0.6 },
-  submitButtonGradient: { paddingVertical: 16, alignItems: 'center' },
-  submitButtonText: { ...typography.label.large, color: colors.textLight, fontWeight: '600' },
+  dateOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  datePickerBox: {
+    backgroundColor: colors.backgroundLight,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  datePickerTitle: { ...typography.heading.h3, color: colors.textPrimary },
+  doneText: { color: colors.primary, fontWeight: '600' },
 });
-

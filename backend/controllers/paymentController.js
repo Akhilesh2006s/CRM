@@ -66,8 +66,16 @@ const getPayments = async (req, res) => {
 // @access  Private
 const createPayment = async (req, res) => {
   try {
+    const schoolCode = String(req.body.schoolCode || '').trim();
+    if (!schoolCode) {
+      return res.status(400).json({
+        message: 'School code is required. Select a converted client by school code.',
+      });
+    }
+
     const payment = await Payment.create({
       ...req.body,
+      schoolCode,
       createdBy: req.user._id,
     });
 

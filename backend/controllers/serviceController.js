@@ -391,14 +391,13 @@ const uploadServiceFeedback = async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
     
-    const trainerOwnerId = service.trainerId?._id ?? service.trainerId;
-    if (String(trainerOwnerId) !== String(req.user._id)) {
+    const { canUploadVisitFeedback } = require('../utils/feedbackUploadAuth');
+    if (!canUploadVisitFeedback(service, req.user)) {
       return res.status(403).json({ message: 'Not authorized to upload feedback for this service' });
     }
-    
-    // Generate URL for the uploaded file
+
     const fileUrl = `/uploads/service-feedback/${req.file.filename}`;
-    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
+    const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
     const fullUrl = `${baseUrl}${fileUrl}`;
     
     // Update service with feedback PDF URL

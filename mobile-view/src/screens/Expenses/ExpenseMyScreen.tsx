@@ -57,12 +57,20 @@ export default function ExpenseMyScreen({ navigation }: any) {
 
   return (
     <ScreenShell
+      noScroll
       title="My Expenses"
       loading={loading && !refreshing}
-      refreshing={refreshing}
-      onRefresh={onRefresh}
+      headerRight={
+        <TouchableOpacity onPress={() => navigation.navigate('ExpenseCreate')} style={styles.headerAction}>
+          <Text style={styles.headerActionText}>+ Create</Text>
+        </TouchableOpacity>
+      }
     >
-<ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+<ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.listContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {expenses.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>🧾</Text>
@@ -119,7 +127,10 @@ const styles = StyleSheet.create({
   headerTitle: { ...typography.heading.h1, color: colors.textLight, flex: 1, textAlign: 'center' },
   addButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
   addIcon: { fontSize: 24, color: colors.textLight, fontWeight: 'bold' },
-  content: { flex: 1, padding: 16 },
+  content: { flex: 1 },
+  listContent: { padding: 16, paddingBottom: 40 },
+  headerAction: { paddingHorizontal: 8, paddingVertical: 4 },
+  headerActionText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
   emptyText: { ...typography.heading.h3, color: colors.textSecondary, marginBottom: 12 },

@@ -17,12 +17,12 @@ import {
   Modal,
   Linking,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService, getApiUrl } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 let WebView: any;
 try {
@@ -58,7 +58,15 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [products, setProducts] = useState<{ product_name: string; quantity: number; unit_price: number }[]>([]);
+  const [products, setProducts] = useState<
+    { product_name: string; quantity: number; unit_price: number; term?: string }[]
+  >([]);
+  const [transport, setTransport] = useState({
+    transport_name: '',
+    transport_location: '',
+    transportation_landmark: '',
+    pincode: '',
+  });
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [newPdfUrl, setNewPdfUrl] = useState('');
   const [changeRemarks, setChangeRemarks] = useState('');
@@ -75,14 +83,22 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
       setLoading(true);
       const data = await apiService.get(`/dc-orders/${orderId}`);
       setOrder(data);
+      setTransport({
+        transport_name: data.transport_name || data.pendingEdit?.transport_name || '',
+        transport_location: data.transport_location || data.pendingEdit?.transport_location || '',
+        transportation_landmark:
+          data.transportation_landmark || data.pendingEdit?.transportation_landmark || '',
+        pincode: data.pincode || data.pendingEdit?.pincode || '',
+      });
       setProducts(
-        (data.products && Array.isArray(data.products))
+        data.products && Array.isArray(data.products) && data.products.length > 0
           ? data.products.map((p: any) => ({
               product_name: p.product_name || p.product || 'Abacus',
               quantity: Number(p.quantity) || 1,
               unit_price: Number(p.unit_price) || 0,
+              term: p.term || 'Term 1',
             }))
-          : [{ product_name: 'Abacus', quantity: 1, unit_price: 0 }]
+          : [{ product_name: 'Abacus', quantity: 1, unit_price: 0, term: 'Term 1' }]
       );
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to load order');
@@ -164,7 +180,32 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
     if (!orderId) return;
     setSaving(true);
     try {
-      await apiService.put(`/dc-orders/${orderId}`, { products });
+      const total_amount = products.reduce(
+        (s, p) => s + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0),
+        0
+      );
+      await apiService.put(`/dc-orders/${orderId}`, {
+        products,
+        total_amount,
+        ...transport,
+      });
+      const dcId = route?.params?.dcId as string | undefined;
+      if (dcId) {
+        try {
+          await apiService.put(`/dc/${dcId}`, {
+            productDetails: products.map((p) => ({
+              product: p.product_name,
+              quantity: p.quantity,
+              strength: p.quantity,
+              unit_price: p.unit_price,
+              price: p.unit_price,
+              term: p.term || 'Term 1',
+            })),
+          });
+        } catch {
+          /* optional sync */
+        }
+      }
       Alert.alert('Saved', 'Product quantities updated.', [
         { text: 'OK', onPress: () => navigation.navigate('DCClient') },
       ]);
@@ -190,17 +231,11 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
   const isInDcFlow = order.status != null && order.status !== 'saved';
   if (isInDcFlow) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Edit PO</Text>
-            <LogoutButton />
-          </View>
-        </LinearGradient>
-        <View style={styles.dcFlowBlock}>
+    <ScreenShell
+      title="Edit PO"
+      loading={loading}
+    >
+<View style={styles.dcFlowBlock}>
           <Text style={styles.dcFlowBlockMessage}>
             PO can only be changed before requesting DC. This client is already in the DC process.
           </Text>
@@ -208,24 +243,18 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
             <Text style={styles.dcFlowBlockButtonText}>Back to My Clients</Text>
           </TouchableOpacity>
         </View>
-      </View>
-    );
+    </ScreenShell>
+  );
   }
 
-  return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit PO</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
+  const grandTotal = products.reduce(
+    (s, p) => s + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0),
+    0
+  );
 
+  return (
+    <ScreenShell title={`Edit PO - ${order.school_name || 'Client'}`}>
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.clientName}>{order.school_name}</Text>
 
         {/* Current PO PDF card */}
         <View style={styles.section}>
@@ -280,33 +309,91 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
           </View>
         )}
 
-        {/* Products & quantities */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Products & quantities</Text>
-          {products.map((p, idx) => (
-            <View key={idx} style={styles.productRow}>
-              <Text style={styles.productName} numberOfLines={1}>{p.product_name}</Text>
-              <TextInput
-                style={styles.inputSmall}
-                value={String(p.quantity)}
-                onChangeText={(t) => updateProduct(idx, 'quantity', parseInt(t, 10) || 0)}
-                keyboardType="number-pad"
-                placeholder="Qty"
-              />
-              <TextInput
-                style={styles.inputSmall}
-                value={String(p.unit_price)}
-                onChangeText={(t) => updateProduct(idx, 'unit_price', parseFloat(t) || 0)}
-                keyboardType="decimal-pad"
-                placeholder="Price"
-              />
-            </View>
-          ))}
+          <Text style={styles.sectionTitle}>Transport Details</Text>
+          <Text style={styles.label}>Transport Name</Text>
+          <WebInput
+            style={styles.fieldInput}
+            value={transport.transport_name}
+            onChangeText={(t) => setTransport((tr) => ({ ...tr, transport_name: t }))}
+            placeholder="Transport name"
+          />
+          <Text style={styles.label}>Transport Location</Text>
+          <WebInput
+            style={styles.fieldInput}
+            value={transport.transport_location}
+            onChangeText={(t) => setTransport((tr) => ({ ...tr, transport_location: t }))}
+            placeholder="Transport location"
+          />
+          <Text style={styles.label}>Transportation Landmark</Text>
+          <WebInput
+            style={styles.fieldInput}
+            value={transport.transportation_landmark}
+            onChangeText={(t) => setTransport((tr) => ({ ...tr, transportation_landmark: t }))}
+            placeholder="Landmark"
+          />
+          <Text style={styles.label}>Pincode</Text>
+          <WebInput
+            style={styles.fieldInput}
+            value={transport.pincode}
+            onChangeText={(t) => setTransport((tr) => ({ ...tr, pincode: t }))}
+            placeholder="Pincode"
+            keyboardType="number-pad"
+          />
         </View>
 
-        <TouchableOpacity style={[styles.saveButton, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator size="small" color={colors.textLight} /> : <Text style={styles.saveButtonText}>Save product changes</Text>}
-        </TouchableOpacity>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Products Interested</Text>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, styles.colName]}>Product</Text>
+            <Text style={[styles.th, styles.colQty]}>Qty</Text>
+            <Text style={[styles.th, styles.colPrice]}>Unit Price</Text>
+            <Text style={[styles.th, styles.colTotal]}>Total</Text>
+          </View>
+          {products.map((p, idx) => {
+            const lineTotal = (p.quantity || 0) * (p.unit_price || 0);
+            return (
+              <View key={idx} style={styles.productRow}>
+                <Text style={styles.productName} numberOfLines={1}>
+                  {p.product_name}
+                </Text>
+                <WebInput
+                  style={styles.inputSmall}
+                  value={String(p.quantity)}
+                  onChangeText={(t) => updateProduct(idx, 'quantity', parseInt(t, 10) || 0)}
+                  keyboardType="number-pad"
+                  placeholder="Qty"
+                />
+                <WebInput
+                  style={styles.inputSmall}
+                  value={String(p.unit_price)}
+                  onChangeText={(t) => updateProduct(idx, 'unit_price', parseFloat(t) || 0)}
+                  keyboardType="decimal-pad"
+                  placeholder="Price"
+                />
+                <Text style={styles.lineTotal}>{lineTotal.toFixed(2)}</Text>
+              </View>
+            );
+          })}
+          <Text style={styles.grandTotal}>Grand Total: ₹{grandTotal.toFixed(2)}</Text>
+        </View>
+
+        <View style={styles.footerRow}>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.buttonDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color={colors.textLight} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {/* Request PO Change modal */}
@@ -325,7 +412,7 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
                 <Text style={styles.uploadButtonText}>{newPdfUrl ? 'New PDF selected' : 'Choose new PDF'}</Text>
               </TouchableOpacity>
               <Text style={styles.label}>Remarks (optional)</Text>
-              <TextInput
+              <WebInput
                 style={styles.remarksInput}
                 value={changeRemarks}
                 onChangeText={setChangeRemarks}
@@ -366,7 +453,7 @@ export default function ClientEditPOScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -385,7 +472,33 @@ const styles = StyleSheet.create({
   headerTitle: { ...typography.heading.h3, color: colors.textLight, flex: 1, textAlign: 'center' },
   content: { flex: 1 },
   contentContainer: { padding: 20, paddingBottom: 40 },
-  clientName: { ...typography.heading.h4, color: colors.textPrimary, marginBottom: 20 },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    backgroundColor: colors.backgroundLight,
+  },
+  tableHeader: { flexDirection: 'row', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  th: { ...typography.label.small, fontWeight: '600', color: colors.textSecondary },
+  colName: { flex: 1 },
+  colQty: { width: 56 },
+  colPrice: { width: 72 },
+  colTotal: { width: 64, textAlign: 'right' },
+  lineTotal: { width: 64, textAlign: 'right', ...typography.body.medium, fontWeight: '600' },
+  grandTotal: { ...typography.heading.h4, color: colors.primary, marginTop: 12, fontWeight: '700' },
+  footerRow: { flexDirection: 'row', gap: 12, marginTop: 8, marginBottom: 24 },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  cancelButtonText: { ...typography.body.medium, color: colors.textPrimary, fontWeight: '600' },
   section: { marginBottom: 24 },
   sectionTitle: { ...typography.heading.h4, color: colors.textPrimary, marginBottom: 12 },
   poCard: { backgroundColor: colors.backgroundDark, borderRadius: 12, padding: 16, marginBottom: 8 },
@@ -413,7 +526,7 @@ const styles = StyleSheet.create({
   uploadButtonText: { ...typography.body.medium, color: colors.primary, fontWeight: '600' },
   label: { ...typography.label.small, color: colors.textSecondary, marginBottom: 4 },
   remarksInput: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, ...typography.body.medium, color: colors.textPrimary, minHeight: 80, textAlignVertical: 'top' },
-  saveButton: { marginTop: 24, paddingVertical: 16, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
+  saveButton: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', minHeight: 48 },
   saveButtonText: { ...typography.heading.h4, color: colors.textLight, fontWeight: '600' },
   buttonDisabled: { opacity: 0.7 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

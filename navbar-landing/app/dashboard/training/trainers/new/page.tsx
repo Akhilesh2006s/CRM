@@ -8,10 +8,11 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { SearchableSelect } from '@/components/ui/searchable-select'
 import { toast } from 'sonner'
 import { apiRequest } from '@/lib/api'
 import { INDIAN_STATES } from '@/lib/indianStatesCities'
+
+const TRAINER_CATEGORIES = ['Abacus', 'Vedic Maths', 'ECC', 'IIT']
 
 export default function AddTrainerPage() {
   const router = useRouter()
@@ -22,6 +23,8 @@ export default function AddTrainerPage() {
     state: '', zone: '', cluster: '',
     trainerProducts: [] as string[],
     trainerLevels: '',
+    trainerAbacusLevels: '',
+    trainerVedicLevels: '',
     trainerType: 'Employee',
     address1: '',
   })
@@ -61,17 +64,8 @@ export default function AddTrainerPage() {
     })()
   }, [])
 
-  const stateOptions = useMemo(
-    () => INDIAN_STATES.map((s) => ({ value: s, label: s })),
-    []
-  )
-  const zoneOptions = useMemo(
-    () => zones.map((z) => ({ value: z, label: z })),
-    [zones]
-  )
-  const clusterOptions = useMemo(() => {
-    const list = form.zone ? clustersByZone[form.zone] || [] : []
-    return list.map((c) => ({ value: c, label: c }))
+  const clusterList = useMemo(() => {
+    return form.zone ? clustersByZone[form.zone] || [] : []
   }, [form.zone, clustersByZone])
 
   const checkMobileDuplicate = async (mobile: string) => {
@@ -132,8 +126,13 @@ export default function AddTrainerPage() {
     }
   }
 
-  const toggleProduct = (p: string) => {
-    setForm(f => ({ ...f, trainerProducts: f.trainerProducts.includes(p) ? f.trainerProducts.filter(x => x !== p) : [...f.trainerProducts, p] }))
+  const addProductCategory = (value: string) => {
+    if (!value || form.trainerProducts.includes(value)) return
+    setForm((f) => ({ ...f, trainerProducts: [...f.trainerProducts, value] }))
+  }
+
+  const removeProductCategory = (p: string) => {
+    setForm((f) => ({ ...f, trainerProducts: f.trainerProducts.filter((x) => x !== p) }))
   }
 
   return (
@@ -178,75 +177,119 @@ export default function AddTrainerPage() {
             <Input className="bg-white text-neutral-900" type="email" value={form.email} onChange={(e)=>setForm(f=>({...f,email:e.target.value}))} />
           </div>
           <div>
-            <Label>Trainer Type *</Label>
+            <Label>Employment Type *</Label>
             <Select value={form.trainerType} onValueChange={(v)=>setForm(f=>({...f,trainerType:v}))}>
               <SelectTrigger className="bg-white text-neutral-900"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="BDE">BDE</SelectItem>
                 <SelectItem value="Employee">Employee</SelectItem>
                 <SelectItem value="Freelancer">Freelancer</SelectItem>
-                <SelectItem value="Teachers">Teachers</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
+          <div>
             <Label htmlFor="trainer-state">State</Label>
-            <SearchableSelect
-              id="trainer-state"
-              value={form.state}
-              onValueChange={(v) => setForm((f) => ({ ...f, state: v }))}
-              placeholder="Select State"
-              searchPlaceholder="Search states…"
-              options={stateOptions}
-            />
+            <Select value={form.state} onValueChange={(v) => setForm((f) => ({ ...f, state: v }))}>
+              <SelectTrigger id="trainer-state" className="bg-white text-neutral-900">
+                <SelectValue placeholder="Select State" />
+              </SelectTrigger>
+              <SelectContent>
+                {INDIAN_STATES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="space-y-2">
+          <div>
             <Label htmlFor="trainer-zone">Zone</Label>
-            <SearchableSelect
-              id="trainer-zone"
+            <Select
               value={form.zone}
               onValueChange={(v) => setForm((f) => ({ ...f, zone: v, cluster: '' }))}
-              placeholder="Select Zone"
-              searchPlaceholder="Search zones…"
-              options={zoneOptions}
-              emptyText={zones.length === 0 ? 'Add zones under Users → Zones' : 'No results found.'}
-            />
+            >
+              <SelectTrigger id="trainer-zone" className="bg-white text-neutral-900">
+                <SelectValue placeholder={zones.length === 0 ? 'Add zones under Users → Zones' : 'Select Zone'} />
+              </SelectTrigger>
+              <SelectContent>
+                {zones.map((z) => (
+                  <SelectItem key={z} value={z}>
+                    {z}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="space-y-2">
+          <div>
             <Label htmlFor="trainer-cluster">Cluster</Label>
-            <SearchableSelect
-              id="trainer-cluster"
+            <Select
               value={form.cluster}
               onValueChange={(v) => setForm((f) => ({ ...f, cluster: v }))}
-              placeholder={form.zone ? 'Select Cluster' : 'Select zone first'}
-              searchPlaceholder="Search clusters…"
-              options={clusterOptions}
               disabled={!form.zone}
-              emptyText={
-                form.zone && clusterOptions.length === 0
-                  ? 'Link clusters to this zone in Users → Zones'
-                  : 'No results found.'
-              }
-            />
+            >
+              <SelectTrigger id="trainer-cluster" className="bg-white text-neutral-900">
+                <SelectValue
+                  placeholder={
+                    !form.zone
+                      ? 'Select zone first'
+                      : clusterList.length === 0
+                        ? 'Link clusters in Users → Zones'
+                        : 'Select Cluster'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {clusterList.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="md:col-span-2">
             <Label>Address</Label>
             <Textarea className="bg-white text-neutral-900" value={form.address1} onChange={(e)=>setForm(f=>({...f,address1:e.target.value}))} />
           </div>
-          <div className="md:col-span-2">
-            <Label className="mb-1">Products *</Label>
-            <div className="flex flex-wrap gap-3 text-sm">
-              {['Abacus', 'Vedic Maths', 'EEL', 'IIT', 'Financial literacy', 'Brain bytes', 'Spelling bee', 'Skill pro', 'Maths lab', 'Codechamp'].map(p=> (
-                <label key={p} className="inline-flex items-center gap-2">
-                  <input type="checkbox" checked={form.trainerProducts.includes(p)} onChange={()=>toggleProduct(p)} />
-                  {p}
-                </label>
-              ))}
-            </div>
+          <div className="md:col-span-2 space-y-2">
+            <Label>Product Category *</Label>
+            <Select onValueChange={addProductCategory}>
+              <SelectTrigger className="bg-white text-neutral-900 max-w-md">
+                <SelectValue placeholder="Select product category to add" />
+              </SelectTrigger>
+              <SelectContent>
+                {TRAINER_CATEGORIES.filter((c) => !form.trainerProducts.includes(c)).map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {form.trainerProducts.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {form.trainerProducts.map((p) => (
+                  <span key={p} className="inline-flex items-center gap-1 rounded-full bg-neutral-200 px-3 py-1 text-sm">
+                    {p}
+                    <button type="button" className="text-neutral-600 hover:text-red-600" onClick={() => removeProductCategory(p)} aria-label={`Remove ${p}`}>×</button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-neutral-500">No categories selected</p>
+            )}
           </div>
+          {form.trainerProducts.includes('Abacus') && (
+            <div className="md:col-span-2">
+              <Label>Abacus levels known</Label>
+              <Input className="bg-white text-neutral-900" value={form.trainerAbacusLevels} onChange={(e)=>setForm(f=>({...f,trainerAbacusLevels:e.target.value}))} placeholder="e.g. Level 1–8" />
+            </div>
+          )}
+          {form.trainerProducts.includes('Vedic Maths') && (
+            <div className="md:col-span-2">
+              <Label>Vedic Maths levels known</Label>
+              <Input className="bg-white text-neutral-900" value={form.trainerVedicLevels} onChange={(e)=>setForm(f=>({...f,trainerVedicLevels:e.target.value}))} placeholder="e.g. Level 1–5" />
+            </div>
+          )}
           <div className="md:col-span-2">
-            <Label>Levels</Label>
-            <Input className="bg-white text-neutral-900" value={form.trainerLevels} onChange={(e)=>setForm(f=>({...f,trainerLevels:e.target.value}))} placeholder="e.g., AB-3, VM-2" />
+            <Label>Other levels (optional)</Label>
+            <Input className="bg-white text-neutral-900" value={form.trainerLevels} onChange={(e)=>setForm(f=>({...f,trainerLevels:e.target.value}))} placeholder="ECC / IIT notes" />
           </div>
           <div className="md:col-span-2 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={()=>router.back()}>Cancel</Button>

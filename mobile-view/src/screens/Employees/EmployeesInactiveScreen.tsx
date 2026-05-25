@@ -11,8 +11,10 @@ interface Employee {
   name: string;
   email: string;
   phone?: string;
+  mobile?: string;
   role: string;
   department?: string;
+  zone?: string;
 }
 
 export default function EmployeesInactiveScreen({ navigation }: any) {
@@ -90,7 +92,19 @@ export default function EmployeesInactiveScreen({ navigation }: any) {
                     <Text style={styles.infoValue}>{e.department}</Text>
                   </View>
                 )}
+                {e.zone && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Zone:</Text>
+                    <Text style={styles.infoValue}>{e.zone}</Text>
+                  </View>
+                )}
               </View>
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => navigation.navigate('EmployeeEdit', { id: e._id })}
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
             </View>
           ))
         )}
@@ -123,6 +137,8 @@ const styles = StyleSheet.create({
   roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   roleBadgeText: { ...typography.label.small, fontWeight: '600' },
   cardBody: { marginBottom: 12 },
+  editButton: { paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center' },
+  editButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },
   infoRow: { flexDirection: 'row', marginBottom: 6 },
   infoLabel: { ...typography.body.medium, color: colors.textSecondary, width: 100 },
   infoValue: { ...typography.body.medium, color: colors.textPrimary, flex: 1 },

@@ -32,7 +32,7 @@ type DcOrderRow = {
   region?: string;
   area?: string;
   location?: string;
-  products?: Array<{ product_name?: string; term?: string }>;
+  products?: Array<{ product_name?: string; quantity?: number; term?: string }>;
 };
 
 type Lead = {
@@ -50,7 +50,16 @@ type Lead = {
   school_id?: any;
 };
 
-type ProductLine = {
+/** Create renewal — matches web (product + qty + term). */
+type RenewCreateLine = {
+  product_name: string;
+  quantity: number;
+  term: string;
+  isFromPreviousDc: boolean;
+};
+
+/** Update follow-up — renewal % per product. */
+type RenewUpdateLine = {
   product_name: string;
   term: string;
   renewal_pct: number | '';
@@ -67,7 +76,7 @@ const TERMS = ['Term 1', 'Term 2', 'Term 3'].map((t) => ({ label: t, value: t })
 
 function dedupeSchoolProducts(products?: DcOrderRow['products']) {
   const seen = new Set<string>();
-  const out: Array<{ product_name: string; term: string }> = [];
+  const out: Array<{ product_name: string; term: string; quantity?: number }> = [];
   for (const p of products || []) {
     const name = (p.product_name || '').trim();
     if (!name) continue;
@@ -75,22 +84,22 @@ function dedupeSchoolProducts(products?: DcOrderRow['products']) {
     const key = `${name}::${term}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ product_name: name, term });
+    out.push({ product_name: name, term, quantity: p.quantity });
   }
   return out;
 }
 
-function buildRenewProductsFromSchool(school: DcOrderRow | null): ProductLine[] {
+function buildRenewProductsFromSchool(school: DcOrderRow | null): RenewCreateLine[] {
   const deduped = dedupeSchoolProducts(school?.products);
   if (deduped.length > 0) {
     return deduped.map((p) => ({
       product_name: p.product_name,
       term: p.term,
-      renewal_pct: '',
+      quantity: Math.max(1, Number(p.quantity) || 1),
       isFromPreviousDc: true,
     }));
   }
-  return [{ product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false }];
+  return [{ product_name: '', quantity: 1, term: 'Term 1', isFromPreviousDc: false }];
 }
 
 function schoolDisplayCode(row: DcOrderRow | null) {
@@ -119,8 +128,8 @@ export default function LeadsRenewalListScreen() {
   const [renewContactPerson, setRenewContactPerson] = useState('');
   const [renewContactMobile, setRenewContactMobile] = useState('');
   const [renewRemarks, setRenewRemarks] = useState('');
-  const [renewProducts, setRenewProducts] = useState<ProductLine[]>([
-    { product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false },
+  const [renewProducts, setRenewProducts] = useState<RenewCreateLine[]>([
+    { product_name: '', quantity: 1, term: 'Term 1', isFromPreviousDc: false },
   ]);
   const [creatingRenewal, setCreatingRenewal] = useState(false);
 
@@ -130,7 +139,7 @@ export default function LeadsRenewalListScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [priority, setPriority] = useState('Hot');
   const [updateRemarks, setUpdateRemarks] = useState('');
-  const [productsInterested, setProductsInterested] = useState<ProductLine[]>([]);
+  const [productsInterested, setProductsInterested] = useState<RenewUpdateLine[]>([]);
   const [updating, setUpdating] = useState(false);
 
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -157,10 +166,14 @@ export default function LeadsRenewalListScreen() {
 
   useEffect(() => {
     loadLeads();
-    apiService.get('/products').then((data) => {
-      const list = Array.isArray(data) ? data : [];
-      setProductNames(list.map((p: any) => p.productName).filter(Boolean));
-    }).catch(() => {});
+    apiService
+      .get('/products/active')
+      .catch(() => apiService.get('/products'))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        setProductNames(list.map((p: any) => p.productName || p.name).filter(Boolean));
+      })
+      .catch(() => {});
   }, [loadLeads]);
 
   useEffect(() => {
@@ -240,14 +253,6 @@ export default function LeadsRenewalListScreen() {
       Alert.alert('Validation', 'Add at least one product');
       return;
     }
-    const invalidPct = rows.some((r) => {
-      const pct = Number(r.renewal_pct);
-      return !Number.isFinite(pct) || pct < 1 || pct > 100;
-    });
-    if (invalidPct) {
-      Alert.alert('Validation', 'Each product must have Renewal % between 1 and 100');
-      return;
-    }
     setCreatingRenewal(true);
     try {
       await apiService.post('/leads/create', {
@@ -258,18 +263,16 @@ export default function LeadsRenewalListScreen() {
         remarks: renewRemarks,
         products: rows.map((r) => ({
           product_name: r.product_name.trim(),
-          quantity: 1,
-          term: r.term,
+          quantity: Math.max(1, Number(r.quantity) || 1),
+          term: r.term || 'Term 1',
           unit_price: 0,
-          renewal_pct: Number(r.renewal_pct),
-          is_from_previous_dc: r.isFromPreviousDc,
         })),
       });
       Alert.alert('Success', 'Renewal lead created');
       setSelectedSchool(null);
       setSchoolQuery('');
       setRenewRemarks('');
-      setRenewProducts([{ product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false }]);
+      setRenewProducts([{ product_name: '', quantity: 1, term: 'Term 1', isFromPreviousDc: false }]);
       loadLeads();
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to create renewal lead');
@@ -283,7 +286,7 @@ export default function LeadsRenewalListScreen() {
     setFollowUpDate(lead.follow_up_date ? new Date(lead.follow_up_date) : new Date());
     setPriority(lead.priority || 'Hot');
     setUpdateRemarks('');
-    const pi: ProductLine[] =
+    const pi: RenewUpdateLine[] =
       Array.isArray(lead.products) && lead.products.length > 0
         ? lead.products.map((p: any) => ({
             product_name: p.product_name || p.product || '',
@@ -297,7 +300,9 @@ export default function LeadsRenewalListScreen() {
             isFromPreviousDc: Boolean(p.is_from_previous_dc),
           }))
         : [];
-    setProductsInterested(pi.length ? pi : [{ product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false }]);
+    setProductsInterested(
+      pi.length ? pi : [{ product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false }],
+    );
     setUpdateOpen(true);
   };
 
@@ -364,12 +369,24 @@ export default function LeadsRenewalListScreen() {
     }
   };
 
-  const updateRenewProduct = (i: number, field: keyof ProductLine, value: string | number | boolean) => {
+  const updateRenewProduct = (
+    i: number,
+    field: keyof RenewCreateLine,
+    value: string | number | boolean,
+  ) => {
     setRenewProducts((p) => p.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
   };
 
-  const updateInterestedProduct = (i: number, field: keyof ProductLine, value: string | number | boolean) => {
+  const updateInterestedProduct = (
+    i: number,
+    field: keyof RenewUpdateLine,
+    value: string | number | boolean,
+  ) => {
     setProductsInterested((p) => p.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)));
+  };
+
+  const removeRenewProduct = (i: number) => {
+    setRenewProducts((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i)));
   };
 
   return (
@@ -384,6 +401,12 @@ export default function LeadsRenewalListScreen() {
       }}
     >
       <PageSection title="Create renewal lead">
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerText}>
+            Search an existing school (not a new school). Add products with quantity and term, then
+            submit. Pricing uses your catalog defaults unless changed later on close.
+          </Text>
+        </View>
         <WebLabel>Search school (name or code)</WebLabel>
         <WebInput
           placeholder="Type at least 2 characters…"
@@ -425,9 +448,14 @@ export default function LeadsRenewalListScreen() {
           keyboardType="phone-pad"
           editable={!!selectedSchool}
         />
+        <WebLabel>Products interested</WebLabel>
         {renewProducts.map((row, i) => (
           <View key={`rp-${i}`} style={styles.productRow}>
-            {!row.isFromPreviousDc ? (
+            {row.isFromPreviousDc ? (
+              <Text style={styles.productLabel}>
+                {row.product_name} (on file)
+              </Text>
+            ) : (
               <WebSelect
                 label="Product"
                 value={row.product_name}
@@ -435,39 +463,61 @@ export default function LeadsRenewalListScreen() {
                 items={productNames.map((n) => ({ label: n, value: n }))}
                 placeholder="Select product"
               />
-            ) : (
-              <Text style={styles.productLabel}>
-                {row.product_name} ({row.term})
-              </Text>
             )}
-            <WebInput
-              placeholder="Renewal %"
-              value={row.renewal_pct === '' ? '' : String(row.renewal_pct)}
-              onChangeText={(v) => updateRenewProduct(i, 'renewal_pct', v === '' ? '' : Number(v))}
-              keyboardType="numeric"
-            />
+            <View style={styles.productRowInline}>
+              <View style={styles.qtyField}>
+                <WebLabel>Qty</WebLabel>
+                <WebInput
+                  placeholder="1"
+                  value={String(row.quantity ?? 1)}
+                  onChangeText={(v) =>
+                    updateRenewProduct(i, 'quantity', Math.max(1, Number(v) || 1))
+                  }
+                  keyboardType="number-pad"
+                  editable={!!selectedSchool}
+                />
+              </View>
+              <View style={styles.termField}>
+                <WebSelect
+                  label="Term"
+                  value={row.term}
+                  onValueChange={(v) => updateRenewProduct(i, 'term', v)}
+                  items={TERMS}
+                />
+              </View>
+              {renewProducts.length > 1 ? (
+                <WebButton
+                  title="Remove"
+                  variant="outline"
+                  onPress={() => removeRenewProduct(i)}
+                  disabled={!selectedSchool}
+                />
+              ) : null}
+            </View>
           </View>
         ))}
         <WebButton
-          title="Add product"
+          title="Add line"
           variant="outline"
           onPress={() =>
             setRenewProducts((p) => [
               ...p,
-              { product_name: '', term: 'Term 1', renewal_pct: 100, isFromPreviousDc: false },
+              { product_name: '', quantity: 1, term: 'Term 1', isFromPreviousDc: false },
             ])
           }
           disabled={!selectedSchool}
         />
+        <WebLabel>Notes</WebLabel>
         <WebInput
-          placeholder="Remarks"
+          placeholder="Optional context for this renewal…"
           value={renewRemarks}
           onChangeText={setRenewRemarks}
           multiline
           style={{ minHeight: 60 }}
+          editable={!!selectedSchool}
         />
         <WebButton
-          title={creatingRenewal ? 'Creating…' : 'Create renewal lead'}
+          title={creatingRenewal ? 'Saving…' : 'Submit renewal lead'}
           onPress={submitRenewalLead}
           loading={creatingRenewal}
           disabled={!selectedSchool || creatingRenewal}
@@ -495,10 +545,14 @@ export default function LeadsRenewalListScreen() {
               {lead.contact_mobile || '—'} · {lead.zone || '—'} · {lead.priority || '—'}
             </Text>
             <View style={styles.leadActions}>
-              <WebButton title="Update" onPress={() => openUpdateModal(lead)} />
-              <WebButton title="History" variant="outline" onPress={() => openHistoryModal(lead)} />
-              <WebButton title="Edit" variant="outline" onPress={() => navigateRoot('LeadEdit', { id: lead._id })} />
-              <WebButton title="Close" variant="outline" onPress={() => navigateRoot('LeadClose', { id: lead._id })} />
+              <WebButton title="Create Follow-up" onPress={() => openUpdateModal(lead)} />
+              <WebButton title="View History" variant="outline" onPress={() => openHistoryModal(lead)} />
+              <WebButton
+                title="Edit Details"
+                variant="outline"
+                onPress={() => navigateRoot('LeadEdit', { id: lead._id })}
+              />
+              <WebButton title="Close Lead" variant="outline" onPress={() => navigateRoot('LeadClose', { id: lead._id })} />
             </View>
           </View>
         ))}
@@ -583,7 +637,19 @@ export default function LeadsRenewalListScreen() {
 }
 
 const styles = StyleSheet.create({
+  infoBanner: {
+    backgroundColor: '#FEF9C3',
+    borderWidth: 1,
+    borderColor: '#FDE047',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  infoBannerText: { fontSize: 13, color: '#854D0E', lineHeight: 18 },
   hint: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  productRowInline: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' },
+  qtyField: { width: 72 },
+  termField: { flex: 1, minWidth: 120 },
   searchHit: { padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   searchName: { fontWeight: '600', color: colors.textPrimary },
   selectedBox: { padding: 12, backgroundColor: colors.successLight, borderRadius: 8, marginVertical: 8 },

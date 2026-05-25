@@ -3,6 +3,7 @@ const DcOrder = require('../models/DcOrder');
 const ExcelJS = require('exceljs');
 const mongoose = require('mongoose');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
+const { ensureSchoolCode, isClientConversionUpdate } = require('../utils/clientSchoolCode');
 const { normalizeProductTerm } = require('../utils/productTerm');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
 
@@ -397,6 +398,7 @@ const updateLead = async (req, res) => {
             : 'Warm',
           strength: Number(row.strength) || 0,
           chance: Math.max(0, Math.min(100, Number(row.chance) || 0)),
+          important: Boolean(row.important),
           quantity: Number(row.strength) || 0,
           unit_price: 0,
         }));
@@ -404,19 +406,28 @@ const updateLead = async (req, res) => {
       ? normalizeProductsInterested(req.body.productsInterested)
       : [];
     const isFollowUpSubmission = hasFollowUpDate && hasRemarks;
-    if (isFollowUpSubmission) {
-      if (normalizedProductsInterested.length === 0) {
-        return res.status(400).json({
-          message: 'At least one product with Strength (quantity) and Chance % is required',
-        });
+    const validateFollowUpProducts = (rows) => {
+      if (rows.length === 0) {
+        return 'At least one product with Strength and Chance % is required';
       }
-      const invalidProductRows = normalizedProductsInterested.some(
-        (row) => row.strength <= 0 || row.chance <= 0
-      );
-      if (invalidProductRows) {
-        return res.status(400).json({
-          message: 'Each product must have Strength greater than 0 and Chance % greater than 0',
-        });
+      for (const row of rows) {
+        if (row.strength <= 0 || row.chance <= 0) {
+          return 'Each product must have Strength greater than 0 and Chance % greater than 0';
+        }
+        if (row.status === 'Hot' && row.chance < 80) {
+          return 'Hot products require Chance % at least 80';
+        }
+        if (row.status === 'Warm' && row.chance < 20) {
+          return 'Warm products require Chance % at least 20';
+        }
+      }
+      return null;
+    };
+
+    if (isFollowUpSubmission || hasProductsInterested) {
+      const productErr = validateFollowUpProducts(normalizedProductsInterested);
+      if (productErr) {
+        return res.status(400).json({ message: productErr });
       }
     }
 
@@ -465,6 +476,25 @@ const updateLead = async (req, res) => {
     const updateData = { ...req.body };
     const pushData = updateData.$push;
     delete updateData.$push;
+
+    const becomingClosed =
+      String(updateData.status || '').toLowerCase() === 'closed' ||
+      String(lead.status || '').toLowerCase() === 'closed';
+    if (!lead.school_code && (becomingClosed || isClientConversionUpdate(updateData, lead))) {
+      let code = '';
+      if (lead.school_id) {
+        const order = await DcOrder.findById(lead.school_id).lean();
+        if (order) {
+          code = await ensureSchoolCode(order, updateData);
+        }
+      }
+      if (!code) {
+        code = await ensureSchoolCode(lead, updateData);
+      }
+      if (code) {
+        updateData.school_code = code;
+      }
+    }
 
     const mongoUpdate = {};
     if (Object.keys(updateData).length > 0) {

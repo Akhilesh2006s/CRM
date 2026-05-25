@@ -11,7 +11,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, API_BASE_URL, resolveUploadUrl } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
-import { ArrowLeft, Package, CheckCircle2, Upload, X, PlusCircle } from 'lucide-react'
+import { ArrowLeft, Package, CheckCircle2, Upload, X, PlusCircle, ChevronDown } from 'lucide-react'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -166,6 +171,12 @@ type CloseProductSectionLine = {
   parentRowId: string
   product: string
   level: string
+  /** Per-product class + strength (independent for each product in the section). */
+  classSelections: ClassStrengthSelection[]
+  sameStrengthForAllClasses?: boolean
+  fromClass?: string
+  toClass?: string
+  strength?: number
   selectedSpecs: string[]
   selectedSubjects: string[]
   selectedDeliverables: string[]
@@ -175,12 +186,77 @@ type CloseProductSectionLine = {
   term?: string
 }
 
+type ClassStrengthSelection = {
+  class: string
+  strength: number
+}
+
 type CloseProductSection = {
   id: string
+  /** Legacy range fields — migrated into classSelections when loading */
+  fromClass?: string
+  toClass?: string
+  strength?: number
+  classSelections: ClassStrengthSelection[]
+  sameStrengthForAllClasses?: boolean
+  lines: CloseProductSectionLine[]
+}
+
+const SELECTABLE_CLOSE_CLASSES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+
+function rangeToClassSelections(
+  fromClass: string,
+  toClass: string,
+  strength: number
+): ClassStrengthSelection[] {
+  const from = parseInt(fromClass, 10)
+  const to = parseInt(toClass, 10)
+  if (from === 0 || to === 0 || from > to || strength <= 0) return []
+  const out: ClassStrengthSelection[] = []
+  for (let i = from; i <= to; i++) {
+    out.push({ class: String(i), strength })
+  }
+  return out
+}
+
+function getSectionClassSelections(sec: CloseProductSection): ClassStrengthSelection[] {
+  if (sec.classSelections?.length) return sec.classSelections
+  return rangeToClassSelections(sec.fromClass ?? '0', sec.toClass ?? '0', Number(sec.strength) || 0)
+}
+
+function getLineClassSelections(
+  line: CloseProductSectionLine,
+  sec?: CloseProductSection
+): ClassStrengthSelection[] {
+  if (line.classSelections?.length) return line.classSelections
+  if (sec?.classSelections?.length && sec.lines.length === 1 && sec.lines[0]?.id === line.id) {
+    return sec.classSelections
+  }
+  if (line.fromClass != null && line.toClass != null) {
+    return rangeToClassSelections(line.fromClass, line.toClass, Number(line.strength) || 0)
+  }
+  if (sec) return getSectionClassSelections(sec)
+  return []
+}
+
+function lineHasValidClassSelections(line: CloseProductSectionLine, sec?: CloseProductSection): boolean {
+  return getLineClassSelections(line, sec).some((s) => Number(s.strength) > 0)
+}
+
+function sectionHasValidClassSelections(sec: CloseProductSection): boolean {
+  if (sec.lines.length === 0) return false
+  return sec.lines.every((line) => lineHasValidClassSelections(line, sec))
+}
+
+function classSelectionBounds(selections: ClassStrengthSelection[]): {
   fromClass: string
   toClass: string
-  strength: number
-  lines: CloseProductSectionLine[]
+} {
+  const nums = selections
+    .map((s) => parseInt(s.class, 10))
+    .filter((n) => !isNaN(n) && n > 0)
+  if (nums.length === 0) return { fromClass: '0', toClass: '0' }
+  return { fromClass: String(Math.min(...nums)), toClass: String(Math.max(...nums)) }
 }
 
 type ExpandSectionsCtx = {
@@ -199,11 +275,10 @@ function expandSectionsToProductDetails(
 
   for (const sec of sections) {
     for (const line of sec.lines) {
-      const fromClass = sec.fromClass ?? '0'
-      const toClass = sec.toClass ?? '0'
-      const from = parseInt(fromClass, 10) || 0
-      const to = parseInt(toClass, 10) || 0
-      const strengthToUse = Number(sec.strength) || 0
+      const classSelections = getLineClassSelections(line, sec)
+      if (classSelections.length === 0) continue
+
+      const { fromClass, toClass } = classSelectionBounds(classSelections)
       const priceToUse = Number(line.price) || 0
 
       const parentRow: ProductDetailRow = {
@@ -218,7 +293,7 @@ function expandSectionsToProductDetails(
             ? 'Existing Students'
             : 'New Students',
         quantity: 1,
-        strength: strengthToUse,
+        strength: classSelections[0]?.strength || 0,
         price: priceToUse,
         total: 0,
         level: line.level,
@@ -232,10 +307,6 @@ function expandSectionsToProductDetails(
         term: line.term !== undefined && line.term !== '' ? normalizeProductTerm(line.term) : undefined,
       }
       out.push(parentRow)
-
-      if ((from === 0 && to === 0) || from > to) {
-        continue
-      }
 
       const selectedSpecs = line.selectedSpecs || []
       const specsToUse = selectedSpecs.length > 0 ? selectedSpecs : ['Regular']
@@ -251,7 +322,10 @@ function expandSectionsToProductDetails(
 
       let rowIdx = 0
       const parentId = line.parentRowId
-      for (let classNum = from; classNum <= to; classNum++) {
+      for (const classSel of classSelections) {
+        const classNum = parseInt(classSel.class, 10)
+        const strengthToUse = Number(classSel.strength) || 0
+        if (!classNum || strengthToUse <= 0) continue
         for (const spec of specsToUse) {
           for (const category of categoriesToUse) {
             const subjectDisplay =
@@ -283,11 +357,16 @@ function expandSectionsToProductDetails(
 }
 
 function parentRowToSectionLine(p: ProductDetailRow): CloseProductSectionLine {
+  const from = p.fromClass ?? '0'
+  const to = p.toClass ?? '0'
+  const strength = Number(p.strength) || 0
   return {
     id: makeRowId(),
     parentRowId: p.id,
     product: p.product,
     level: p.level,
+    classSelections: rangeToClassSelections(from, to, strength),
+    sameStrengthForAllClasses: false,
     selectedSpecs: p.selectedSpecs || [],
     selectedSubjects: p.selectedSubjects || [],
     selectedDeliverables: p.selectedDeliverables || [],
@@ -301,9 +380,7 @@ function parentRowToSectionLine(p: ProductDetailRow): CloseProductSectionLine {
 function parentRowsToSections(parents: ProductDetailRow[]): CloseProductSection[] {
   return parents.map((p) => ({
     id: makeRowId(),
-    fromClass: p.fromClass ?? '0',
-    toClass: p.toClass ?? '0',
-    strength: Number(p.strength) || 0,
+    classSelections: [],
     lines: [parentRowToSectionLine(p)],
   }))
 }
@@ -341,6 +418,10 @@ export default function CloseLeadPage() {
   const [productDialogOpen, setProductDialogOpen] = useState(false)
   const [productDetails, setProductDetails] = useState<ProductDetailRow[]>([])
   const [productSections, setProductSections] = useState<CloseProductSection[]>([])
+  /** One open product accordion per section (product-wise classes UI). */
+  const [expandedLineBySection, setExpandedLineBySection] = useState<Record<string, string | null>>(
+    {}
+  )
   const [poPhoto, setPoPhoto] = useState<File | null>(null)
   const [poPhotoUrl, setPoPhotoUrl] = useState<string>('')
   const [uploadingPO, setUploadingPO] = useState(false)
@@ -659,53 +740,128 @@ export default function CloseLeadPage() {
   // Show all available products from database
   const filteredProducts = availableProducts
 
-  const sectionAllowsProductLines = (sec: CloseProductSection) => {
-    const from = parseInt(sec.fromClass ?? '0', 10)
-    const to = parseInt(sec.toClass ?? '0', 10)
-    return !(from === 0 || to === 0 || from > to) && Number(sec.strength) > 0
+  const lineAllowsProductConfig = (sec: CloseProductSection, line: CloseProductSectionLine) => {
+    return lineHasValidClassSelections(line, sec) && Boolean(line.product?.trim())
+  }
+
+  const updateLineInSection = (
+    sectionId: string,
+    lineId: string,
+    updater: (line: CloseProductSectionLine) => CloseProductSectionLine
+  ) => {
+    setProductSections((prev) =>
+      prev.map((sec) =>
+        sec.id !== sectionId
+          ? sec
+          : { ...sec, lines: sec.lines.map((l) => (l.id === lineId ? updater(l) : l)) }
+      )
+    )
+  }
+
+  const toggleLineClass = (
+    sectionId: string,
+    lineId: string,
+    classValue: string,
+    checked: boolean
+  ) => {
+    updateLineInSection(sectionId, lineId, (line) => {
+      const existing = getLineClassSelections(line)
+      if (checked) {
+        if (existing.some((s) => s.class === classValue)) return line
+        let defaultStrength = existing[0]?.strength || 0
+        if (line.sameStrengthForAllClasses && existing.length > 0) {
+          const withStrength = existing.find((s) => Number(s.strength) > 0)
+          if (withStrength) defaultStrength = withStrength.strength
+        }
+        return {
+          ...line,
+          classSelections: [
+            ...existing,
+            { class: classValue, strength: defaultStrength > 0 ? defaultStrength : 0 },
+          ],
+        }
+      }
+      return {
+        ...line,
+        classSelections: existing.filter((s) => s.class !== classValue),
+      }
+    })
+  }
+
+  const updateLineClassStrength = (
+    sectionId: string,
+    lineId: string,
+    classValue: string,
+    strength: number
+  ) => {
+    updateLineInSection(sectionId, lineId, (line) => ({
+      ...line,
+      classSelections: getLineClassSelections(line).map((s) =>
+        s.class === classValue ? { ...s, strength } : s
+      ),
+    }))
+  }
+
+  const applyLineBulkStrength = (sectionId: string, lineId: string, strength: number) => {
+    updateLineInSection(sectionId, lineId, (line) => ({
+      ...line,
+      sameStrengthForAllClasses: true,
+      classSelections: getLineClassSelections(line).map((s) => ({ ...s, strength })),
+    }))
+  }
+
+  const setLineSameStrengthForAll = (sectionId: string, lineId: string, enabled: boolean) => {
+    updateLineInSection(sectionId, lineId, (line) => {
+      if (!enabled) return { ...line, sameStrengthForAllClasses: false }
+      const existing = getLineClassSelections(line)
+      const bulk =
+        existing.find((s) => Number(s.strength) > 0)?.strength ?? existing[0]?.strength ?? 0
+      return {
+        ...line,
+        sameStrengthForAllClasses: true,
+        classSelections: existing.map((s) => ({
+          ...s,
+          strength: bulk > 0 ? bulk : s.strength,
+        })),
+      }
+    })
+  }
+
+  const lineBulkStrengthValue = (line: CloseProductSectionLine): string => {
+    const selections = getLineClassSelections(line)
+    if (selections.length === 0) return ''
+    const first = Number(selections[0].strength) || 0
+    const allSame = selections.every((s) => (Number(s.strength) || 0) === first)
+    return allSame && first > 0 ? String(first) : first > 0 ? String(first) : ''
   }
 
   const addEmptyProductSection = () => {
-    setProductSections((prev) => [
-      ...prev,
-      { id: makeRowId(), fromClass: '0', toClass: '0', strength: 0, lines: [] },
-    ])
+    const id = makeRowId()
+    setProductSections((prev) => [...prev, { id, classSelections: [], lines: [] }])
+    setExpandedLineBySection((prev) => ({ ...prev, [id]: null }))
   }
 
   const removeProductSection = (sectionId: string) => {
     setProductSections((prev) => prev.filter((s) => s.id !== sectionId))
-  }
-
-  const updateProductSection = (
-    sectionId: string,
-    field: 'fromClass' | 'toClass' | 'strength',
-    value: string | number
-  ) => {
-    setProductSections((prev) =>
-      prev.map((s) => {
-        if (s.id !== sectionId) return s
-        const next = { ...s, [field]: value }
-        if (field === 'fromClass') {
-          const newFrom = parseInt(String(value), 10)
-          const currentTo = parseInt(String(next.toClass || '0'), 10)
-          if (!isNaN(newFrom) && !isNaN(currentTo) && currentTo < newFrom) {
-            next.toClass = String(newFrom)
-          }
-        }
+    setExpandedLineBySection((prev) => {
+      const next = { ...prev }
+      delete next[sectionId]
         return next
       })
-    )
   }
 
   const addProductLineToSection = (sectionId: string, product: string) => {
+    const newLineId = makeRowId()
     setProductSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== sectionId) return sec
         const newLine: CloseProductSectionLine = {
-          id: makeRowId(),
+          id: newLineId,
           parentRowId: makeRowId(),
           product,
           level: getDefaultLevel(product),
+          classSelections: [],
+          sameStrengthForAllClasses: false,
           selectedSpecs: [],
           selectedSubjects: [],
           selectedDeliverables: [],
@@ -716,6 +872,8 @@ export default function CloseLeadPage() {
         return { ...sec, lines: [...sec.lines, newLine] }
       })
     )
+    setExpandedLineBySection((prev) => ({ ...prev, [sectionId]: newLineId }))
+    return newLineId
   }
 
   const updateProductSectionLine = (
@@ -737,13 +895,21 @@ export default function CloseLeadPage() {
   }
 
   const removeProductSectionLine = (sectionId: string, lineId: string) => {
-    setProductSections((prev) =>
-      prev.map((sec) =>
+    setProductSections((prev) => {
+      const next = prev.map((sec) =>
         sec.id !== sectionId
           ? sec
           : { ...sec, lines: sec.lines.filter((l) => l.id !== lineId) }
       )
-    )
+      const sec = next.find((s) => s.id === sectionId)
+      const remaining = sec?.lines ?? []
+      setExpandedLineBySection((exp) => ({
+        ...exp,
+        [sectionId]:
+          exp[sectionId] === lineId ? remaining[0]?.id ?? null : exp[sectionId] ?? null,
+      }))
+      return next
+    })
   }
 
   const updateLineUnitPrice = (sectionId: string, lineId: string, unitPrice: number) => {
@@ -1140,21 +1306,17 @@ export default function CloseLeadPage() {
     )
     
     if (groupedProductDetails.length === 0) {
-      toast.error('Please add at least one product and set class range to generate rows')
+      toast.error('Please add at least one product with classes and strength per product')
       return
     }
     
-    // Validate class range for all parent rows - must have valid From/To (not 0,0 and From <= To)
-    const parentRows = productDetails.filter(pd => pd.isParentRow)
-    const invalidClassRange = parentRows.some(p => {
-      const from = parseInt(p.fromClass ?? '0', 10)
-      const to = parseInt(p.toClass ?? '0', 10)
-      return from === 0 || to === 0 || from > to
-    })
-    if (invalidClassRange) {
-      toast.error('Please select valid class range.')
+    const invalidSectionClasses = productSections.some((sec) => !sectionHasValidClassSelections(sec))
+    if (invalidSectionClasses) {
+      toast.error('Each product must have at least one class with strength greater than 0.')
       return
     }
+
+    const parentRows = productDetails.filter(pd => pd.isParentRow)
     
     // Validate deliverables: if product has deliverables, at least 1 must be selected
     const productsWithDeliverables = parentRows.filter(p => (deliverablesByProduct[p.product] || []).length > 0)
@@ -1322,11 +1484,18 @@ export default function CloseLeadPage() {
               l.contact_mobile === lead?.contact_mobile
             )
             
+            const clientSchoolCode =
+              updated.school_code || lead?.school_code || ''
             if (existingLead) {
               // Update existing lead to Closed
               await apiRequest(`/leads/${existingLead._id}`, {
                 method: 'PUT',
-                body: JSON.stringify({ status: 'Closed', year: currentAcademicYear }),
+                body: JSON.stringify({
+                  status: 'Closed',
+                  year: currentAcademicYear,
+                  ...(clientSchoolCode ? { school_code: clientSchoolCode } : {}),
+                  school_id: updated._id,
+                }),
               })
               console.log('✅ Lead record updated to Closed for reporting')
             } else {
@@ -1335,6 +1504,8 @@ export default function CloseLeadPage() {
                 method: 'POST',
                 body: JSON.stringify({
                   school_name: lead?.school_name || updated.school_name,
+                  school_code: clientSchoolCode || undefined,
+                  school_id: updated._id,
                   contact_person: lead?.contact_person || updated.contact_person,
                   contact_mobile: lead?.contact_mobile || updated.contact_mobile,
                   zone: lead?.zone || updated.zone,
@@ -1673,8 +1844,8 @@ export default function CloseLeadPage() {
           <DialogHeader>
             <DialogTitle>Add Products & Details</DialogTitle>
             <DialogDescription>
-              Add class sections (From–To and strength) first, then add product lines under each section. Strength
-              applies per generated class row: every class in the range uses the same quantity/strength for DC rows.
+              Add a section, pick products, then set classes and strength per product. Only one product panel is open
+              at a time. DC rows are generated per class for each product.
             </DialogDescription>
           </DialogHeader>
 
@@ -1700,88 +1871,89 @@ export default function CloseLeadPage() {
 
             {productSections.length === 0 ? (
               <div className="p-4 border rounded bg-neutral-50 text-sm text-neutral-600">
-                No sections yet. Click &quot;Add section&quot;, set class From–To and strength, then add products under
-                that section.
+                No sections yet. Click &quot;Add section&quot;, choose products, then set classes and strength for each
+                product.
               </div>
             ) : (
               <div className="space-y-4">
                 {productSections.map((section) => {
-                  const allowLines = sectionAllowsProductLines(section)
                   return (
                     <div key={section.id} className="border rounded p-4 space-y-3 bg-white">
-                      <div className="flex flex-wrap items-end gap-3 justify-between">
-                        <div className="flex flex-wrap items-end gap-3">
-                          <div>
-                            <Label className="text-xs font-semibold">From class</Label>
-                            <Select
-                              value={section.fromClass ?? '0'}
-                              onValueChange={(v) => updateProductSection(section.id, 'fromClass', v)}
-                            >
-                              <SelectTrigger className="w-20 h-9 mt-1">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableClasses.map((c) => (
-                                  <SelectItem key={c} value={c}>
-                                    {c}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-xs font-semibold">To class</Label>
-                            <Select
-                              value={section.toClass ?? '0'}
-                              onValueChange={(v) => updateProductSection(section.id, 'toClass', v)}
-                            >
-                              <SelectTrigger className="w-20 h-9 mt-1">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableClasses.map((c) => (
-                                  <SelectItem key={c} value={c}>
-                                    {c}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-xs font-semibold">Strength (per class) *</Label>
-                            <Input
-                              type="number"
-                              className="w-28 h-9 mt-1"
-                              min={1}
-                              value={section.strength || ''}
-                              onChange={(e) => {
-                                let value = e.target.value
-                                if (value.length > 1) value = value.replace(/^0+/, '') || '0'
-                                const num = value === '' ? 0 : Number(value)
-                                updateProductSection(section.id, 'strength', num)
-                              }}
-                              placeholder="0"
-                            />
-                          </div>
-                        </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="text-sm font-semibold">Section</Label>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           onClick={() => removeProductSection(section.id)}
-                          className="text-red-600"
+                          className="text-red-600 shrink-0"
                         >
                           <X className="w-4 h-4 mr-1" />
                           Remove section
                         </Button>
                       </div>
-                      {!allowLines && (
+
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Add products to this section</Label>
+                        {filteredProducts.length === 0 ? (
+                          <p className="text-xs text-neutral-500">No products in catalog.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[140px] overflow-y-auto border rounded p-3 bg-neutral-50/80">
+                            {filteredProducts.map((product) => {
+                              const lineForProduct = section.lines.find((l) => l.product === product)
+                              const isSelected = Boolean(lineForProduct)
+                              const checkboxId = `catalog-${section.id}-${product.replace(/\s+/g, '-')}`
+                              return (
+                                <div
+                                  key={`${section.id}-${product}`}
+                                  className="flex items-center gap-2 min-w-0"
+                                >
+                                  <Checkbox
+                                    id={checkboxId}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        if (lineForProduct) {
+                                          setExpandedLineBySection((prev) => ({
+                                            ...prev,
+                                            [section.id]: lineForProduct.id,
+                                          }))
+                                        } else {
+                                          addProductLineToSection(section.id, product)
+                                        }
+                                      } else if (lineForProduct) {
+                                        removeProductSectionLine(section.id, lineForProduct.id)
+                                      }
+                                    }}
+                                  />
+                                  <Label
+                                    htmlFor={checkboxId}
+                                    className="text-xs cursor-pointer font-normal truncate"
+                                  >
+                                    {product}
+                                  </Label>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {section.lines.length === 0 && (
                         <p className="text-xs text-amber-700">
-                          Set valid From/To (not 0–0, From ≤ To) and strength greater than 0 before adding products.
+                          Select at least one product above to set classes and strength.
                         </p>
                       )}
 
                       {section.lines.map((line) => {
+                        const isOpen = expandedLineBySection[section.id] === line.id
+                        const lineClasses = getLineClassSelections(line, section)
+                        const classSummary =
+                          lineClasses
+                            .filter((s) => Number(s.strength) > 0)
+                            .map((s) => `Cl ${s.class} (${s.strength})`)
+                            .join(', ') || 'No classes selected'
+                        const allowLineConfig = lineAllowsProductConfig(section, line)
                         const productSubjects = getProductSubjects(line.product)
                         const hasSubjects = hasProductSubjects(line.product)
                         const selectedSubjects = line.selectedSubjects || []
@@ -1803,9 +1975,121 @@ export default function CloseLeadPage() {
                         )
 
                         return (
-                          <div key={line.id} className="space-y-2 p-3 border rounded bg-neutral-50">
-                            <div className="flex flex-wrap items-center gap-3 justify-between">
-                              <span className="font-medium min-w-[120px]">{line.product}</span>
+                          <Collapsible
+                            key={line.id}
+                            open={isOpen}
+                            onOpenChange={(open) =>
+                              setExpandedLineBySection((prev) => ({
+                                ...prev,
+                                [section.id]: open ? line.id : null,
+                              }))
+                            }
+                            className="border rounded overflow-hidden"
+                          >
+                            <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2.5 bg-neutral-50 hover:bg-neutral-100 text-left">
+                              <ChevronDown
+                                className={`h-4 w-4 shrink-0 text-neutral-600 transition-transform ${
+                                  isOpen ? 'rotate-180' : ''
+                                }`}
+                              />
+                              <span className="font-medium text-sm">{line.product}</span>
+                              <span className="text-xs text-neutral-500 truncate flex-1">
+                                {classSummary}
+                              </span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="space-y-3 p-3 border-t bg-white">
+                              <div className="space-y-2">
+                                <Label className="text-xs font-semibold">
+                                  Classes for {line.product} *
+                                </Label>
+                                <p className="text-xs text-neutral-500">
+                                  Strength per class applies only to this product.
+                                </p>
+                                <div className="flex flex-wrap items-center gap-3 py-1">
+                                  <Checkbox
+                                    id={`line-${line.id}-same-strength`}
+                                    checked={Boolean(line.sameStrengthForAllClasses)}
+                                    onCheckedChange={(c) =>
+                                      setLineSameStrengthForAll(section.id, line.id, c === true)
+                                    }
+                                  />
+                                  <Label
+                                    htmlFor={`line-${line.id}-same-strength`}
+                                    className="text-xs font-medium cursor-pointer"
+                                  >
+                                    Same strength for all selected classes
+                                  </Label>
+                                  {line.sameStrengthForAllClasses && (
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-xs text-neutral-600 shrink-0">
+                                        Strength for all:
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        min={1}
+                                        className="h-8 w-28"
+                                        placeholder="Qty"
+                                        value={lineBulkStrengthValue(line)}
+                                        onChange={(e) => {
+                                          let value = e.target.value
+                                          if (value.length > 1) {
+                                            value = value.replace(/^0+/, '') || '0'
+                                          }
+                                          const num = value === '' ? 0 : Number(value)
+                                          applyLineBulkStrength(section.id, line.id, num)
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {SELECTABLE_CLOSE_CLASSES.map((cls) => {
+                                    const sel = lineClasses.find((s) => s.class === cls)
+                                    const checked = Boolean(sel)
+                                    return (
+                                      <div
+                                        key={`${line.id}-cls-${cls}`}
+                                        className="flex items-center gap-2 rounded border border-neutral-200 bg-neutral-50/80 px-2 py-1.5"
+                                      >
+                                        <Checkbox
+                                          id={`line-${line.id}-class-${cls}`}
+                                          checked={checked}
+                                          onCheckedChange={(c) =>
+                                            toggleLineClass(section.id, line.id, cls, c === true)
+                                          }
+                                        />
+                                        <Label
+                                          htmlFor={`line-${line.id}-class-${cls}`}
+                                          className="text-xs font-medium cursor-pointer shrink-0 w-14"
+                                        >
+                                          Class {cls}
+                                        </Label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          className="h-8 flex-1 min-w-[4rem]"
+                                          disabled={!checked}
+                                          placeholder="Strength"
+                                          value={checked ? sel?.strength || '' : ''}
+                                          onChange={(e) => {
+                                            let value = e.target.value
+                                            if (value.length > 1) value = value.replace(/^0+/, '') || '0'
+                                            const num = value === '' ? 0 : Number(value)
+                                            updateLineClassStrength(section.id, line.id, cls, num)
+                                          }}
+                                        />
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                                {!lineHasValidClassSelections(line, section) && (
+                                  <p className="text-xs text-amber-700">
+                                    Select at least one class with strength greater than 0.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-3 justify-between border-t pt-2">
                               <div className="flex items-center gap-2">
                                 <Checkbox
                                   id={`same-rate-${line.id}`}
@@ -1827,11 +2111,12 @@ export default function CloseLeadPage() {
                                 onClick={() => removeProductSectionLine(section.id, line.id)}
                                 className="text-red-600 hover:text-red-700"
                               >
-                                <X className="w-4 h-4" />
+                                  <X className="w-4 h-4 mr-1" />
+                                  Remove product
                               </Button>
                             </div>
 
-                            {productSpecs.length > 0 && (
+                            {allowLineConfig && productSpecs.length > 0 && (
                               <div className="mt-2 pt-2 border-t">
                                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                                   <div>
@@ -2056,52 +2341,10 @@ export default function CloseLeadPage() {
                                 </div>
                               </div>
                             )}
-                          </div>
+                            </CollapsibleContent>
+                          </Collapsible>
                         )
                       })}
-
-                      <div className="pt-2 border-t">
-                        <Label className="text-xs font-semibold mb-2 block">Add product to this section</Label>
-                        {filteredProducts.length === 0 ? (
-                          <p className="text-xs text-neutral-500">No products in catalog.</p>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto border rounded p-3 bg-white">
-                            {filteredProducts.map((product) => {
-                              const lineForProduct = section.lines.find((l) => l.product === product)
-                              const isSelected = Boolean(lineForProduct)
-                              const checkboxId = `catalog-${section.id}-${product.replace(/\s+/g, '-')}`
-                              return (
-                                <div
-                                  key={`${section.id}-${product}`}
-                                  className="flex items-center gap-2 min-w-0"
-                                >
-                                  <Checkbox
-                                    id={checkboxId}
-                                    checked={isSelected}
-                                    disabled={!allowLines}
-                                    onCheckedChange={(checked) => {
-                                      if (!allowLines) return
-                                      if (checked) {
-                                        if (!lineForProduct) {
-                                          addProductLineToSection(section.id, product)
-                                        }
-                                      } else if (lineForProduct) {
-                                        removeProductSectionLine(section.id, lineForProduct.id)
-                                      }
-                                    }}
-                                  />
-                                  <Label
-                                    htmlFor={checkboxId}
-                                    className={`text-xs cursor-pointer font-normal truncate ${!allowLines ? 'opacity-50' : ''}`}
-                                  >
-                                    {product}
-                                  </Label>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   )
                 })}

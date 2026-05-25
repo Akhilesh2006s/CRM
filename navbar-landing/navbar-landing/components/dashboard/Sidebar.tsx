@@ -160,15 +160,6 @@ const NAV: NavItem[] = [
       { label: 'New Employee', href: '/dashboard/employees/new' },
       { label: 'Active Employees', href: '/dashboard/employees/active' },
       { label: 'Inactive Employees', href: '/dashboard/employees/inactive' },
-      { label: 'Pending Leaves', href: '/dashboard/employees/leaves', icon: CalendarCheck2 },
-    ],
-  },
-  {
-    label: 'Executive Managers',
-    icon: Shield,
-    children: [
-      { label: 'All Managers', href: '/dashboard/executive-managers' },
-      { label: 'Create Manager', href: '/dashboard/executive-managers/new' },
     ],
   },
   {

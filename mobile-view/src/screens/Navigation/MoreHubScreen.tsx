@@ -12,10 +12,14 @@ export default function MoreHubScreen() {
 
   const settingsItems = [
     { label: 'Change Password', screen: 'SettingsPassword' },
-    { label: 'App Data Upload', screen: 'SettingsUpload' },
-    { label: 'SMS Settings', screen: 'SettingsSMS' },
-    { label: 'DB Backup', screen: 'SettingsBackup' },
-    ...(isAdmin ? [{ label: 'Expense Policy', screen: 'SettingsExpenses' }] : []),
+    ...(isAdmin
+      ? [
+          { label: 'App Data Upload', screen: 'SettingsUpload' },
+          { label: 'SMS Settings', screen: 'SettingsSMS' },
+          { label: 'DB Backup', screen: 'SettingsBackup' },
+          { label: 'Expense Policy', screen: 'SettingsExpenses' },
+        ]
+      : []),
   ];
 
   const handleLogout = () => {

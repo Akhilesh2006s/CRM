@@ -24,9 +24,9 @@ const OPTIONS: LeadOption[] = [
     icon: 'school-outline',
   },
   {
-    title: 'Renewal Cross Sale',
-    subtitle: 'Renewal or cross-sale for existing schools',
-    screen: 'LeadAddRenewal',
+    title: 'Renewal Leads',
+    subtitle: 'Search existing schools and submit renewal leads',
+    screen: 'LeadsRenewalList',
     colors: ['#22C55E', '#16A34A'],
     icon: 'refresh-outline',
   },

@@ -74,7 +74,10 @@ const expenseSchema = new mongoose.Schema({
   },
   transportType: {
     type: String,
-    enum: ['Auto', 'Bike', 'Bus', 'Car', 'Flight', 'Train'],
+    enum: ['Bike', 'Car', 'Bus', 'Train', 'Flight', 'Auto', 'Other'],
+  },
+  stayDateEnd: {
+    type: Date,
   },
   travelFrom: {
     type: String,

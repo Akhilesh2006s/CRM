@@ -12,8 +12,11 @@ interface Employee {
   name: string;
   email: string;
   phone?: string;
+  mobile?: string;
   role: string;
   department?: string;
+  zone?: string;
+  cluster?: string;
 }
 
 export default function EmployeesActiveScreen({ navigation }: any) {
@@ -64,7 +67,13 @@ export default function EmployeesActiveScreen({ navigation }: any) {
   };
 
   const isCoordinator = user?.role === 'Coordinator' || user?.role === 'Senior Coordinator';
-  const filtered = items.filter((e) => e.name.toLowerCase().includes(searchQuery.toLowerCase()) || e.email.toLowerCase().includes(searchQuery.toLowerCase()) || (e.phone || '').includes(searchQuery));
+  const filtered = items.filter((e) =>
+    e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    e.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (e.phone || '').includes(searchQuery) ||
+    (e.mobile || '').includes(searchQuery) ||
+    (e.zone || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <ScreenShell
@@ -111,11 +120,28 @@ export default function EmployeesActiveScreen({ navigation }: any) {
                     <Text style={styles.infoValue}>{e.department}</Text>
                   </View>
                 )}
+                {e.zone && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Zone:</Text>
+                    <Text style={styles.infoValue}>{e.zone}</Text>
+                  </View>
+                )}
+                {e.cluster && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Cluster:</Text>
+                    <Text style={styles.infoValue}>{e.cluster}</Text>
+                  </View>
+                )}
               </View>
               {!isCoordinator && (
-                <TouchableOpacity style={styles.resetButton} onPress={() => resetPassword(e._id, e.name)}>
-                  <Text style={styles.resetButtonText}>Reset Password</Text>
-                </TouchableOpacity>
+                <View style={styles.cardActions}>
+                  <TouchableOpacity style={styles.editButton} onPress={() => navigation.navigate('EmployeeEdit', { id: e._id })}>
+                    <Text style={styles.editButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.resetButton} onPress={() => resetPassword(e._id, e.name)}>
+                    <Text style={styles.resetButtonText}>Reset Password</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
           ))
@@ -153,7 +179,10 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', marginBottom: 6 },
   infoLabel: { ...typography.body.medium, color: colors.textSecondary, width: 100 },
   infoValue: { ...typography.body.medium, color: colors.textPrimary, flex: 1 },
-  resetButton: { paddingVertical: 10, borderRadius: 8, backgroundColor: colors.warning, alignItems: 'center' },
+  cardActions: { flexDirection: 'row', gap: 8 },
+  editButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center' },
+  editButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },
+  resetButton: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.warning, alignItems: 'center' },
   resetButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },
 });
 

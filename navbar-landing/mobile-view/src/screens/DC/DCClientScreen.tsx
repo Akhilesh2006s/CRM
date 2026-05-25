@@ -13,11 +13,11 @@ import {
   Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { useAuth } from '../../context/AuthContext';
 
 export default function DCClientScreen({ navigation }: any) {
@@ -27,6 +27,13 @@ export default function DCClientScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDC, setSelectedDC] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceData, setInvoiceData] = useState<{
+    schoolName: string;
+    lines: { product: string; term: string; qty: number; unitPrice: number; total: number }[];
+    grandTotal: number;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Load on mount and whenever screen comes into focus (e.g. after closing a lead so new client appears)
@@ -80,10 +87,104 @@ export default function DCClientScreen({ navigation }: any) {
     return !!(poChange && poChange.status === 'PENDING_MANAGER_APPROVAL');
   };
 
-  // NOT in DC Flow = status is 'saved' (DC not requested). IN DC Flow = dc_requested, closed_sales, pending_dc, etc. → PO change not allowed.
-  const isInDcFlow = (dc: any) => {
-    const orderStatus = dc.dcOrderId?.status;
-    return orderStatus != null && orderStatus !== 'saved';
+  const getOrderStatus = (dc: any) => {
+    if (typeof dc.dcOrderId === 'object' && dc.dcOrderId?.status) return dc.dcOrderId.status;
+    return null;
+  };
+
+  const getDcStatus = (dc: any) => dc.status || 'created';
+
+  /** Web: Edit PO + Request DC when created / po_submitted */
+  const showEditAndRequest = (dc: any) => {
+    const dcStatus = getDcStatus(dc);
+    const orderStatus = getOrderStatus(dc);
+    if (orderStatus === 'saved' || !orderStatus) return true;
+    return dcStatus === 'created' || dcStatus === 'po_submitted';
+  };
+
+  const getSchoolCode = (dc: any) => {
+    if (typeof dc.dcOrderId === 'object') {
+      return dc.dcOrderId?.school_code || dc.dcOrderId?.dc_code || '-';
+    }
+    return '-';
+  };
+
+  const getPhone = (dc: any) =>
+    dc.customerPhone ||
+    (typeof dc.dcOrderId === 'object' ? dc.dcOrderId?.contact_mobile : '') ||
+    '-';
+
+  const getProductsText = (dc: any) => {
+    if (Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
+      const names = dc.productDetails
+        .map((p: any) => (p?.product || p?.productName || '').toString().trim())
+        .filter(Boolean);
+      if (names.length) return [...new Set(names)].join(', ');
+    }
+    if (typeof dc.dcOrderId === 'object' && Array.isArray(dc.dcOrderId?.products)) {
+      const names = dc.dcOrderId.products
+        .map((p: any) => (p.product_name || p.product || '').toString().trim())
+        .filter(Boolean);
+      if (names.length) return [...new Set(names)].join(', ');
+    }
+    return dc.product || dc.dcOrderId?.products?.[0]?.product_name || 'N/A';
+  };
+
+  const openInvoiceView = async (dc: any) => {
+    setInvoiceLoading(true);
+    setShowInvoiceModal(true);
+    setInvoiceData(null);
+    try {
+      const fullDC = await apiService.get(`/dc/${dc._id}`);
+      let dcOrder: any = null;
+      const orderId = getOrderId(dc);
+      if (orderId) {
+        try {
+          dcOrder = await apiService.get(`/dc-orders/${orderId}`);
+        } catch {
+          dcOrder = null;
+        }
+      }
+      const lines: { product: string; term: string; qty: number; unitPrice: number; total: number }[] = [];
+      const details = fullDC.productDetails || [];
+      if (Array.isArray(details) && details.length > 0) {
+        details.forEach((pd: any, index: number) => {
+          const match = dcOrder?.products?.[index] || {};
+          const qty = Number(pd.quantity ?? pd.strength ?? match.quantity ?? 0);
+          const unitPrice = Number(match.unit_price ?? pd.unit_price ?? pd.price ?? 0);
+          lines.push({
+            product: pd.product || pd.productName || match.product_name || '-',
+            term: pd.term || match.term || 'Term 1',
+            qty,
+            unitPrice,
+            total: qty * unitPrice,
+          });
+        });
+      } else if (dcOrder?.products?.length) {
+        dcOrder.products.forEach((p: any) => {
+          const qty = Number(p.quantity) || 0;
+          const unitPrice = Number(p.unit_price) || 0;
+          lines.push({
+            product: p.product_name || p.product || '-',
+            term: p.term || 'Term 1',
+            qty,
+            unitPrice,
+            total: qty * unitPrice,
+          });
+        });
+      }
+      const grandTotal = lines.reduce((s, l) => s + l.total, 0);
+      setInvoiceData({
+        schoolName: dcOrder?.school_name || dc.customerName || 'Client',
+        lines,
+        grandTotal: dcOrder?.total_amount ?? grandTotal,
+      });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to load invoice');
+      setShowInvoiceModal(false);
+    } finally {
+      setInvoiceLoading(false);
+    }
   };
 
   const formatDate = (dateString?: string) => {
@@ -100,32 +201,15 @@ export default function DCClientScreen({ navigation }: any) {
     return customerName.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading client DCs...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>My Clients</Text>
-            <Text style={styles.headerSubtitle}>Converted clients & DC</Text>
-          </View>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
-      <View style={styles.searchContainer}>
-        <TextInput
+    <ScreenShell
+      title="My Clients"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+<View style={styles.searchContainer}>
+        <WebInput
           style={styles.searchInput}
           placeholder="Search by customer name..."
           value={searchQuery}
@@ -147,56 +231,105 @@ export default function DCClientScreen({ navigation }: any) {
         ) : (
           filteredDCs.map((dc) => {
             const orderId = getOrderId(dc);
-            const orderStatus = dc.dcOrderId?.status;
-            const statusLabel = orderStatus === 'dc_requested' || orderStatus === 'dc_accepted' ? 'Requested' : orderStatus === 'saved' || dc.status === 'created' ? 'Not requested' : (dc.status || 'Created');
-            const lastDcDate = dc.updatedAt || dc.deliveryDate || dc.createdAt || dc.dcOrderId?.updatedAt;
+            const dcStatus = getDcStatus(dc);
+            const statusLabel = (dcStatus || 'created')
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c: string) => c.toUpperCase());
+            const createdDate = formatDate(dc.createdAt);
+            const turnedDate =
+              typeof dc.dcOrderId === 'object' && dc.dcOrderId?.createdAt
+                ? formatDate(dc.dcOrderId.createdAt)
+                : createdDate;
+            const canEditRequest = showEditAndRequest(dc);
+
             return (
               <View key={dc._id} style={styles.card}>
-                <TouchableOpacity activeOpacity={0.9} onPress={() => openDCModal(dc)}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.customerName} numberOfLines={1}>
-                      {dc.customerName || dc.dcOrderId?.school_name || 'Unknown Customer'}
-                    </Text>
-                    <View style={styles.statusBadge}>
-                      <Text style={styles.statusText}>{statusLabel}</Text>
-                    </View>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.customerName} numberOfLines={2}>
+                    {dc.customerName || dc.dcOrderId?.school_name || 'Unknown Customer'}
+                  </Text>
+                  <View style={styles.statusBadge}>
+                    <Text style={styles.statusText}>{statusLabel}</Text>
                   </View>
-                  <View style={styles.cardBody}>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>Last DC:</Text>
-                      <Text style={styles.infoValue}>{formatDate(lastDcDate)}</Text>
-                    </View>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>Product:</Text>
-                      <Text style={styles.infoValue}>{dc.product || dc.dcOrderId?.products?.[0]?.product_name || 'N/A'}</Text>
-                    </View>
+                </View>
+                <View style={styles.cardBody}>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>School Code:</Text>
+                    <Text style={styles.infoValue}>{getSchoolCode(dc)}</Text>
                   </View>
-                </TouchableOpacity>
-                {isInDcFlow(dc) ? (
-                  <View style={styles.cardDcFlowMessage}>
-                    <Text style={styles.cardDcFlowMessageText}>
-                      PO can only be changed before requesting DC. This client is already in the DC process.
-                    </Text>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Phone:</Text>
+                    <Text style={styles.infoValue}>{getPhone(dc)}</Text>
                   </View>
-                ) : (
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity
-                      style={[styles.cardButton, styles.cardButtonEdit]}
-                      onPress={() => orderId && navigation.navigate('ClientEditPO', { orderId })}
-                      disabled={!orderId}
-                    >
-                      <Text style={styles.cardButtonTextEdit}>Edit PO</Text>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Product:</Text>
+                    <Text style={styles.infoValue}>{getProductsText(dc)}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Created:</Text>
+                    <Text style={styles.infoValue}>{createdDate}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Turned:</Text>
+                    <Text style={styles.infoValue}>{turnedDate}</Text>
+                  </View>
+                  {dc.poPhotoUrl ? (
+                    <TouchableOpacity onPress={() => openDCModal(dc)}>
+                      <Text style={styles.viewPoLink}>View PO document</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.cardButton, styles.cardButtonRequest, !canRequestDC(dc) && styles.cardButtonDisabled]}
-                      onPress={() => orderId && canRequestDC(dc) && navigation.navigate('DCRequestSummary', { orderId, client: dc })}
-                      disabled={!orderId || !canRequestDC(dc)}
-                    >
-                      <Text style={styles.cardButtonTextRequest}>
-                        {isPoChangePending(dc) ? 'Waiting for Manager Approval' : 'Request DC'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                  ) : null}
+                </View>
+                <View style={styles.cardActions}>
+                  {canEditRequest ? (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.cardButton, styles.cardButtonEdit]}
+                        onPress={() => orderId && navigation.navigate('ClientEditPO', { orderId })}
+                        disabled={!orderId}
+                      >
+                        <Text style={styles.cardButtonTextEdit}>Edit PO</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.cardButton,
+                          styles.cardButtonRequest,
+                          (!canRequestDC(dc) || !orderId) && styles.cardButtonDisabled,
+                        ]}
+                        onPress={() =>
+                          orderId &&
+                          canRequestDC(dc) &&
+                          navigation.navigate('DCRequestSummary', { orderId, client: dc })
+                        }
+                        disabled={!orderId || !canRequestDC(dc)}
+                      >
+                        <Text style={styles.cardButtonTextRequest}>
+                          {isPoChangePending(dc) ? 'Waiting for Approval' : 'Request DC'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.cardButton, styles.cardButtonInvoice]}
+                        onPress={() => openInvoiceView(dc)}
+                      >
+                        <Text style={styles.cardButtonTextInvoice}>View Invoice</Text>
+                      </TouchableOpacity>
+                      {orderId ? (
+                        <TouchableOpacity
+                          style={[styles.cardButton, styles.cardButtonEdit]}
+                          onPress={() => navigation.navigate('ClientEditPO', { orderId })}
+                        >
+                          <Text style={styles.cardButtonTextEdit}>Edit PO</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+                {!canEditRequest && (
+                  <Text style={styles.cardDcFlowMessageText}>
+                    PO can only be changed before requesting DC. Use View Invoice for clients in the DC process.
+                  </Text>
                 )}
               </View>
             );
@@ -242,7 +375,51 @@ export default function DCClientScreen({ navigation }: any) {
           </View>
         </View>
       </Modal>
-    </View>
+
+      <Modal visible={showInvoiceModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Invoice{invoiceData ? ` - ${invoiceData.schoolName}` : ''}
+              </Text>
+              <TouchableOpacity onPress={() => setShowInvoiceModal(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {invoiceLoading ? (
+                <Text style={styles.hint}>Loading invoice...</Text>
+              ) : invoiceData && invoiceData.lines.length > 0 ? (
+                <>
+                  {invoiceData.lines.map((line, i) => (
+                    <View key={i} style={styles.invoiceRow}>
+                      <Text style={styles.invoiceProduct}>
+                        {line.product} ({line.term})
+                      </Text>
+                      <Text style={styles.invoiceMeta}>
+                        Qty {line.qty} × ₹{line.unitPrice.toFixed(2)} = ₹{line.total.toFixed(2)}
+                      </Text>
+                    </View>
+                  ))}
+                  <Text style={styles.invoiceGrand}>Grand Total: ₹{invoiceData.grandTotal.toFixed(2)}</Text>
+                </>
+              ) : (
+                <Text style={styles.hint}>No invoice line items available.</Text>
+              )}
+            </ScrollView>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={() => setShowInvoiceModal(false)}
+              >
+                <Text style={styles.modalButtonTextCancel}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ScreenShell>
   );
 }
 
@@ -277,15 +454,30 @@ const styles = StyleSheet.create({
   infoValue: { ...typography.body.medium, color: colors.textPrimary, flex: 1 },
   cardFooter: { paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
   viewDetailsText: { ...typography.body.small, color: colors.primary, textAlign: 'right', fontWeight: '500' },
-  cardDcFlowMessage: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 },
-  cardDcFlowMessageText: { ...typography.body.small, color: colors.textSecondary, fontStyle: 'italic' },
+  viewPoLink: { ...typography.body.small, color: colors.primary, marginTop: 8, fontWeight: '600' },
+  cardDcFlowMessageText: {
+    ...typography.body.small,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   cardActions: { flexDirection: 'row', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, gap: 12 },
   cardButton: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   cardButtonEdit: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  cardButtonInvoice: { backgroundColor: colors.info },
   cardButtonRequest: { backgroundColor: colors.primary },
   cardButtonDisabled: { backgroundColor: colors.textSecondary + '40', opacity: 0.8 },
   cardButtonTextEdit: { ...typography.body.small, color: colors.textPrimary, fontWeight: '600' },
+  cardButtonTextInvoice: { ...typography.body.small, color: colors.textLight, fontWeight: '600' },
   cardButtonTextRequest: { ...typography.body.small, color: colors.textLight, fontWeight: '600' },
+  hint: { ...typography.body.small, color: colors.textSecondary, paddingVertical: 16 },
+  invoiceRow: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  invoiceProduct: { ...typography.body.medium, fontWeight: '600', color: colors.textPrimary },
+  invoiceMeta: { ...typography.body.small, color: colors.textSecondary, marginTop: 4 },
+  invoiceGrand: { ...typography.heading.h4, color: colors.primary, marginTop: 8, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: colors.backgroundLight, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: colors.border },

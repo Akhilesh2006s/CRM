@@ -1,24 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Alert, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+import { useAuth } from '../../context/AuthContext';
 
 export default function LeavesApprovedScreen({ navigation }: any) {
+  const { user } = useAuth();
   const [leaves, setLeaves] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [user?._id]);
 
   const loadData = async () => {
+    if (!user?._id) return;
     try {
       setLoading(true);
-      const data = await apiService.get('/leaves?status=Approved');
+      const data = await apiService.get(`/leaves?employeeId=${user._id}`);
       setLeaves(Array.isArray(data) ? data : []);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load approved leaves');
@@ -42,39 +45,57 @@ export default function LeavesApprovedScreen({ navigation }: any) {
     }
   };
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading approved leaves...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Approved Leaves</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+    <ScreenShell
+      title="My Leaves"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      headerRight={
+        <TouchableOpacity onPress={() => navigation.navigate('LeaveRequest')}>
+          <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 14 }}>Apply</Text>
+        </TouchableOpacity>
+      }
+    >
+<ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {leaves.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>✅</Text>
-            <Text style={styles.emptyText}>No approved leaves found</Text>
+            <Text style={styles.emptyText}>No leave requests yet</Text>
           </View>
         ) : (
           leaves.map((leave) => (
             <View key={leave._id} style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.employeeName}>{typeof leave.employeeId === 'string' ? leave.employeeId : leave.employeeId?.name || 'Unknown'}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: colors.success + '20' }]}>
-                  <Text style={[styles.statusBadgeText, { color: colors.success }]}>Approved</Text>
+                <Text style={styles.employeeName}>{leave.leaveType || 'Leave'}</Text>
+                <View
+                  style={[
+                    styles.statusBadge,
+                    {
+                      backgroundColor:
+                        leave.status === 'Approved'
+                          ? colors.success + '20'
+                          : leave.status === 'Rejected'
+                            ? colors.error + '20'
+                            : colors.warning + '20',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusBadgeText,
+                      {
+                        color:
+                          leave.status === 'Approved'
+                            ? colors.success
+                            : leave.status === 'Rejected'
+                              ? colors.error
+                              : colors.warning,
+                      },
+                    ]}
+                  >
+                    {leave.status || 'Pending'}
+                  </Text>
                 </View>
               </View>
               <View style={styles.cardBody}>
@@ -101,7 +122,7 @@ export default function LeavesApprovedScreen({ navigation }: any) {
           ))
         )}
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 

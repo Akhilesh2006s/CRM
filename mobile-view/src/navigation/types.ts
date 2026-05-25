@@ -30,13 +30,13 @@ export type RootStackParamList = {
   
   // Employees
   EmployeeNew: undefined;
+  EmployeeEdit: { id: string };
   EmployeesActive: undefined;
   EmployeesInactive: undefined;
   EmployeesLeaves: undefined;
   
   // Executive Managers
   ExecutiveManagers: undefined;
-  ExecutiveManagerNew: undefined;
   ExecutiveManagerDashboard: { managerId: string };
   ExecutiveManagerLeaves: { managerId: string };
   POChangeRequests: undefined;
@@ -54,6 +54,7 @@ export type RootStackParamList = {
   TrainingDashboard: undefined;
   TrainingEdit: { id: string };
   TrainersNew: undefined;
+  TrainersEdit: { id: string };
   TrainersActive: undefined;
   TrainersInactive: undefined;
   ServicesList: undefined;

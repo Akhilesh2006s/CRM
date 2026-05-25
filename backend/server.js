@@ -98,8 +98,7 @@ const startServer = async () => {
     console.log('✅ Database connection established. Starting server...');
     
     // Start server only after database is connected
-    // Default 5001: macOS binds AirPlay Receiver to 5000; traffic there is not Node and often returns 403.
-    const PORT = process.env.PORT || 5001;
+    const PORT = process.env.PORT || 5000;
     const HOST = process.env.HOST || '0.0.0.0'; // Listen on all interfaces for mobile app access
     const server = app.listen(PORT, HOST, () => {
       console.log(`Server running on ${HOST}:${PORT}`);

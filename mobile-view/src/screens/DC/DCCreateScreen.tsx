@@ -297,7 +297,7 @@ export default function DCCreateScreen({ navigation, route }: any) {
           <Text style={styles.sectionTitle}>Lead Information</Text>
           <FormField label="School Type" value={deal?.school_type || '-'} editable={false} />
           <FormField label="School Name" value={deal?.school_name || '-'} editable={false} />
-          <FormField label="School Code" value={deal?.dc_code || deal?.school_code || '-'} editable={false} />
+          <FormField label="School Code" value={deal?.school_code || deal?.dc_code || '-'} editable={false} />
           <FormField label="Contact Person" value={deal?.contact_person || '-'} editable={false} />
           <FormField label="Contact Mobile" value={deal?.contact_mobile || '-'} editable={false} />
           <FormField label="Zone" value={deal?.zone || '-'} editable={false} />

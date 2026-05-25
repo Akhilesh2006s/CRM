@@ -18,10 +18,22 @@ type SampleRequest = {
   _id: string
   request_code: string
   employee_id: Emp | string
-  products: Array<{ product_name: string; quantity: number }>
+  school_name?: string
+  products: Array<{
+    product_name: string
+    quantity: number
+    class?: string
+    level?: string
+    specs?: string
+  }>
   purpose: string
   status: 'Pending' | 'Accepted' | 'Rejected'
   createdAt: string
+  transport_name?: string
+  transport_location?: string
+  pincode?: string
+  area?: string
+  city?: string
 }
 
 export default function EmployeeDCPage() {
@@ -65,7 +77,7 @@ export default function EmployeeDCPage() {
     setProcessingRequest(requestId)
     try {
       await apiRequest(`/sample-requests/${requestId}/accept`, { method: 'PUT' })
-      toast.success('Sample request accepted and EmpDC created')
+      toast.success('Accepted — EmpDC created and sample DC sent to warehouse queue')
       loadSampleRequests()
       load() // Reload EmpDC list to show the new entry
     } catch (err: any) {
@@ -128,8 +140,10 @@ export default function EmployeeDCPage() {
                 <thead>
                   <tr className="bg-sky-50/70 border-b text-neutral-700">
                     <th className="py-2 px-3 text-left">Request Code</th>
+                    <th className="py-2 px-3 text-left">School</th>
                     <th className="py-2 px-3 text-left">Employee</th>
                     <th className="py-2 px-3 text-left">Products</th>
+                    <th className="py-2 px-3 text-left">Delivery / Transport</th>
                     <th className="py-2 px-3 text-left">Purpose</th>
                     <th className="py-2 px-3">Date</th>
                     <th className="py-2 px-3">Actions</th>
@@ -139,15 +153,26 @@ export default function EmployeeDCPage() {
                   {sampleRequests.map((request) => (
                     <tr key={request._id} className="border-b last:border-0">
                       <td className="py-2 px-3 font-medium">{request.request_code}</td>
+                      <td className="py-2 px-3 text-xs font-medium">{request.school_name || '—'}</td>
                       <td className="py-2 px-3">
                         {typeof request.employee_id === 'string' ? request.employee_id : request.employee_id?.name}
                       </td>
                       <td className="py-2 px-3">
                         <ul className="list-disc list-inside text-xs">
                           {request.products.map((p, idx) => (
-                            <li key={idx}>{p.product_name} (Qty: {p.quantity})</li>
+                            <li key={idx}>
+                              {p.product_name}
+                              {p.class ? ` · Cl ${p.class}` : ''}
+                              {p.level ? ` · ${p.level}` : ''} (Qty: {p.quantity})
+                            </li>
                           ))}
                         </ul>
+                      </td>
+                      <td className="py-2 px-3 text-xs max-w-[200px]">
+                        <div>{[request.area, request.city].filter(Boolean).join(', ') || '—'}</div>
+                        <div className="text-neutral-500">
+                          {[request.transport_name, request.pincode].filter(Boolean).join(' · ')}
+                        </div>
                       </td>
                       <td className="py-2 px-3 text-xs">{request.purpose}</td>
                       <td className="py-2 px-3 text-center text-xs">

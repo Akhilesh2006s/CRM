@@ -1322,11 +1322,18 @@ export default function CloseLeadPage() {
               l.contact_mobile === lead?.contact_mobile
             )
             
+            const clientSchoolCode =
+              updated.school_code || lead?.school_code || ''
             if (existingLead) {
               // Update existing lead to Closed
               await apiRequest(`/leads/${existingLead._id}`, {
                 method: 'PUT',
-                body: JSON.stringify({ status: 'Closed', year: currentAcademicYear }),
+                body: JSON.stringify({
+                  status: 'Closed',
+                  year: currentAcademicYear,
+                  ...(clientSchoolCode ? { school_code: clientSchoolCode } : {}),
+                  school_id: updated._id,
+                }),
               })
               console.log('✅ Lead record updated to Closed for reporting')
             } else {
@@ -1335,6 +1342,8 @@ export default function CloseLeadPage() {
                 method: 'POST',
                 body: JSON.stringify({
                   school_name: lead?.school_name || updated.school_name,
+                  school_code: clientSchoolCode || undefined,
+                  school_id: updated._id,
                   contact_person: lead?.contact_person || updated.contact_person,
                   contact_mobile: lead?.contact_mobile || updated.contact_mobile,
                   zone: lead?.zone || updated.zone,

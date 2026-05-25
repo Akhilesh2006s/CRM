@@ -73,7 +73,7 @@ export default function WarehouseHoldDCScreen({ navigation }: any) {
         dcFinYear: '',
         schoolType: dc.dcOrderId?.school_type || '',
         schoolName: dc.dcOrderId?.school_name || dc.customerName || '',
-        schoolCode: dc.dcOrderId?.dc_code || '',
+        schoolCode: dc.dcOrderId?.school_code || dc.dcOrderId?.dc_code || '',
         zone: dc.dcOrderId?.zone || '',
         executive: dc.employeeId?.name || dc.employeeId?.email || '',
         holdRemarks: dc.holdReason || '',

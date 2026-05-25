@@ -13,11 +13,11 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
 
 type ProductRow = {
   id: string;
@@ -109,7 +109,7 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
 
     setSubmitting(true);
     try {
-      await apiService.put(`/dc/${dcId}`, { status: 'pending_dc' });
+      await apiService.put(`/dc/${dcId}`, { status: 'po_submitted' });
       await apiService.put(`/dc-orders/${orderId}`, { status: 'dc_requested' });
       Alert.alert('Done', 'DC requested. It will appear in Closed Sales and follow the normal flow.', [
         { text: 'OK', onPress: () => navigation.goBack() },
@@ -136,48 +136,21 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
 
   if (!dc) return null;
 
+  const grandTotal = productRows.reduce(
+    (s, r) => s + (r.quantity || 0) * (r.unit_price || 0),
+    0
+  );
+
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Request DC - {schoolName}</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
-
+    <ScreenShell
+      title={`Request DC - ${schoolName}`}
+      loading={loading}
+    >
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <Text style={styles.subtitle}>Review PO details and request Delivery Challan. All fields are read-only.</Text>
+        <Text style={styles.subtitle}>
+          Review PO details and request Delivery Challan. All fields are read-only.
+        </Text>
 
-        {/* School / Client info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>School / Client</Text>
-          <ReadOnlyField label="School Name" value={order?.school_name || dc?.customerName || '-'} />
-          <ReadOnlyField label="School Type" value={order?.school_type || '-'} />
-          <ReadOnlyField label="Contact Person" value={order?.contact_person || dc?.customerPhone || '-'} />
-          <ReadOnlyField label="Contact Mobile" value={order?.contact_mobile || '-'} />
-          <ReadOnlyField label="Contact Person 2" value={order?.contact_person2 || '-'} />
-          <ReadOnlyField label="Contact Mobile 2" value={order?.contact_mobile2 || '-'} />
-          <ReadOnlyField label="Email" value={order?.email || '-'} />
-          <ReadOnlyField label="Zone" value={order?.zone || '-'} />
-          <ReadOnlyField label="Location" value={order?.location || '-'} />
-          <ReadOnlyField label="Address" value={order?.address || dc?.customerAddress || '-'} />
-        </View>
-
-        <View style={styles.section}>
-          <ReadOnlyField label="Remarks" value={order?.remarks || '-'} />
-        </View>
-
-        {/* PO details */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PO Details</Text>
-          <ReadOnlyField label="PO Photo URL" value={order?.pod_proof_url || dc?.poPhotoUrl || '-'} />
-          <ReadOnlyField label="Total Amount" value={String(totalAmount)} />
-        </View>
-
-        {/* Transport */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Transport Details</Text>
           <ReadOnlyField label="Transport Name" value={order?.transport_name || order?.pendingEdit?.transport_name || '-'} />
@@ -186,30 +159,39 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
           <ReadOnlyField label="Pincode" value={order?.pincode || order?.pendingEdit?.pincode || '-'} />
         </View>
 
-        {/* Products - Term is read-only (not editable) */}
+        <View style={styles.section}>
+          <ReadOnlyField label="Remarks" value={order?.remarks || '-'} />
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Products</Text>
-          <View style={styles.tableWrap}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.th, styles.colProduct]}>Product Name</Text>
-              <Text style={[styles.th, styles.colTerm]}>Term</Text>
-              <Text style={[styles.th, styles.colQty]}>Quantity</Text>
-              <Text style={[styles.th, styles.colPrice]}>Unit Price</Text>
-              <Text style={[styles.th, styles.colTotal]}>Total</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View style={styles.tableWrap}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.th, styles.colProduct]}>Product Name</Text>
+                <Text style={[styles.th, styles.colTerm]}>Term</Text>
+                <Text style={[styles.th, styles.colQty]}>Quantity</Text>
+                <Text style={[styles.th, styles.colPrice]}>Unit Price</Text>
+                <Text style={[styles.th, styles.colTotal]}>Total</Text>
+              </View>
+              {productRows.map((row) => {
+                const lineTotal = (row.quantity || 0) * (row.unit_price || 0);
+                return (
+                  <View key={row.id} style={styles.tableRow}>
+                    <Text style={[styles.td, styles.colProduct]} numberOfLines={1}>{row.product_name}</Text>
+                    <Text style={[styles.td, styles.colTerm]}>{row.term || 'Term 2'}</Text>
+                    <Text style={[styles.td, styles.colQty]}>{row.quantity}</Text>
+                    <Text style={[styles.td, styles.colPrice]}>{row.unit_price}</Text>
+                    <Text style={[styles.td, styles.colTotal]}>{lineTotal.toFixed(2)}</Text>
+                  </View>
+                );
+              })}
+              <View style={styles.tableFooter}>
+                <Text style={styles.footerLabel}>Grand Total:</Text>
+                <Text style={styles.footerValue}>₹{(grandTotal || totalAmount).toFixed(2)}</Text>
+              </View>
             </View>
-            {productRows.map((row) => {
-              const total = (row.quantity || 0) * (row.unit_price || 0);
-              return (
-                <View key={row.id} style={styles.tableRow}>
-                  <Text style={[styles.td, styles.colProduct]} numberOfLines={1}>{row.product_name}</Text>
-                  <Text style={[styles.td, styles.colTerm]}>{row.term || 'Term 1'}</Text>
-                  <Text style={[styles.td, styles.colQty]}>{row.quantity}</Text>
-                  <Text style={[styles.td, styles.colPrice]}>{row.unit_price}</Text>
-                  <Text style={[styles.td, styles.colTotal]}>{total.toFixed(2)}</Text>
-                </View>
-              );
-            })}
-          </View>
+          </ScrollView>
         </View>
 
         <View style={styles.buttonRow}>
@@ -229,7 +211,7 @@ export default function DCTermWiseRequestDCScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -259,7 +241,13 @@ const styles = StyleSheet.create({
   field: { marginBottom: 12 },
   label: { ...typography.label.small, color: colors.textSecondary, marginBottom: 4 },
   readOnlyValue: { ...typography.body.medium, color: colors.textPrimary, backgroundColor: colors.backgroundDark, padding: 12, borderRadius: 8 },
-  tableWrap: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, overflow: 'hidden' },
+  tableWrap: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    overflow: 'hidden',
+    minWidth: 520,
+  },
   tableHeader: { flexDirection: 'row', backgroundColor: colors.backgroundDark, padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   th: { ...typography.label.small, color: colors.textPrimary, fontWeight: '600' },
   tableRow: { flexDirection: 'row', padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center' },
@@ -268,7 +256,20 @@ const styles = StyleSheet.create({
   colTerm: { width: 72 },
   colQty: { width: 64 },
   colPrice: { width: 80 },
-  colTotal: { width: 72 },
+  colTotal: { width: 80 },
+  tableFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: colors.backgroundDark,
+    borderTopWidth: 2,
+    borderTopColor: colors.border,
+    gap: 8,
+    minWidth: 520,
+  },
+  footerLabel: { ...typography.body.medium, fontWeight: '600', color: colors.textPrimary },
+  footerValue: { ...typography.body.medium, fontWeight: '700', color: colors.primary },
   buttonRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
   cancelButton: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
   cancelButtonText: { ...typography.label.medium, color: colors.textPrimary, fontWeight: '600' },

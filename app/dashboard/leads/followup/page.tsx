@@ -15,6 +15,12 @@ import { toast } from 'sonner'
 import { ArrowLeft, MapPin, Edit, History, X, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { todayDateString } from '@/lib/todayDate'
+import {
+  isFollowUpProductLineComplete,
+  leadProductsToInterestedRows,
+  normalizeLeadProductLineStatus,
+} from '@/lib/leadProductsInterested'
 
 type Lead = { 
   _id: string
@@ -47,8 +53,15 @@ type ProductInterested = {
   product_name: string
   term: string
   status: string
-  strength: number
-  chance: number
+  strength: string
+  chance: string
+}
+
+function combineFollowUpDateTime(dateStr: string, timeStr: string): string {
+  const [h, m] = (timeStr || '10:00').split(':').map((v) => parseInt(v, 10) || 0)
+  const d = new Date(`${dateStr}T00:00:00`)
+  d.setHours(h, m, 0, 0)
+  return d.toISOString()
 }
 
 /** Align product-line enums across Lead/DcOrder schemas */
@@ -98,18 +111,46 @@ function displayLeadDealPriority(lead: {
 const HISTORY_SNAPSHOT_STATUSES = ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'] as const
 
 /** Build `productsInterested`-shaped rows for synthetic history when API omits snapshots */
+function formatUserDisplayName(user: unknown): string | null {
+  if (!user || typeof user !== 'object') return null
+  const u = user as { name?: string; firstName?: string; lastName?: string; email?: string }
+  const name = (u.name || '').trim()
+  if (name) return name
+  const combined = [u.firstName, u.lastName].map((s) => (s || '').trim()).filter(Boolean).join(' ')
+  if (combined) return combined
+  const email = (u.email || '').trim()
+  return email || null
+}
+
+function resolveHistoryUpdatedByName(
+  entry: { updatedBy?: { name?: string; firstName?: string; lastName?: string; email?: string } | string },
+  leadDoc?: {
+    assigned_to?: { name?: string; firstName?: string; lastName?: string; email?: string } | string
+    created_by?: { name?: string; firstName?: string; lastName?: string; email?: string } | string
+  },
+): string | null {
+  const fromEntry = formatUserDisplayName(entry.updatedBy)
+  if (fromEntry) return fromEntry
+  const fromAssigned = formatUserDisplayName(leadDoc?.assigned_to)
+  if (fromAssigned) return fromAssigned
+  const fromCreated = formatUserDisplayName(leadDoc?.created_by)
+  if (fromCreated) return fromCreated
+  return null
+}
+
 function leadProductsToHistorySnapshot(products: Lead['products']) {
   if (!Array.isArray(products)) return []
   return products
     .filter((p: any) => p && (p.product_name || p.product))
     .map((p: any) => {
-      let status = String(p.status || '').trim() || 'Warm'
-      if (status === 'Management Not Met') status = 'Not Met Management'
+      let status = normalizeLeadProductLineStatus(p.status) || String(p.status || '').trim() || 'Warm'
       if (!HISTORY_SNAPSHOT_STATUSES.includes(status as any)) status = 'Warm'
       return {
         product_name: String(p.product_name || p.product || '').trim(),
         term: String(p.term || 'Term 1').trim(),
         status,
+        strength: Number(p.strength ?? p.quantity ?? 0) || 0,
+        chance: Number(p.chance ?? 0) || 0,
       }
     })
 }
@@ -140,6 +181,7 @@ export default function FollowupLeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [updateForm, setUpdateForm] = useState({
     follow_up_date: '',
+    follow_up_time: '10:00',
     status: '',
     remarks: '',
     productsInterested: [] as ProductInterested[],
@@ -349,11 +391,11 @@ export default function FollowupLeadsPage() {
     item: { priority?: string; productsInterested?: { status?: string }[] },
     lead?: { lead_status?: string; priority?: string }
   ): string {
-    const schoolStatus = (lead?.lead_status || '').trim()
-    if (SCHOOL_LEAD_STATUSES.has(schoolStatus)) return schoolStatus
-
     const stored = (item.priority || '').trim()
+    const schoolStatus = (lead?.lead_status || '').trim()
+
     if (SCHOOL_LEAD_STATUSES.has(stored)) return stored
+    if (SCHOOL_LEAD_STATUSES.has(schoolStatus)) return schoolStatus
 
     const rows = Array.isArray(item.productsInterested) ? item.productsInterested : []
     const fromProducts = deriveLeadPriorityFromDealProducts(rows)
@@ -391,35 +433,10 @@ export default function FollowupLeadsPage() {
     // Clear form for creating a new follow-up entry (don't pre-fill with old data)
     setUpdateForm({
       follow_up_date: '',
+      follow_up_time: '10:00',
       status: displayLeadDealPriority(lead), // Reflects per-product + deal priority
       remarks: '',
-      productsInterested: (() => {
-        if (Array.isArray(lead.products) && lead.products.length > 0) {
-          return lead.products.map((p: any) => ({
-            product_name: p.product_name || p.product || '',
-            term: p.term || 'Term 1',
-            status: p.status || displayLeadDealPriority(lead) || 'Warm',
-            strength: Number(p.strength ?? p.quantity ?? 0) || 0,
-            chance: Number(p.chance ?? 0) || 0,
-          }))
-        }
-
-        if (typeof lead.products === 'string' && lead.products.trim()) {
-          return lead.products
-            .split(',')
-            .map((name: string) => name.trim())
-            .filter(Boolean)
-            .map((name: string) => ({
-              product_name: name,
-              term: 'Term 1',
-              status: displayLeadDealPriority(lead) || 'Warm',
-              strength: 0,
-              chance: 0,
-            }))
-        }
-
-        return []
-      })(),
+      productsInterested: leadProductsToInterestedRows(lead),
     })
     setUpdateModalOpen(true)
   }
@@ -427,7 +444,13 @@ export default function FollowupLeadsPage() {
   const closeUpdateModal = () => {
     setUpdateModalOpen(false)
     setSelectedLead(null)
-    setUpdateForm({ follow_up_date: '', status: '', remarks: '', productsInterested: [] })
+    setUpdateForm({
+      follow_up_date: '',
+      follow_up_time: '10:00',
+      status: '',
+      remarks: '',
+      productsInterested: [],
+    })
   }
 
   const handleUpdateLead = async () => {
@@ -436,6 +459,14 @@ export default function FollowupLeadsPage() {
     // Validate all required fields
     if (!updateForm.follow_up_date || !updateForm.follow_up_date.trim()) {
       toast.error('Next Follow-up Date is required')
+      return
+    }
+    if (updateForm.follow_up_date < todayDateString()) {
+      toast.error('Follow-up date cannot be in the past')
+      return
+    }
+    if (!updateForm.follow_up_time || !updateForm.follow_up_time.trim()) {
+      toast.error('Follow-up time is required')
       return
     }
     if (!updateForm.remarks || !updateForm.remarks.trim()) {
@@ -447,14 +478,22 @@ export default function FollowupLeadsPage() {
       (p) => p.product_name && p.product_name.trim()
     )
     if (selectedProducts.length === 0) {
-      toast.error('Add at least one product with Strength (quantity) and Chance %')
+      toast.error('Add at least one product in Products Interested')
       return
     }
-    const missingStrengthOrChance = selectedProducts.some(
-      (p) => (Number(p.strength) || 0) <= 0 || (Number(p.chance) || 0) <= 0
-    )
-    if (missingStrengthOrChance) {
-      toast.error('Each product must have Strength greater than 0 and Chance % greater than 0')
+    const incomplete = selectedProducts.find((p) => !isFollowUpProductLineComplete(p))
+    if (incomplete) {
+      if ((Number(incomplete.strength) || 0) <= 0 || (Number(incomplete.chance) || 0) <= 0) {
+        toast.error(
+          `Enter Strength and Chance % for "${incomplete.product_name}" (required for every product)`
+        )
+      } else if (incomplete.status === 'Hot' && Number(incomplete.chance) < 80) {
+        toast.error(`Chance % for "${incomplete.product_name}" must be at least 80 when status is Hot`)
+      } else if (incomplete.status === 'Warm' && Number(incomplete.chance) < 20) {
+        toast.error(`Chance % for "${incomplete.product_name}" must be at least 20 when status is Warm`)
+      } else {
+        toast.error('Complete Strength and Chance % for each product')
+      }
       return
     }
     
@@ -465,9 +504,10 @@ export default function FollowupLeadsPage() {
         .map((p) => ({
           product_name: p.product_name.trim(),
           term: p.term || 'Term 1',
-          status: p.status || 'Warm',
+          status: normalizeLeadProductLineStatus(p.status) || p.status || 'Warm',
           strength: Number(p.strength) || 0,
           chance: Number(p.chance) || 0,
+          important: false,
           quantity: Number(p.strength) || 0,
           unit_price: 0,
         }))
@@ -475,7 +515,10 @@ export default function FollowupLeadsPage() {
       const derivedPriority = deriveLeadPriorityFromDealProducts(validProducts)
       const schoolLeadStatus = (selectedLead.lead_status || '').trim()
       const payload: any = {
-        follow_up_date: new Date(updateForm.follow_up_date).toISOString(),
+        follow_up_date: combineFollowUpDateTime(
+          updateForm.follow_up_date,
+          updateForm.follow_up_time
+        ),
         remarks: updateForm.remarks,
       }
       if (SCHOOL_LEAD_STATUSES.has(schoolLeadStatus)) {
@@ -587,15 +630,24 @@ export default function FollowupLeadsPage() {
       }
       
       // If no history from API, add creation entry from current lead data
+      const mergedForDisplay = {
+        ...lead,
+        ...(fullDcOrder || {}),
+        products: fullDcOrder?.products ?? lead.products,
+        lead_status: fullDcOrder?.lead_status ?? lead.lead_status,
+        priority: fullDcOrder?.priority ?? lead.priority,
+      }
+
       if (historyData.length === 0 && lead.createdAt) {
         console.log('No history found, adding creation entry')
+        const creatorName = resolveHistoryUpdatedByName({}, mergedForDisplay)
         historyData.push({
           follow_up_date: lead.follow_up_date || null,
           remarks: lead.remarks || 'Lead created',
           priority: lead.lead_status || displayLeadDealPriority(lead),
           productsInterested: leadProductsToHistorySnapshot(lead.products),
           updatedAt: lead.createdAt,
-          updatedBy: { name: 'System' },
+          updatedBy: creatorName ? { name: creatorName } : undefined,
         })
       }
       
@@ -605,28 +657,27 @@ export default function FollowupLeadsPage() {
         const dateB = new Date(b.updatedAt || 0).getTime()
         return dateB - dateA
       })
+
+      historyData = historyData.map((entry) => {
+        const name = resolveHistoryUpdatedByName(entry, mergedForDisplay)
+        return name ? { ...entry, updatedBy: { ...(entry.updatedBy || {}), name } } : entry
+      })
       
       console.log('Final history data:', historyData.length, 'entries')
-      const mergedForDisplay = {
-        ...lead,
-        ...(fullDcOrder || {}),
-        products: fullDcOrder?.products ?? lead.products,
-        lead_status: fullDcOrder?.lead_status ?? lead.lead_status,
-        priority: fullDcOrder?.priority ?? lead.priority,
-      }
       setHistoryLead(mergedForDisplay as Lead)
       setHistory(historyData)
     } catch (err: any) {
       console.error('Failed to load history:', err)
       // Even on error, show current lead data as history
       if (lead.createdAt) {
+        const creatorName = resolveHistoryUpdatedByName({}, lead)
         setHistory([{
           follow_up_date: lead.follow_up_date || null,
           remarks: lead.remarks || 'Lead created',
           priority: lead.lead_status || displayLeadDealPriority(lead),
           productsInterested: leadProductsToHistorySnapshot(lead.products),
           updatedAt: lead.createdAt,
-          updatedBy: { name: 'System' },
+          updatedBy: creatorName ? { name: creatorName } : undefined,
         }])
       } else {
         setHistory([])
@@ -651,7 +702,7 @@ export default function FollowupLeadsPage() {
       ...prev,
       productsInterested: [
         ...prev.productsInterested,
-        { product_name: '', term: 'Term 1', status: 'Warm', strength: 0, chance: 0 },
+        { product_name: '', term: 'Term 1', status: 'Warm', strength: '', chance: '' },
       ],
     }))
   }
@@ -666,7 +717,7 @@ export default function FollowupLeadsPage() {
   const updateInterestedProduct = (
     index: number,
     field: keyof ProductInterested,
-    value: string | number
+    value: string | number | boolean
   ) => {
     setUpdateForm((prev) => ({
       ...prev,
@@ -827,12 +878,36 @@ export default function FollowupLeadsPage() {
                         </span>
                       </div>
                     )}
-                    <div>
-                      <span className="text-neutral-600">Lead Status:</span>
-                      <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${getPriorityColor(displayLeadDealPriority(lead))}`}>
-                        {displayLeadDealPriority(lead)}
-                      </span>
-                    </div>
+                    {(() => {
+                      const interested = leadProductsToInterestedRows(lead)
+                      if (interested.length === 0) return null
+                      return (
+                        <div className="rounded-lg border border-violet-100 bg-violet-50/40 p-3">
+                          <p className="text-xs font-semibold text-violet-900 uppercase tracking-wide mb-2">
+                            Products interested
+                          </p>
+                          <ul className="space-y-1.5">
+                            {interested.map((row, pi) => (
+                              <li
+                                key={`${row.product_name}-${pi}`}
+                                className="flex flex-wrap items-center gap-2 text-sm"
+                              >
+                                <span className="font-medium text-neutral-900">{row.product_name}</span>
+                                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-white border border-neutral-200">
+                                  {row.status}
+                                </span>
+                                {Number(row.strength) > 0 && (
+                                  <span className="text-xs text-neutral-600">Str {row.strength}</span>
+                                )}
+                                {Number(row.chance) > 0 && (
+                                  <span className="text-xs text-neutral-600">{row.chance}%</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {/* Action Buttons */}
@@ -873,9 +948,9 @@ export default function FollowupLeadsPage() {
 
       {/* Update Lead Modal - Modern Professional Design */}
       <Dialog open={updateModalOpen} onOpenChange={setUpdateModalOpen}>
-        <DialogContent className="sm:max-w-[550px] p-0 gap-0 overflow-hidden shadow-2xl border-0">
+        <DialogContent className="sm:max-w-[720px] max-h-[90vh] p-0 gap-0 overflow-hidden shadow-2xl border-0 flex flex-col">
           {/* Elegant Header with Gradient */}
-          <div className="bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-700 px-6 py-5">
+          <div className="shrink-0 bg-gradient-to-r from-purple-600 via-purple-700 to-indigo-700 px-6 py-5">
             <DialogHeader className="space-y-1">
               <DialogTitle className="text-white text-xl font-semibold tracking-tight">
                 Create Follow-up
@@ -887,20 +962,40 @@ export default function FollowupLeadsPage() {
           </div>
           
           {/* Form Content with Professional Spacing */}
-          <div className="px-6 py-6 bg-gradient-to-b from-white to-neutral-50">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 bg-gradient-to-b from-white to-neutral-50">
             <div className="space-y-5">
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold text-neutral-700 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                  Follow-up Date *
-                </Label>
-                <Input
-                  type="date"
-                  className="h-11 bg-white border-neutral-300 focus:border-purple-500 focus:ring-purple-500/20 transition-all"
-                  value={updateForm.follow_up_date}
-                  onChange={(e) => setUpdateForm({ ...updateForm, follow_up_date: e.target.value })}
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-neutral-700 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                    Follow-up Date *
+                  </Label>
+                  <Input
+                    type="date"
+                    min={todayDateString()}
+                    className="h-11 bg-white border-neutral-300 focus:border-purple-500 focus:ring-purple-500/20 transition-all"
+                    value={updateForm.follow_up_date}
+                    onChange={(e) => setUpdateForm({ ...updateForm, follow_up_date: e.target.value })}
+                    required
+                  />
+                  <p className="text-xs text-neutral-500">Past dates cannot be selected.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-neutral-700 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                    Follow-up Time *
+                  </Label>
+                  <Input
+                    type="time"
+                    className="h-11 bg-white border-neutral-300 focus:border-purple-500 focus:ring-purple-500/20 transition-all"
+                    value={updateForm.follow_up_time}
+                    onChange={(e) =>
+                      setUpdateForm({ ...updateForm, follow_up_time: e.target.value })
+                    }
+                    required
+                  />
+                  <p className="text-xs text-neutral-500">Choose when the executive will follow up.</p>
+                </div>
               </div>
               
               <div className="space-y-2">
@@ -914,22 +1009,29 @@ export default function FollowupLeadsPage() {
                   </Button>
                 </div>
 
-                <div className="rounded-md border border-neutral-200 bg-white p-3 space-y-2">
+                <div className="rounded-md border border-neutral-200 bg-white overflow-hidden">
                   {updateForm.productsInterested.length === 0 ? (
-                    <p className="text-xs text-neutral-500">No products added yet.</p>
+                    <p className="text-xs text-neutral-500 p-3">No products added yet.</p>
                   ) : (
                     <>
-                      <div className="grid grid-cols-[2fr_1.3fr_1.5fr_1fr_1fr_auto] gap-2 text-xs font-medium text-neutral-500 px-1">
+                      <div className="sticky top-0 z-10 grid grid-cols-[minmax(140px,2fr)_minmax(120px,1.4fr)_minmax(88px,1fr)_minmax(88px,1fr)_2.5rem] gap-3 text-xs font-medium text-neutral-500 px-3 py-2 border-b border-neutral-200 bg-white">
                         <span>Product</span>
-                        <span>Term</span>
                         <span>Status</span>
                         <span className="text-center">Strength</span>
                         <span className="text-center">Chance %</span>
                         <span></span>
                       </div>
 
+                      <div
+                        className="max-h-[min(50vh,22rem)] overflow-y-auto overscroll-contain p-3 space-y-2"
+                        role="region"
+                        aria-label="Products list"
+                      >
                       {updateForm.productsInterested.map((product, index) => (
-                        <div key={`product-${index}`} className="grid grid-cols-[2fr_1.3fr_1.5fr_1fr_1fr_auto] gap-2 items-center">
+                        <div
+                          key={`product-${index}`}
+                          className="grid grid-cols-[minmax(140px,2fr)_minmax(120px,1.4fr)_minmax(88px,1fr)_minmax(88px,1fr)_2.5rem] gap-3 items-center"
+                        >
                           <Select
                             value={product.product_name || undefined}
                             onValueChange={(v) => updateInterestedProduct(index, 'product_name', v)}
@@ -949,19 +1051,6 @@ export default function FollowupLeadsPage() {
                             </SelectContent>
                           </Select>
                           <Select
-                            value={product.term}
-                            onValueChange={(v) => updateInterestedProduct(index, 'term', v)}
-                          >
-                            <SelectTrigger className="h-9">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Term 1">Term 1</SelectItem>
-                              <SelectItem value="Term 2">Term 2</SelectItem>
-                              <SelectItem value="Both">Both</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Select
                             value={product.status}
                             onValueChange={(v) => updateInterestedProduct(index, 'status', v)}
                           >
@@ -977,19 +1066,26 @@ export default function FollowupLeadsPage() {
                             </SelectContent>
                           </Select>
                           <Input
-                            type="number"
-                            min="0"
-                            className="h-9 text-center"
+                            type="text"
+                            inputMode="numeric"
+                            className="h-9 text-center bg-white"
+                            placeholder="Qty *"
                             value={product.strength}
-                            onChange={(e) => updateInterestedProduct(index, 'strength', Number(e.target.value) || 0)}
+                            required
+                            onChange={(e) =>
+                              updateInterestedProduct(index, 'strength', e.target.value)
+                            }
                           />
                           <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            className="h-9 text-center"
+                            type="text"
+                            inputMode="numeric"
+                            className="h-9 text-center bg-white"
+                            placeholder="% *"
                             value={product.chance}
-                            onChange={(e) => updateInterestedProduct(index, 'chance', Number(e.target.value) || 0)}
+                            required
+                            onChange={(e) =>
+                              updateInterestedProduct(index, 'chance', e.target.value)
+                            }
                           />
                           <Button
                             type="button"
@@ -1002,9 +1098,15 @@ export default function FollowupLeadsPage() {
                           </Button>
                         </div>
                       ))}
+                      </div>
                     </>
                   )}
                 </div>
+                {updateForm.productsInterested.length > 8 && (
+                  <p className="text-xs text-neutral-500">
+                    Scroll inside the products list to view all {updateForm.productsInterested.length} products.
+                  </p>
+                )}
                 <p className="text-xs text-neutral-500">
                   Required: add at least one product with Strength (quantity) and Chance % for each row.
                 </p>
@@ -1029,7 +1131,7 @@ export default function FollowupLeadsPage() {
           </div>
           
           {/* Professional Footer */}
-          <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-200 flex items-center justify-end gap-3">
+          <div className="shrink-0 px-6 py-4 bg-neutral-50 border-t border-neutral-200 flex items-center justify-end gap-3">
             <Button 
               variant="outline" 
               onClick={closeUpdateModal}
@@ -1147,11 +1249,16 @@ export default function FollowupLeadsPage() {
                                     {leadStatus}
                                   </span>
                                 </div>
-                                {item.updatedBy?.name && (
-                                  <p className="text-xs text-neutral-500">
-                                    Updated by <span className="font-medium text-neutral-700">{item.updatedBy.name}</span>
-                                  </p>
-                                )}
+                                {(() => {
+                                  const updatedByName = resolveHistoryUpdatedByName(item, historyLead ?? undefined)
+                                  if (!updatedByName) return null
+                                  return (
+                                    <p className="text-xs text-neutral-500">
+                                      Updated by{' '}
+                                      <span className="font-medium text-neutral-700">{updatedByName}</span>
+                                    </p>
+                                  )
+                                })()}
                               </div>
                             </div>
                             
@@ -1202,9 +1309,15 @@ export default function FollowupLeadsPage() {
                                           <span className="text-sm font-medium text-neutral-900 truncate block">
                                             {row.product_name || 'Product'}
                                           </span>
-                                          {row.term ? (
-                                            <span className="text-xs text-neutral-500">{row.term}</span>
-                                          ) : null}
+                                          <span className="text-xs text-neutral-500">
+                                            {[
+                                              row.term ? row.term : null,
+                                              Number(row.strength) > 0 ? `Strength ${row.strength}` : null,
+                                              Number(row.chance) > 0 ? `${row.chance}% chance` : null,
+                                            ]
+                                              .filter(Boolean)
+                                              .join(' · ') || '—'}
+                                          </span>
                                         </div>
                                         <span
                                           className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-semibold border ${badgeClass}`}

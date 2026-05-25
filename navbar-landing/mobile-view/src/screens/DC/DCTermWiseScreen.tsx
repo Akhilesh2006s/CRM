@@ -7,15 +7,67 @@ import {
   ScrollView,
   RefreshControl,
   Alert,
-  ActivityIndicator,
-  TextInput,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { useFocusEffect } from '@react-navigation/native';
+import ScreenShell from '../../ui/ScreenShell';
+import { WebInput } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
-import LogoutButton from '../../components/LogoutButton';
+
+function getOrderId(dc: any): string | null {
+  if (dc.dcOrderId && typeof dc.dcOrderId === 'object' && dc.dcOrderId._id) return dc.dcOrderId._id;
+  if (typeof dc.dcOrderId === 'string') return dc.dcOrderId;
+  return null;
+}
+
+function getSchoolName(dc: any): string {
+  const order = dc.dcOrderId;
+  if (order && typeof order === 'object') {
+    return order.school_name || order.schoolName || dc.customerName || '-';
+  }
+  return dc.customerName || '-';
+}
+
+function getSchoolCode(dc: any): string {
+  const order = dc.dcOrderId;
+  if (order && typeof order === 'object') {
+    return order.school_code || order.dc_code || '-';
+  }
+  return '-';
+}
+
+function getPhone(dc: any): string {
+  return (
+    dc.customerPhone ||
+    (typeof dc.dcOrderId === 'object' ? dc.dcOrderId?.contact_mobile : '') ||
+    '-'
+  );
+}
+
+function getTerm2Products(dc: any): string {
+  if (dc.productDetails && Array.isArray(dc.productDetails)) {
+    const term2 = dc.productDetails.filter((p: any) => (p.term || 'Term 1') === 'Term 2');
+    if (term2.length > 0) {
+      return term2
+        .map((p: any) => p.product || p.productName || '')
+        .filter(Boolean)
+        .join(', ');
+    }
+  }
+  if (typeof dc.dcOrderId === 'object' && Array.isArray(dc.dcOrderId?.products)) {
+    const term2 = dc.dcOrderId.products.filter((p: any) => (p.term || 'Term 1') === 'Term 2');
+    if (term2.length > 0) {
+      return term2.map((p: any) => p.product_name || p.product || '').filter(Boolean).join(', ');
+    }
+  }
+  return dc.product || '-';
+}
+
+function formatStatus(status?: string): string {
+  if (!status) return 'Created';
+  return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export default function DCTermWiseScreen({ navigation }: any) {
   const [dcs, setDcs] = useState<any[]>([]);
@@ -33,9 +85,8 @@ export default function DCTermWiseScreen({ navigation }: any) {
     try {
       setLoading(true);
       const data = await apiService.get('/dc?status=scheduled_for_later');
-      const arr = Array.isArray(data) ? data : (data?.data ?? []);
-      const termWiseOnly = (arr as any[]).filter((d: any) => d.status === 'scheduled_for_later');
-      setDcs(termWiseOnly);
+      const arr = Array.isArray(data) ? data : data?.data ?? [];
+      setDcs((arr as any[]).filter((d: any) => d.status === 'scheduled_for_later'));
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load term-wise DCs');
       setDcs([]);
@@ -50,48 +101,40 @@ export default function DCTermWiseScreen({ navigation }: any) {
     loadDCs();
   };
 
-  const getSchoolName = (dc: any) => {
-    const order = dc.dcOrderId;
-    if (order && typeof order === 'object') return order.school_name || order.schoolName || dc.customerName || '-';
-    return dc.customerName || '-';
-  };
-
   const filtered = searchQuery.trim()
-    ? dcs.filter((dc) => getSchoolName(dc).toLowerCase().includes(searchQuery.toLowerCase()))
+    ? dcs.filter((dc) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          getSchoolName(dc).toLowerCase().includes(q) ||
+          getPhone(dc).includes(q) ||
+          getTerm2Products(dc).toLowerCase().includes(q) ||
+          (dc.status || '').toLowerCase().includes(q)
+        );
+      })
     : dcs;
 
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading term-wise DCs...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Term-Wise DC</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
+    <ScreenShell
+      title="Term-Wise DC"
+      subtitle="View clients with Term 2 products"
+      loading={loading && !refreshing}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       <View style={styles.searchContainer}>
-        <TextInput
+        <WebInput
           style={styles.searchInput}
-          placeholder="Search by school..."
+          placeholder="Search by client, phone, product, or status..."
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholderTextColor={colors.textSecondary}
         />
       </View>
       <ScrollView
         style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
       >
         {filtered.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -99,58 +142,80 @@ export default function DCTermWiseScreen({ navigation }: any) {
             <Text style={styles.emptyText}>No term-wise DCs found</Text>
           </View>
         ) : (
-          filtered.map((dc) => (
-            <View key={dc._id} style={styles.card}>
-              <View style={styles.cardContent}>
+          filtered.map((dc, idx) => {
+            const orderId = getOrderId(dc);
+            const createdDate = dc.createdAt
+              ? new Date(dc.createdAt).toLocaleDateString('en-IN')
+              : '-';
+            const turnedDate =
+              typeof dc.dcOrderId === 'object' && dc.dcOrderId?.createdAt
+                ? new Date(dc.dcOrderId.createdAt).toLocaleDateString('en-IN')
+                : createdDate;
+
+            return (
+              <View key={dc._id} style={styles.card}>
                 <Text style={styles.cardTitle}>{getSchoolName(dc)}</Text>
-                <Text style={styles.cardSubtitle}>
-                  DC: {dc.dc_code || dc._id?.slice(-6)} • {dc.dcDate ? new Date(dc.dcDate).toLocaleDateString('en-IN') : '-'}
-                </Text>
+                <View style={styles.metaGrid}>
+                  <MetaRow label="School Code" value={getSchoolCode(dc)} />
+                  <MetaRow label="Phone" value={getPhone(dc)} />
+                  <MetaRow label="Product" value={getTerm2Products(dc)} />
+                  <MetaRow label="Status" value={formatStatus(dc.status)} />
+                  <MetaRow label="Created" value={createdDate} />
+                  <MetaRow label="Client Turned" value={turnedDate} />
+                </View>
+                <View style={styles.cardActions}>
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.editBtn]}
+                    onPress={() => {
+                      if (!orderId) {
+                        Alert.alert('Error', 'DC Order not found for this client.');
+                        return;
+                      }
+                      navigation.navigate('ClientEditPO', { orderId, dcId: dc._id });
+                    }}
+                  >
+                    <Text style={[styles.actionBtnText, styles.editBtnText]}>Edit PO</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.requestBtn]}
+                    onPress={() => navigation.navigate('DCTermWiseRequestDC', { dcId: dc._id })}
+                  >
+                    <Text style={[styles.actionBtnText, styles.requestBtnText]}>Request DC</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={styles.editPoButton}
-                  onPress={() => navigation.navigate('DCPendingOpen', { dcId: dc._id, fromTermWise: true })}
-                >
-                  <Text style={styles.editPoButtonText}>Edit PO</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.requestDcButton}
-                  onPress={() => navigation.navigate('DCTermWiseRequestDC', { dcId: dc._id })}
-                >
-                  <Text style={styles.requestDcButtonText}>Request DC</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
+    </ScreenShell>
+  );
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metaRow}>
+      <Text style={styles.metaLabel}>{label}</Text>
+      <Text style={styles.metaValue} numberOfLines={2}>
+        {value}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 12, color: colors.textSecondary },
-  header: { paddingHorizontal: 20, paddingTop: 50, paddingBottom: 20, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
-  headerContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backIcon: { fontSize: 24, color: colors.textLight, fontWeight: 'bold' },
-  headerTitle: { ...typography.heading.h1, color: colors.textLight, flex: 1, textAlign: 'center' },
-  placeholder: { width: 40 },
-  searchContainer: { padding: 16 },
+  searchContainer: { padding: 16, paddingBottom: 8 },
   searchInput: {
     backgroundColor: colors.backgroundLight,
     borderRadius: 12,
     padding: 12,
-    fontSize: 16,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
   },
-  content: { flex: 1, padding: 16 },
+  content: { flex: 1 },
+  contentContainer: { padding: 16, paddingBottom: 32 },
   emptyContainer: { alignItems: 'center', paddingVertical: 48 },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyText: { ...typography.body.medium, color: colors.textSecondary },
   card: {
     backgroundColor: colors.backgroundLight,
@@ -158,29 +223,18 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
   },
-  cardContent: { marginBottom: 12 },
-  cardTitle: { ...typography.heading.h3, color: colors.textPrimary, marginBottom: 4 },
-  cardSubtitle: { ...typography.body.small, color: colors.textSecondary },
-  cardActions: { flexDirection: 'row', gap: 10 },
-  editPoButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-  },
-  editPoButtonText: { ...typography.label.small, color: colors.textLight, fontWeight: '600' },
-  requestDcButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: colors.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 40,
-  },
-  requestDcButtonText: { ...typography.label.small, color: colors.textLight, fontWeight: '600' },
-  buttonDisabled: { opacity: 0.7 },
+  cardTitle: { ...typography.heading.h3, color: colors.textPrimary, marginBottom: 12 },
+  metaGrid: { marginBottom: 12 },
+  metaRow: { flexDirection: 'row', marginBottom: 6 },
+  metaLabel: { ...typography.body.small, color: colors.textSecondary, width: 110 },
+  metaValue: { ...typography.body.medium, color: colors.textPrimary, flex: 1, fontWeight: '500' },
+  cardActions: { flexDirection: 'row', gap: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
+  actionBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  editBtn: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  requestBtn: { backgroundColor: colors.primary },
+  actionBtnText: { ...typography.label.small, fontWeight: '600' },
+  editBtnText: { color: colors.textPrimary },
+  requestBtnText: { color: colors.textLight },
 });

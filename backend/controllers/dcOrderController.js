@@ -1,6 +1,10 @@
 const DcOrder = require('../models/DcOrder');
 const DC = require('../models/DC');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
+const {
+  ensureSchoolCode,
+  isClientConversionUpdate,
+} = require('../utils/clientSchoolCode');
 const { normalizeProductTerm, normalizeDcOrderProductTermsInArray } = require('../utils/productTerm');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
 const { dealProductsToFollowUpSnapshot } = require('../utils/dealProductsToFollowUpSnapshot');
@@ -450,19 +454,28 @@ const update = async (req, res) => {
       ? normalizeProductsInterested(req.body.productsInterested)
       : [];
     const isFollowUpSubmission = hasFollowUpDate && hasRemarks;
-    if (isFollowUpSubmission) {
-      if (normalizedProductsInterested.length === 0) {
-        return res.status(400).json({
-          message: 'At least one product with Strength (quantity) and Chance % is required',
-        });
+    const validateFollowUpProducts = (rows) => {
+      if (rows.length === 0) {
+        return 'At least one product with Strength and Chance % is required';
       }
-      const invalidProductRows = normalizedProductsInterested.some(
-        (row) => row.strength <= 0 || row.chance <= 0
-      );
-      if (invalidProductRows) {
-        return res.status(400).json({
-          message: 'Each product must have Strength greater than 0 and Chance % greater than 0',
-        });
+      for (const row of rows) {
+        if (row.strength <= 0 || row.chance <= 0) {
+          return 'Each product must have Strength greater than 0 and Chance % greater than 0';
+        }
+        if (row.status === 'Hot' && row.chance < 80) {
+          return 'Hot products require Chance % at least 80';
+        }
+        if (row.status === 'Warm' && row.chance < 20) {
+          return 'Warm products require Chance % at least 20';
+        }
+      }
+      return null;
+    };
+
+    if (isFollowUpSubmission || hasProductsInterested) {
+      const productErr = validateFollowUpProducts(normalizedProductsInterested);
+      if (productErr) {
+        return res.status(400).json({ message: productErr });
       }
     }
 
@@ -572,8 +585,15 @@ const update = async (req, res) => {
     }
 
     // Update other fields if provided
+    if (!item.school_code && isClientConversionUpdate(req.body, item)) {
+      const generated = await ensureSchoolCode(item, req.body);
+      if (generated) {
+        updateData.school_code = generated;
+      }
+    }
+
     const fieldsToUpdate = [
-      'status', 'zone', 'location', 'contact_person', 'contact_mobile', 'school_name',
+      'status', 'zone', 'location', 'contact_person', 'contact_mobile', 'school_name', 'school_code',
       'contact_person2', 'contact_mobile2', 'email', 'address', 'school_type',
       'pincode', 'state', 'city', 'region', 'area',
       'average_fee', 'branches', 'strength', 'remarks',

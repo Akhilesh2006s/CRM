@@ -23,12 +23,21 @@ import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
 import { normalizeProductTerm, termFromLevelLabel } from '@/lib/productTerm'
+import { shortageParentRowKey } from '@/lib/shortageDcRowKey'
 import {
   buildClientDCProductRows,
+  resolveClientDCRowTerm,
   findMatchingOrderProduct,
   resolveClientDCRowFields,
+  dedupeProductDetailLines,
+  mergeRequestDCProductDetails,
   type ResolveClientDCRowOpts,
 } from '@/lib/clientDcProductRows'
+import {
+  partitionRowsByTerm,
+  shouldSplitTerm2ToTermWise,
+  type RequestDcTermRouting,
+} from '@/lib/clientDcTermPartition'
 import { useRouter } from 'next/navigation'
 
 type DC = {
@@ -106,6 +115,13 @@ export default function ClientDCPage() {
   /** Resolved API origin for PO preview (never raw :5000 /uploads URLs). */
   const dcPoDisplayUrl = dcPoPhotoUrl ? resolveUploadUrl(dcPoPhotoUrl) : ''
   const [savingClientDC, setSavingClientDC] = useState(false)
+  const [requestDcTermRouting, setRequestDcTermRouting] = useState<RequestDcTermRouting | null>(
+    null
+  )
+  const requestDcTermSplit = useMemo(
+    () => partitionRowsByTerm(dcProductRows),
+    [dcProductRows]
+  )
   const [shortageDialogOpen, setShortageDialogOpen] = useState(false)
   const [shortageParentDC, setShortageParentDC] = useState<DC | null>(null)
   const [shortageNotes, setShortageNotes] = useState('')
@@ -877,7 +893,8 @@ export default function ClientDCPage() {
 
   const openClientDCDialog = async (dc: DC) => {
     setSelectedDC(dc)
-    
+    setRequestDcTermRouting(null)
+
     // Determine category automatically based on school_type from dcOrderId
     // If school_type is 'Existing', it's a renewal/existing school, otherwise it's a new school
     const autoCategory = dc.dcOrderId && typeof dc.dcOrderId === 'object' && dc.dcOrderId.school_type === 'Existing'
@@ -997,14 +1014,33 @@ export default function ClientDCPage() {
       }
     }
     
-    // Load full DC details
+    // Load full DC details (merge lines from this DC + sibling DCs on same order)
     try {
       const fullDC = await apiRequest<any>(`/dc/${dc._id}`)
-      
-      const dcProductDetails = Array.isArray(fullDC.productDetails) ? fullDC.productDetails : []
+      let mergedDetails: any[] = Array.isArray(fullDC.productDetails)
+        ? [...fullDC.productDetails]
+        : []
+      if (dcOrderId) {
+        try {
+          const related = await apiRequest<any[]>(
+            `/dc?dcOrderId=${encodeURIComponent(dcOrderId)}`
+          )
+          mergedDetails = mergeRequestDCProductDetails(
+            fullDC._id,
+            fullDC.productDetails,
+            related
+          )
+        } catch (relErr) {
+          console.warn('Could not load related DC lines for Request DC:', relErr)
+          mergedDetails = dedupeProductDetailLines(mergedDetails)
+        }
+      } else {
+        mergedDetails = dedupeProductDetailLines(mergedDetails)
+      }
+
       const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
       const productsToShow = buildClientDCProductRows(
-        dcProductDetails,
+        mergedDetails,
         dcOrderProducts,
         rowOpts,
         getDefaultLevel
@@ -1054,7 +1090,7 @@ export default function ClientDCPage() {
           })
           .forEach((x: any) => {
             ;(x.productDetails || []).forEach((p: any) => {
-              const key = `${(p.product || p.productName || '').toLowerCase()}::${(p.class || '').toLowerCase()}::${(p.category || '').toLowerCase()}::${(p.term || 'term 1').toLowerCase()}`
+              const key = shortageParentRowKey(p)
               const qty = Number(p.quantity || p.strength || 0)
               consumed.set(key, (consumed.get(key) || 0) + qty)
             })
@@ -1065,7 +1101,7 @@ export default function ClientDCPage() {
       const prodName = p.product || p.productName || ''
       const orderedQuantity = Number(p.quantity || p.strength || 0)
       const deliveredQuantity = Number(p.deliveredQuantity ?? orderedQuantity)
-      const key = `${(p.product || p.productName || '').toLowerCase()}::${(p.class || '').toLowerCase()}::${(p.category || '').toLowerCase()}::${(p.term || 'term 1').toLowerCase()}`
+      const key = shortageParentRowKey(p)
       const alreadyRaised = Number(consumed.get(key) || 0)
       const calculatedShortage = Math.max(orderedQuantity - deliveredQuantity - alreadyRaised, 0)
       const skuCats = hasProductCategories(prodName) ? getProductCategories(prodName) : []
@@ -1282,27 +1318,32 @@ export default function ClientDCPage() {
         quantity: Number(row.quantity) || 0,
         strength: Number(row.strength) || 0,
         level: row.level || getDefaultLevel(row.product || 'Abacus'),
-        term: row.term || 'Term 1',
+        term: resolveClientDCRowTerm(row),
       }))
 
       const totalQuantity = dcProductRows.reduce((sum, p) => sum + (p.quantity || 0), 0)
 
-      // Check product terms to determine routing
-      const terms = productDetails.map(p => p.term || 'Term 1')
-      const uniqueTerms = Array.from(new Set(terms))
-      const hasBothTerm = uniqueTerms.includes('Both')
-      const hasTerm1 = uniqueTerms.includes('Term 1')
-      const hasTerm2 = uniqueTerms.includes('Term 2')
-      // Split if there are Term 2 products AND (Term 1 products OR "Both" products)
-      // "Both" products behave like Term 1 products - go to DC 1 (Closed Sales)
-      const hasBothTerms = hasTerm2 && (hasTerm1 || hasBothTerm)
+      const { term1Products, term2Products, hasMixedTerms, term2Only, term1Only } =
+        partitionRowsByTerm(
+          productDetails.map((p, i) => ({
+            ...p,
+            term: p.term,
+            level: dcProductRows[i]?.level,
+          }))
+        )
 
-      // Split products by term
-      const term1Products = productDetails.filter(p => {
-        const term = p.term || 'Term 1'
-        return term === 'Term 1' || term === 'Both'
-      })
-      const term2Products = productDetails.filter(p => (p.term || 'Term 1') === 'Term 2')
+      if (hasMixedTerms && !requestDcTermRouting) {
+        toast.error(
+          'This DC has Term 1 and Term 2 products. Choose whether to send both terms to Closed Sales or only Term 1 (Term 2 goes to Term-Wise DC).'
+        )
+        setSavingClientDC(false)
+        return
+      }
+
+      const splitTerm2 = shouldSplitTerm2ToTermWise(hasMixedTerms, requestDcTermRouting)
+      const hasBothTerm = productDetails.some((p) => resolveClientDCRowTerm(p) === 'Both')
+      const hasTerm1 = term1Products.length > 0
+      const hasTerm2 = term2Products.length > 0
 
       // Update DC and set status based on terms
       let updatePayload: any = {
@@ -1319,16 +1360,16 @@ export default function ClientDCPage() {
       let updatedDC: any
       let term2DC: any = null
 
-      if (hasBothTerms) {
-        // Case 3: Both Term 1 and Term 2 - Split into two DCs
-        console.log('📦 Splitting DC into Term 1 and Term 2 DCs')
+      if (splitTerm2) {
+        console.log('📦 Request DC: Term 1 only to Closed Sales, Term 2 to Term-Wise DC')
         
         // Create Term 1 DC (goes to Closed Sales)
         const term1Quantity = term1Products.reduce((sum, p) => sum + (p.quantity || 0), 0)
         const term1Payload: any = {
           productDetails: term1Products,
           requestedQuantity: term1Quantity,
-          status: 'pending_dc', // Goes to Pending DC for Senior Coordinator
+          // Stay po_submitted until admin/coordinator raises from Closed Sales → then pending_dc
+          status: 'po_submitted',
         }
         if (dcPoPhotoUrl) {
           term1Payload.poPhotoUrl = dcPoPhotoUrl
@@ -1380,16 +1421,14 @@ export default function ClientDCPage() {
           term1DC: updatedDC._id,
           term2DC: term2DC._id,
         })
-      } else if (hasTerm1 || hasBothTerm) {
-        // Case 1: Only Term 1 or "Both" - Goes to Closed Sales
-        console.log('📦 DC has Term 1 or "Both" products - going to Closed Sales')
-        updatePayload.status = 'pending_dc' // Will be updated to dc_requested via DcOrder
+      } else if (!term2Only) {
+        console.log('📦 Request DC → Closed Sales queue (DcOrder dc_requested; not Pending DC yet)')
+        updatePayload.status = 'po_submitted'
         updatedDC = await apiRequest(`/dc/${selectedDC._id}`, {
-        method: 'PUT',
-        body: JSON.stringify(updatePayload),
-      })
-      } else if (hasTerm2 && !hasTerm1 && !hasBothTerm) {
-        // Case 2: Only Term 2 (no Term 1, no "Both") - Goes to Term-Wise DC (NOT Closed Sales)
+          method: 'PUT',
+          body: JSON.stringify(updatePayload),
+        })
+      } else if (term2Only) {
         console.log('📦 DC has only Term 2 products - going to Term-Wise DC (NOT Closed Sales)')
         updatePayload.status = 'scheduled_for_later' // Goes to Term-Wise DC
         updatedDC = await apiRequest(`/dc/${selectedDC._id}`, {
@@ -1397,8 +1436,7 @@ export default function ClientDCPage() {
           body: JSON.stringify(updatePayload),
         })
       } else {
-        // Fallback: Default to pending_dc
-        updatePayload.status = 'pending_dc'
+        updatePayload.status = 'po_submitted'
         updatedDC = await apiRequest(`/dc/${selectedDC._id}`, {
           method: 'PUT',
           body: JSON.stringify(updatePayload),
@@ -1636,9 +1674,9 @@ export default function ClientDCPage() {
 
       // Program billing is now owned by backend delivery completion flows.
       // Keep UI request flow billing-free to avoid stale or duplicated payable creation.
-      if (totalAmount > 0 && (hasTerm1 || hasBothTerms || hasBothTerm)) {
+      if (totalAmount > 0 && !term2Only) {
         console.log('ℹ️ Payment creation skipped in frontend; backend program-billing handles payable recomputation.')
-      } else if (hasTerm2 && !hasTerm1 && !hasBothTerm) {
+      } else if (term2Only) {
         console.log('📦 Term 2 only DC - backend will handle cumulative billing at delivery completion')
       } else if (totalAmount === 0) {
         console.warn('⚠️ Total amount is 0; backend billing recompute will still run on delivery events')
@@ -1647,7 +1685,7 @@ export default function ClientDCPage() {
       // Update the related DcOrder status based on terms
       // Term 1 or "Both" DCs should update DcOrder to 'dc_requested' (appears in Closed Sales)
       // Term 2 only DCs don't need DcOrder update (they appear in Term-Wise DC via DC status, NOT Closed Sales)
-      if (selectedDC.dcOrderId && (hasTerm1 || hasBothTerms || hasBothTerm)) {
+      if (selectedDC.dcOrderId && !term2Only) {
         try {
           const dcOrderId = typeof selectedDC.dcOrderId === 'object' 
             ? selectedDC.dcOrderId._id 
@@ -1655,9 +1693,8 @@ export default function ClientDCPage() {
           
           const currentUser = getCurrentUser()
           
-          // For split DCs, use Term 1 products for DcOrder update
-          const productsForDcOrder = hasBothTerms ? term1Products : productDetails
-          const quantityForDcOrder = hasBothTerms 
+          const productsForDcOrder = splitTerm2 ? term1Products : productDetails
+          const quantityForDcOrder = splitTerm2
             ? term1Products.reduce((sum, p) => sum + (p.quantity || 0), 0)
             : totalQuantity
           
@@ -1689,8 +1726,9 @@ export default function ClientDCPage() {
                 // Store timestamp
                 requestedAt: new Date().toISOString(),
                 // Indicate if this was split (for reference)
-                isSplit: hasBothTerms,
-                term2DCId: hasBothTerms ? term2DC?._id : undefined,
+                isSplit: splitTerm2,
+                term2DCId: splitTerm2 ? term2DC?._id : undefined,
+                requestDcTermRouting: requestDcTermRouting || undefined,
               }
             }),
           })
@@ -1699,7 +1737,7 @@ export default function ClientDCPage() {
             dcOrderId,
             newStatus: updateResult?.status,
             schoolName: updateResult?.school_name,
-            isSplit: hasBothTerms
+            isSplit: splitTerm2
           })
         } catch (dcOrderErr: any) {
           console.error('❌ Failed to update DcOrder status:', {
@@ -1711,8 +1749,7 @@ export default function ClientDCPage() {
           // Continue even if DcOrder update fails, but show warning
           toast.warning('DC updated but failed to update DcOrder status. Please check Closed Sales manually.')
         }
-      } else if (hasTerm2 && !hasTerm1 && !hasBothTerm) {
-        // Term 2 only (no Term 1, no "Both") - no need to update DcOrder, DC will appear in Term-Wise DC (NOT Closed Sales)
+      } else if (term2Only) {
         console.log('📦 Term 2 only DC - no DcOrder update needed, appears in Term-Wise DC (NOT Closed Sales)')
       } else {
         console.warn('⚠️ No dcOrderId found on DC, cannot update DcOrder status')
@@ -1736,17 +1773,16 @@ export default function ClientDCPage() {
 
       // Store invoice data for viewing
       // For split DCs, show Term 1 products in invoice (since payment is for Term 1)
-      const invoiceBreakdown = hasBothTerms 
+      const invoiceBreakdown = splitTerm2
         ? paymentBreakdown.filter((p: any) => {
-            // Filter to show only Term 1 products
-            const matchingProduct = term1Products.find(tp => 
-              (tp.product || '').toLowerCase() === (p.product || '').toLowerCase()
+            const matchingProduct = term1Products.find(
+              (tp) => (tp.product || '').toLowerCase() === (p.product || '').toLowerCase()
             )
             return matchingProduct !== undefined
           })
         : paymentBreakdown
-      
-      const invoiceAmount = hasBothTerms 
+
+      const invoiceAmount = splitTerm2
         ? invoiceBreakdown.reduce((sum: number, p: any) => sum + (p.total || 0), 0)
         : totalAmount
       
@@ -1769,12 +1805,22 @@ export default function ClientDCPage() {
       })
       
       // Show appropriate success message based on routing
-      if (hasBothTerms) {
-        toast.success(`DC split successfully! Term 1 DC will appear in Pending DC (Senior Coordinator), Term 2 DC will appear in Term-Wise DC (Executive Dashboard).`)
-      } else if (hasTerm1 || hasBothTerm) {
-      toast.success('Client Request submitted successfully! It will appear in Closed Sales for Admin/Coordinator to review and raise DC.')
-      } else if (hasTerm2 && !hasTerm1 && !hasBothTerm) {
-        toast.success('DC requested successfully! It will appear in Term-Wise DC page. Click "Request DC" there to send it to Closed Sales.')
+      if (splitTerm2) {
+        toast.success(
+          'Term 1 sent to Closed Sales. Term 2 DC will appear in Term-Wise DC (Executive Dashboard).'
+        )
+      } else if (hasMixedTerms && requestDcTermRouting === 'both_terms') {
+        toast.success(
+          'Term 1 and Term 2 sent together to Closed Sales for Admin/Coordinator review.'
+        )
+      } else if (term1Only || hasTerm1 || hasBothTerm) {
+        toast.success(
+          'Request sent to Closed Sales. Admin/Coordinator will Raise DC; then it moves to Pending DC and warehouse.'
+        )
+      } else if (term2Only) {
+        toast.success(
+          'DC requested successfully! It will appear in Term-Wise DC. Request DC there when ready for Closed Sales.'
+        )
       } else {
         toast.success('Client Request submitted successfully!')
       }
@@ -1886,7 +1932,9 @@ export default function ClientDCPage() {
 
       const pe = dcOrder.pendingEdit?.status === 'pending' ? dcOrder.pendingEdit : null
       const orderProducts = (pe?.products?.length ? pe.products : dcOrder.products) || []
-      const dcDetails = Array.isArray(fullDC?.productDetails) ? fullDC.productDetails : []
+      const dcDetails = dedupeProductDetailLines(
+        Array.isArray(fullDC?.productDetails) ? fullDC.productDetails : []
+      )
       const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
 
       // When a manager approval is pending, show that snapshot; otherwise last saved order
@@ -2676,7 +2724,12 @@ export default function ClientDCPage() {
                     const customerName = d.customerName || d.saleId?.customerName || d.dcOrderId?.school_name || 'Unknown Client'
                     const phone = d.customerPhone || d.dcOrderId?.contact_mobile || '-'
                     const product = getDcProductsText(d) || '-'
-                    const status = d.status || 'created'
+                    const dcOrderStatus =
+                      typeof d.dcOrderId === 'object' ? d.dcOrderId?.status : undefined
+                    const status =
+                      dcOrderStatus === 'dc_requested' && (d.status === 'po_submitted' || !d.status)
+                        ? 'dc_requested'
+                        : d.status || 'created'
                     const createdDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '-'
                     // Client turned date: use dcOrderId.createdAt for converted leads, otherwise use createdAt
                     const turnedDate = (typeof d.dcOrderId === 'object' && d.dcOrderId?.createdAt)
@@ -2698,6 +2751,8 @@ export default function ClientDCPage() {
                           <span className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap shadow-sm ${
                             status === 'created' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
                             status === 'po_submitted' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
+                            status === 'dc_requested' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                            status === 'pending_dc' ? 'bg-slate-100 text-slate-800 border border-slate-200' :
                             status === 'sent_to_manager' ? 'bg-purple-100 text-purple-700 border border-purple-200' :
                             status === 'warehouse_processing' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
                             status === 'completed' ? 'bg-green-100 text-green-700 border border-green-200' :
@@ -2729,14 +2784,14 @@ export default function ClientDCPage() {
                                 setViewingPoOpen(true)
                               }}
                             >
-                              View PO
+                              View DC
                             </Button>
                           ) : (
                             <span className="text-sm text-neutral-400">-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {status === 'created' || status === 'po_submitted' ? (
+                          {status === 'created' || status === 'po_submitted' || status === 'dc_requested' ? (
                           <div className="flex items-center gap-2 justify-center">
                             {d.poPhotoUrl && (
                               <Button 
@@ -2762,7 +2817,9 @@ export default function ClientDCPage() {
                                 </Button>
                               )}
                               {/* Hide Request DC button if DC has pending changes (PDF changed or new products added) or pending edit request */}
-                              {!dcsWithPendingChanges.has(d._id) && !dcsWithPendingEditRequests.has(d._id) && (
+                              {status !== 'dc_requested' &&
+                                !dcsWithPendingChanges.has(d._id) &&
+                                !dcsWithPendingEditRequests.has(d._id) && (
                             <Button 
                               size="sm" 
                               onClick={() => openClientDCDialog(d)}
@@ -2771,6 +2828,11 @@ export default function ClientDCPage() {
                               <Package className="w-4 h-4 mr-2" />
                               Request DC
                             </Button>
+                              )}
+                              {status === 'dc_requested' && (
+                                <span className="text-xs text-amber-700 max-w-[140px]">
+                                  Awaiting Closed Sales review
+                                </span>
                               )}
                           </div>
                           ) : (
@@ -3024,7 +3086,13 @@ export default function ClientDCPage() {
       </Dialog>
 
       {/* Client DC Dialog - Full DC Management */}
-      <Dialog open={clientDCDialogOpen} onOpenChange={setClientDCDialogOpen}>
+      <Dialog
+        open={clientDCDialogOpen}
+        onOpenChange={(open) => {
+          setClientDCDialogOpen(open)
+          if (!open) setRequestDcTermRouting(null)
+        }}
+      >
         <DialogContent className="sm:max-w-[95vw] lg:max-w-[1200px] max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Client Request - Manage Products & Details</DialogTitle>
@@ -3346,12 +3414,11 @@ export default function ClientDCPage() {
 
                 // Check if all products have the same term
                 // "Both" is treated as Term 1 for display purposes
-                const terms = dcProductRows.map(row => {
-                  const term = row.term || 'Term 1'
-                  return term === 'Both' ? 'Term 1' : term
-                })
+                const terms = dcProductRows.map((row) => resolveClientDCRowTerm(row))
                 const uniqueTerms = Array.from(new Set(terms))
-                const hasDifferentTerms = uniqueTerms.length > 1 || uniqueTerms.includes('Term 2')
+                const hasDifferentTerms =
+                  uniqueTerms.includes('Term 2') &&
+                  (uniqueTerms.includes('Term 1') || uniqueTerms.includes('Both'))
 
                 // If all products have the same term, show single table
                 if (!hasDifferentTerms) {
@@ -3391,11 +3458,13 @@ export default function ClientDCPage() {
 
                 // If products have different terms, show separate tables
                 // "Both" term products should appear in Term 1 table (they behave like Term 1)
-                const term1Products = dcProductRows.filter(row => {
-                  const term = row.term || 'Term 1'
+                const term1Products = dcProductRows.filter((row) => {
+                  const term = resolveClientDCRowTerm(row)
                   return term === 'Term 1' || term === 'Both'
                 })
-                const term2Products = dcProductRows.filter(row => (row.term || 'Term 1') === 'Term 2')
+                const term2Products = dcProductRows.filter(
+                  (row) => resolveClientDCRowTerm(row) === 'Term 2'
+                )
 
                 return (
                   <div className="space-y-6">
@@ -3477,11 +3546,67 @@ export default function ClientDCPage() {
               })()}
             </div>
 
+            {requestDcTermSplit.hasMixedTerms && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+                <Label className="text-base font-semibold text-amber-950">
+                  This DC has Term 1 and Term 2 products
+                </Label>
+                <p className="text-sm text-amber-900/90">
+                  Choose how to request DC (same as Edit PO term split). Term 1 only keeps the
+                  previous flow: Term 1 → Closed Sales, Term 2 → Term-Wise DC. If both terms are
+                  selected, the full DC goes to Closed Sales together.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    type="button"
+                    variant={requestDcTermRouting === 'both_terms' ? 'default' : 'outline'}
+                    className={
+                      requestDcTermRouting === 'both_terms'
+                        ? 'bg-blue-700 hover:bg-blue-800'
+                        : 'border-blue-300'
+                    }
+                    onClick={() => setRequestDcTermRouting('both_terms')}
+                  >
+                    Both Term 1 &amp; Term 2 → Closed Sales
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={requestDcTermRouting === 'term1_only' ? 'default' : 'outline'}
+                    className={
+                      requestDcTermRouting === 'term1_only'
+                        ? 'bg-orange-600 hover:bg-orange-700'
+                        : 'border-orange-300'
+                    }
+                    onClick={() => setRequestDcTermRouting('term1_only')}
+                  >
+                    Only Term 1 → Closed Sales (Term 2 → Term-Wise DC)
+                  </Button>
+                </div>
+                {requestDcTermRouting === 'both_terms' && (
+                  <p className="text-xs text-blue-800">
+                    All products above will be requested as one DC in Closed Sales.
+                  </p>
+                )}
+                {requestDcTermRouting === 'term1_only' && (
+                  <p className="text-xs text-orange-800">
+                    Only Term 1 products go to Closed Sales now; Term 2 will appear under Term-Wise
+                    DC for a later request.
+                  </p>
+                )}
+              </div>
+            )}
+
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setClientDCDialogOpen(false)}>Cancel</Button>
-            <Button onClick={requestClientDC} disabled={savingClientDC}>
+            <Button
+              onClick={requestClientDC}
+              disabled={
+                savingClientDC ||
+                (requestDcTermSplit.hasMixedTerms && !requestDcTermRouting)
+              }
+            >
               {savingClientDC ? 'Submitting...' : 'Request'}
             </Button>
           </DialogFooter>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Alert, Linking, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Alert, Linking } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -7,6 +7,7 @@ import ScreenShell, { PageSection } from '../../ui/ScreenShell';
 import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService, getApiUrl } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleFlags } from '../../utils/roles';
 
 type UploadEntry = {
   _id: string;
@@ -29,7 +30,7 @@ const DATA_TYPES = [
 /** Matches web `settings/upload` */
 export default function SettingsUploadScreen({ navigation }: any) {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'Admin' || user?.role === 'Super Admin';
+  const { isAdmin } = getRoleFlags(user);
 
   const [uploads, setUploads] = useState<UploadEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,13 +53,8 @@ export default function SettingsUploadScreen({ navigation }: any) {
   };
 
   useEffect(() => {
-    if (!isAdmin) {
-      Alert.alert('Access denied', 'Admin privileges required.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
-      return;
-    }
-    loadUploads();
+    if (isAdmin) loadUploads();
+    else setLoading(false);
   }, [isAdmin]);
 
   const pickFile = async () => {
@@ -117,9 +113,10 @@ export default function SettingsUploadScreen({ navigation }: any) {
   if (!isAdmin) {
     return (
       <ScreenShell title="Data upload">
-        <PageSection title="Access denied">
-          <Text>Admin privileges required.</Text>
-        </PageSection>
+        <View style={styles.denied}>
+          <Text style={styles.deniedText}>Admin privileges required for app data upload.</Text>
+          <WebButton title="Go back" onPress={() => navigation.goBack()} variant="outline" />
+        </View>
       </ScreenShell>
     );
   }
@@ -180,4 +177,6 @@ export default function SettingsUploadScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   empty: { ...typography.body.medium, color: colors.textSecondary, textAlign: 'center', paddingVertical: 16 },
+  denied: { flex: 1, padding: 24, justifyContent: 'center', gap: 16 },
+  deniedText: { ...typography.body.medium, color: colors.textSecondary, textAlign: 'center' },
 });

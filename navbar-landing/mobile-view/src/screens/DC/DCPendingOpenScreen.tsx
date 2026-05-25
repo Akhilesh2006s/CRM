@@ -16,14 +16,14 @@ import {
   Modal,
   Platform,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { colors, gradients } from '../../theme/colors';
+import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { apiService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import LogoutButton from '../../components/LogoutButton';
+import ScreenShell, { PageSection } from '../../ui/ScreenShell';
+import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import MessageBanner from '../../components/MessageBanner';
 
 const CLASSES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
@@ -102,6 +102,28 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
   const canSubmitToWarehouse = !isTermWiseDc && (isSeniorCoordinator || isAdmin);
 
   useEffect(() => {
+    if (fromTermWise && dcId) {
+      (async () => {
+        try {
+          const fullDC = await apiService.get(`/dc/${dcId}`);
+          const orderId =
+            fullDC.dcOrderId && typeof fullDC.dcOrderId === 'object' && fullDC.dcOrderId._id
+              ? fullDC.dcOrderId._id
+              : typeof fullDC.dcOrderId === 'string'
+                ? fullDC.dcOrderId
+                : null;
+          if (orderId) {
+            navigation.replace('ClientEditPO', { orderId, dcId });
+            return;
+          }
+        } catch {
+          /* fall through to pending open */
+        }
+        loadData();
+        loadProducts();
+      })();
+      return;
+    }
     if (dcId) {
       loadData();
       loadProducts();
@@ -109,7 +131,7 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
       setLoading(false);
       setErrorMessage('No DC selected');
     }
-  }, [dcId]);
+  }, [dcId, fromTermWise]);
 
   const loadData = async () => {
     try {
@@ -344,21 +366,12 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
 
   if (!dc && !loading) {
     return (
-      <View style={styles.container}>
-        <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backIcon}>←</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>{isTermWiseDc ? 'Edit PO' : 'Pending DC - Open'}</Text>
-            <LogoutButton />
-          </View>
-        </LinearGradient>
-        <View style={styles.errorBlock}>
+    <ScreenShell title="Pending DC - Open" loading={loading}>
+<View style={styles.errorBlock}>
           <Text style={styles.errorText}>{errorMessage || 'DC not found'}</Text>
         </View>
-      </View>
-    );
+    </ScreenShell>
+  );
   }
 
   const order = dcOrder || (dc?.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId : null);
@@ -369,18 +382,12 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
         ? (dc.employeeId as { name?: string }).name
         : '-';
 
-  return (
-    <View style={styles.container}>
-      <LinearGradient colors={gradients.primary as [string, string]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{isTermWiseDc ? 'Edit PO' : 'Pending DC - Open'}</Text>
-          <LogoutButton />
-        </View>
-      </LinearGradient>
+  const shellTitle = isTermWiseDc
+    ? `Edit PO${order?.school_name ? ` - ${order.school_name}` : ''}`
+    : `Pending DC${order?.school_name ? ` - ${order.school_name}` : ''}`;
 
+  return (
+    <ScreenShell title={shellTitle} noScroll>
       <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentContainer}>
         {successMessage && (
           <MessageBanner type="success" message={successMessage} onDismiss={clearMessages} />
@@ -398,7 +405,7 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
           )}
         </View>
 
-        {/* Lead Information (read-only) */}
+        {!isTermWiseDc && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Lead Information</Text>
           <FormField label="School Type" value={order?.school_type || '-'} editable={false} />
@@ -408,8 +415,9 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
           <FormField label="Contact Mobile" value={order?.contact_mobile || dc?.customerPhone || '-'} editable={false} />
           <FormField label="Assigned To" value={assignedName} editable={false} />
         </View>
+        )}
 
-        {/* More Information (read-only) */}
+        {!isTermWiseDc && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>More Information</Text>
           <FormField label="Town" value={order?.location || (order?.address || '').split(',')[0] || '-'} editable={false} />
@@ -418,8 +426,9 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
           <FormField label="Cluster" value={order?.cluster || '-'} editable={false} />
           <FormField label="Remarks" value={order?.remarks || '-'} editable={false} />
         </View>
+        )}
 
-        {/* Delivery and Address (read-only) */}
+        {!isTermWiseDc && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Delivery and Address</Text>
           <FormField
@@ -439,6 +448,7 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
           />
           <FormField label="Pincode" value={order?.pendingEdit?.pincode || order?.pincode || '-'} editable={false} />
         </View>
+        )}
 
         {/* DC Details (editable) */}
         <View style={styles.section}>
@@ -548,19 +558,19 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
                       ))}
                     </Picker>
                   </View>
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colSpecs]}
                     value={row.specs}
                     onChangeText={(v) => updateProductRow(row.id, 'specs', v)}
                     placeholder="Specs"
                   />
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colSubject]}
                     value={row.subject || ''}
                     onChangeText={(v) => updateProductRow(row.id, 'subject', v)}
                     placeholder="Subject"
                   />
-                  <TextInput
+                  <WebInput
                     style={[styles.tableInput, styles.colStrength]}
                     value={String(row.strength)}
                     onChangeText={(v) => updateProductRow(row.id, 'strength', Number(v) || 0)}
@@ -608,43 +618,51 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
           </ScrollView>
         </View>
 
-        {/* SME Remarks + Buttons */}
-        <View style={styles.section}>
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>SME Remarks</Text>
-            <TextInput
-              style={styles.input}
-              value={smeRemarks}
-              onChangeText={setSmeRemarks}
-              placeholder="SME Remarks"
-              placeholderTextColor={colors.textSecondary}
-            />
+        {(isSeniorCoordinator || isAdmin) && !isTermWiseDc && (
+          <View style={styles.section}>
+            <View style={styles.fieldContainer}>
+              <Text style={styles.label}>SME Remarks</Text>
+              <WebInput
+                style={styles.input}
+                value={smeRemarks}
+                onChangeText={setSmeRemarks}
+                placeholder="SME Remarks"
+              />
+            </View>
           </View>
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[styles.saveButton, saving && styles.buttonDisabled]}
-              onPress={handleSave}
-              disabled={saving}
-            >
-              {saving ? <ActivityIndicator color={colors.textLight} size="small" /> : <Text style={styles.saveButtonText}>Save</Text>}
-            </TouchableOpacity>
-            {canSubmitToWarehouse && (
-              <TouchableOpacity
-                style={[styles.warehouseButton, submitting && styles.buttonDisabled]}
-                onPress={handleSubmitToWarehouse}
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <ActivityIndicator color={colors.textLight} size="small" />
-                ) : (
-                  <Text style={styles.warehouseButtonText}>Submit to Warehouse</Text>
-                )}
-              </TouchableOpacity>
+        )}
+
+        <View style={styles.buttonRow}>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.buttonDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color={colors.textLight} size="small" />
+            ) : (
+              <Text style={styles.saveButtonText}>Save</Text>
             )}
-          </View>
+          </TouchableOpacity>
+          {canSubmitToWarehouse && (
+            <TouchableOpacity
+              style={[styles.warehouseButton, submitting && styles.buttonDisabled]}
+              onPress={handleSubmitToWarehouse}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <ActivityIndicator color={colors.textLight} size="small" />
+              ) : (
+                <Text style={styles.warehouseButtonText}>Submit to Warehouse</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
-    </View>
+    </ScreenShell>
   );
 }
 
@@ -664,13 +682,11 @@ function FormField({
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
+      <WebInput
         style={[styles.input, !editable && styles.inputDisabled]}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
-        editable={editable}
+        placeholder={placeholder} editable={editable}
       />
     </View>
   );
@@ -734,8 +750,19 @@ const styles = StyleSheet.create({
   tableFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', padding: 12, backgroundColor: colors.background, borderTopWidth: 2, borderTopColor: colors.border, gap: 8 },
   footerLabel: { ...typography.body.medium, fontWeight: '600', color: colors.textPrimary },
   footerValue: { ...typography.body.medium, fontWeight: '600', color: colors.primary },
-  buttonRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  saveButton: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' },
+  buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16, marginBottom: 24 },
+  cancelButton: {
+    flex: 1,
+    minWidth: 100,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.backgroundLight,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  cancelButtonText: { ...typography.label.medium, color: colors.textPrimary, fontWeight: '600' },
+  saveButton: { flex: 1, minWidth: 100, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' },
   saveButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },
   warehouseButton: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: colors.error, alignItems: 'center' },
   warehouseButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },

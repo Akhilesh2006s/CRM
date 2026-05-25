@@ -21,7 +21,7 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { webPath: '/dashboard/leads', mobileScreen: 'LeadsList', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/add', mobileScreen: 'LeadAdd', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/add/new-school', mobileScreen: 'LeadAddNewSchool', module: 'Leads', status: 'done' },
-  { webPath: '/dashboard/leads/add/renewal', mobileScreen: 'LeadAddRenewal', module: 'Leads', status: 'done' },
+  { webPath: '/dashboard/leads/add/renewal', mobileScreen: 'LeadsRenewalList', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/renewal', mobileScreen: 'LeadsRenewalList', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/followup', mobileScreen: 'LeadFollowup', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/edit/[id]', mobileScreen: 'LeadEdit', module: 'Leads', status: 'done' },
@@ -50,7 +50,6 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { webPath: '/dashboard/employees/clusters', mobileScreen: 'EmployeesClusters', module: 'Employees', status: 'done' },
 
   { webPath: '/dashboard/executive-managers', mobileScreen: 'ExecutiveManagers', module: 'ExecutiveManagers', status: 'done' },
-  { webPath: '/dashboard/executive-managers/new', mobileScreen: 'ExecutiveManagerNew', module: 'ExecutiveManagers', status: 'done' },
   { webPath: '/dashboard/executive-managers/[managerId]/dashboard', mobileScreen: 'ExecutiveManagerDashboard', module: 'ExecutiveManagers', status: 'done' },
   { webPath: '/dashboard/executive-managers/[managerId]/leaves', mobileScreen: 'ExecutiveManagerLeaves', module: 'ExecutiveManagers', status: 'done' },
   { webPath: '/dashboard/executive-managers/executives', mobileScreen: 'ExecutiveManagerExecutives', module: 'ExecutiveManagers', status: 'done' },

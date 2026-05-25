@@ -40,9 +40,9 @@ export default function WorkHubScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Work</Text>
+      <Text style={styles.title}>Menu</Text>
       <Text style={styles.subtitle}>
-        {totalModules} modules for {user?.role || 'your role'} — same as web sidebar
+        {totalModules} modules for {user?.role || 'your role'} — same labels as web sidebar
       </Text>
 
       <View style={styles.searchWrap}>

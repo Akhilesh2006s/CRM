@@ -53,14 +53,15 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
   const [executiveAnalytics, setExecutiveAnalytics] = useState<any>(null);
   const [comprehensive, setComprehensive] = useState<any>(null);
 
+  // Web CRM has no field check-in/out for trainers; mobile attendance matches executive/employee roles.
   const showAttendance =
-    flags.isEmployee ||
-    flags.isExecutive ||
-    flags.isTrainer ||
-    flags.isManager ||
-    flags.isCoordinator ||
-    flags.isSeniorCoordinator ||
-    flags.isExecutiveManager;
+    !flags.isTrainer &&
+    (flags.isEmployee ||
+      flags.isExecutive ||
+      flags.isManager ||
+      flags.isCoordinator ||
+      flags.isSeniorCoordinator ||
+      flags.isExecutiveManager);
 
   const showLeaveActions = !flags.isAdmin;
 
@@ -169,14 +170,14 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
           <View style={styles.roleBadge}>
             <View style={styles.roleDot} />
             <Text style={styles.roleText}>{user?.role || 'User'}</Text>
+            </View>
           </View>
-        </View>
       </View>
 
       {loading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+            </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scroll}
@@ -194,7 +195,7 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
               <Text style={styles.sectionHeading}>Quick actions</Text>
               <View style={styles.quickRow}>
                 {ADMIN_QUICK.map((q) => (
-                  <TouchableOpacity
+        <TouchableOpacity
                     key={q.screen}
                     style={[styles.quickCard, { backgroundColor: q.bg }]}
                     onPress={() => navigateRoot(q.screen)}
@@ -202,15 +203,15 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
                     <PremiumIcon name={q.ion} color={q.color} bg="#FFFFFF" size={20} />
                     <Text style={styles.quickLabel}>{q.label}</Text>
                     <Ionicons name="chevron-forward" size={16} color={q.color} style={styles.quickChevron} />
-                  </TouchableOpacity>
+        </TouchableOpacity>
                 ))}
-              </View>
+            </View>
             </>
           ) : null}
 
           {showLeaveActions ? (
             <View style={styles.leaveRow}>
-              <TouchableOpacity
+        <TouchableOpacity
                 style={[styles.leaveCard, { backgroundColor: '#EDE9FE' }]}
                 onPress={() => navigateRoot('LeaveRequest')}
               >
@@ -218,8 +219,8 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
                 <Text style={styles.leaveTitle}>Apply for Leave</Text>
                 <Text style={styles.leaveSub}>Submit a new request</Text>
                 <Ionicons name="chevron-forward" size={18} color="#7C3AED" style={styles.cardChevron} />
-              </TouchableOpacity>
-              <TouchableOpacity
+        </TouchableOpacity>
+        <TouchableOpacity
                 style={[styles.leaveCard, { backgroundColor: '#CCFBF1' }]}
                 onPress={() => navigateRoot('LeavesApproved')}
               >
@@ -227,7 +228,7 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
                 <Text style={styles.leaveTitle}>My Leaves</Text>
                 <Text style={styles.leaveSub}>View leave history</Text>
                 <Ionicons name="chevron-forward" size={18} color="#0D9488" style={styles.cardChevron} />
-              </TouchableOpacity>
+        </TouchableOpacity>
             </View>
           ) : null}
 
@@ -243,7 +244,7 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
                 bg={c.bg}
               />
             ))}
-          </View>
+      </View>
 
           <Text style={styles.sectionHeading}>Financial snapshot</Text>
           <View style={styles.kpiRow}>
@@ -256,27 +257,27 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
               <Text style={styles.kpiLabel}>Revenue</Text>
               <Text style={styles.kpiValue}>{fmtINR(kpis.revenue)}</Text>
               <Text style={styles.kpiSub}>{kpis.revenueSub}</Text>
-            </View>
           </View>
+        </View>
           <View style={styles.kpiRow}>
             <View style={[styles.kpiCard, styles.kpiRed]}>
               <Text style={styles.kpiLabel}>Expenses</Text>
               <Text style={styles.kpiValue}>{fmtINR(kpis.expenses)}</Text>
               <Text style={styles.kpiSub}>{kpis.expensesSub}</Text>
-            </View>
+              </View>
             <View style={[styles.kpiCard, styles.kpiProfit]}>
               <Text style={styles.kpiLabel}>Net Profit</Text>
               <Text style={styles.kpiValue}>{fmtINR(kpis.netProfit)}</Text>
               <Text style={styles.kpiSub}>Revenue − Expenses</Text>
-            </View>
-          </View>
+              </View>
+              </View>
           <View style={styles.kpiRow}>
             <View style={[styles.kpiCard, styles.kpiPink, { flex: 1 }]}>
               <Text style={styles.kpiLabel}>Total Sales</Text>
               <Text style={styles.kpiValue}>{kpis.sales}</Text>
               <Text style={styles.kpiSub}>{kpis.salesSub}</Text>
             </View>
-          </View>
+      </View>
 
           {flags.isExecutive && executiveAnalytics ? (
             <>
@@ -299,7 +300,7 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
                   color="#7C3AED"
                   bg="#EDE9FE"
                 />
-              </View>
+            </View>
             </>
           ) : null}
 
@@ -322,20 +323,20 @@ export default function DashboardScreen({ navigation }: { navigation?: any }) {
             />
           ) : null}
 
-          <TouchableOpacity
+        <TouchableOpacity
             style={styles.workCta}
-            onPress={() => navigation?.navigate?.('Work')}
+            onPress={() => navigation?.navigate?.('Menu')}
           >
             <View style={styles.workCtaRow}>
               <PremiumIcon name="grid-outline" color="#FFFFFF" bg="rgba(255,255,255,0.2)" size={22} />
               <View style={styles.workCtaText}>
-                <Text style={styles.workCtaTitle}>Open Work</Text>
+                <Text style={styles.workCtaTitle}>Open Menu</Text>
                 <Text style={styles.workCtaSub}>All modules (Leads, DC, Warehouse, Reports…)</Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-            </View>
-          </TouchableOpacity>
-        </ScrollView>
+              </View>
+        </TouchableOpacity>
+      </ScrollView>
       )}
     </View>
   );

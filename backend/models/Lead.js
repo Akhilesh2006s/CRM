@@ -31,6 +31,7 @@ const followUpProductSchema = new mongoose.Schema(
     },
     strength: { type: Number, default: 0, min: 0 },
     chance: { type: Number, default: 0, min: 0, max: 100 },
+    important: { type: Boolean, default: false },
   },
   { _id: false }
 );

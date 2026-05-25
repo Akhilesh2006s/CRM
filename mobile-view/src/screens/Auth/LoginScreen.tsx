@@ -17,20 +17,20 @@ import { colors, gradients } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  const [mobile, setMobile] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+    if (!mobile || !password) {
+      Alert.alert('Error', 'Please enter mobile number or email and password');
       return;
     }
 
     setLoading(true);
     try {
-      await login(email, password);
+      await login(mobile, password);
     } catch (error: any) {
       Alert.alert('Login Failed', error.message || 'Invalid credentials');
     } finally {
@@ -64,16 +64,16 @@ export default function LoginScreen() {
 
               <View style={styles.form}>
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Email</Text>
+                  <Text style={styles.inputLabel}>Mobile number or email</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Enter your email"
+                    placeholder="Mobile number or email"
                     placeholderTextColor={colors.textTertiary}
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
+                    value={mobile}
+                    onChangeText={setMobile}
+                    keyboardType="default"
                     autoCapitalize="none"
-                    autoComplete="email"
+                    autoComplete="username"
                   />
                 </View>
 

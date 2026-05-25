@@ -15,6 +15,7 @@ const ExcelJS = require('exceljs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { validateSetPendingDc } = require('../utils/dcStatusFlow');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -54,8 +55,14 @@ const upload = multer({
 
 const ALLOWED_SHORTAGE_ROLES = new Set(['Admin', 'Super Admin', 'Executive', 'Sales Executive']);
 
+const {
+  normalizeProductForKey,
+  getShortageParentMatchKey,
+  findParentRowForShortage,
+} = require('../utils/shortageDcRowKey');
+
 const getRowKey = (row = {}) => {
-  const product = String(row.product || row.productName || '').trim().toLowerCase();
+  const product = normalizeProductForKey(row.product || row.productName || '');
   const cls = String(row.class || '').trim().toLowerCase();
   const category = String(row.category || '').trim().toLowerCase();
   const term = String(row.term || 'Term 1').trim().toLowerCase();
@@ -114,7 +121,11 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
     return {
       product: p.product || p.productName || '',
       class: classVal,
-      category: isShortage ? 'Shortage' : (p.category || 'new Students'),
+      category: (() => {
+        const raw = String(p.category || '').trim();
+        if (isShortage && (!raw || /^shortage$/i.test(raw))) return 'new Students';
+        return raw || 'new Students';
+      })(),
       productName: p.productName || p.product || '',
       productCategory: productCategory || undefined,
       quantity,
@@ -478,13 +489,18 @@ const raiseDC = async (req, res) => {
               class: p.class ? String(p.class).trim() : '1',
             }))
           : (lead.products && lead.products.length) ? lead.products : [{ product_name: 'Abacus', quantity: 1, unit_price: 0 }];
+        const { ensureSchoolCode } = require('../utils/clientSchoolCode');
+        const schoolCodeForClient = await ensureSchoolCode(lead);
         dcOrder = await DcOrder.create({
           school_name: lead.school_name || 'School',
+          school_code: schoolCodeForClient || lead.school_code,
           contact_person: lead.contact_person,
           contact_mobile: lead.contact_mobile,
           email: lead.email,
           location: lead.location,
           zone: lead.zone,
+          region: lead.region,
+          city: lead.city,
           school_type: lead.school_type || 'New',
           products: productsFromDetails,
           assigned_to: req.body.employeeId || req.user._id,
@@ -499,6 +515,15 @@ const raiseDC = async (req, res) => {
     if (!dcOrder) {
       console.log('❌ DcOrder/Lead not found:', dcOrderId);
       return res.status(404).json({ message: 'Deal/Lead not found' });
+    }
+
+    if (!dcOrder.school_code) {
+      const { ensureSchoolCode } = require('../utils/clientSchoolCode');
+      const code = await ensureSchoolCode(dcOrder);
+      if (code) {
+        dcOrder.school_code = code;
+        await dcOrder.save();
+      }
     }
 
     // Resolve employeeId once
@@ -538,15 +563,15 @@ const raiseDC = async (req, res) => {
       const consumedByRow = new Map();
       siblingShortages.forEach((dcRow) => {
         (dcRow.productDetails || []).forEach((p) => {
-          const key = getRowKey(p);
+          const key = getShortageParentMatchKey(p);
           const current = consumedByRow.get(key) || 0;
           consumedByRow.set(key, current + qtyFromRow(p));
         });
       });
 
       for (const row of shortageRows) {
-        const key = getRowKey(row);
-        const parentRow = (parentDc.productDetails || []).find((p) => getRowKey(p) === key);
+        const key = getShortageParentMatchKey(row);
+        const parentRow = findParentRowForShortage(parentDc.productDetails, row);
         if (!parentRow) {
           return res.status(400).json({ message: `Shortage item "${row.product}" not found on parent DC` });
         }
@@ -709,7 +734,17 @@ const raiseDC = async (req, res) => {
     }
 
     // Single DC (no split)
-    const requestedStatus = (hasTerm2 && !hasTerm1 && !hasBothTerm) ? 'scheduled_for_later' : (req.body.status || 'pending_dc');
+    let requestedStatus =
+      hasTerm2 && !hasTerm1 && !hasBothTerm
+        ? 'scheduled_for_later'
+        : req.body.status || 'pending_dc';
+    if (requestedStatus === 'pending_dc') {
+      const existingForCheck = await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 });
+      const pendingCheck = validateSetPendingDc(existingForCheck, req.user?.role, 'pending_dc');
+      if (!pendingCheck.allowed) {
+        requestedStatus = pendingCheck.coercedStatus || 'po_submitted';
+      }
+    }
     let dc = await DC.findOne({ dcOrderId: dcOrder._id }).sort({ status: 1, createdAt: 1 });
     const isTerm2Only = requestedStatus === 'scheduled_for_later' && dc && dc.status !== 'scheduled_for_later';
     if (dc && !isTerm2Only) {
@@ -1952,6 +1987,10 @@ const updateDC = async (req, res) => {
     }
     if (req.body.requestedQuantity !== undefined) dc.requestedQuantity = req.body.requestedQuantity;
     if (req.body.status !== undefined) {
+      const pendingCheck = validateSetPendingDc(dc, req.user?.role, req.body.status);
+      if (!pendingCheck.allowed) {
+        return res.status(400).json({ message: pendingCheck.message });
+      }
       dc.status = req.body.status;
       // When moving from hold to sent_to_manager (e.g. "Move to DC@Warehouse"), set timestamps so DC appears in DC @ Warehouse list
       if (req.body.status === 'sent_to_manager') {
@@ -2097,7 +2136,8 @@ const exportSalesVisit = async (req, res) => {
     // Add data
     filteredDCs.forEach((dc, index) => {
       const schoolName = dc.dcOrderId?.school_name || dc.customerName || '';
-      const schoolCode = dc.dcOrderId?.dc_code || '';
+      const schoolCode =
+        dc.dcOrderId?.school_code || dc.dcOrderId?.dc_code || '';
       const schoolType = dc.dcOrderId?.school_type || (dc.dcOrderId ? 'Existing' : 'New');
       const zone = dc.dcOrderId?.zone || '';
       const executive = dc.employeeId?.name || dc.createdBy?.name || 'Not Assigned';

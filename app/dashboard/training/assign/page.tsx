@@ -10,6 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { apiRequest } from '@/lib/api'
+import {
+  fetchLastCompletedSchedule,
+  type LastScheduleInfo,
+} from '@/lib/trainingLastSchedule'
 import { ArrowUpDown } from 'lucide-react'
 
 type School = {
@@ -57,6 +61,9 @@ export default function AssignTrainingServicePage() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false)
   const [selectedSchool, setSelectedSchool] = useState<School | null>(null)
   const [assignType, setAssignType] = useState<'training' | 'service'>('training')
+  const [lastScheduleInfo, setLastScheduleInfo] = useState<LastScheduleInfo | null>(null)
+  const [loadingLastSchedule, setLoadingLastSchedule] = useState(false)
+  const todayMin = new Date().toISOString().split('T')[0]
   const [assignForm, setAssignForm] = useState({
     subject: '',
     trainerId: '',
@@ -109,7 +116,7 @@ export default function AssignTrainingServicePage() {
         // Extract school information from dcOrderId (populated) or use direct fields
         const dcOrder = dc.dcOrderId || {}
         const schoolName = dcOrder.school_name || dc.customerName || ''
-        const schoolCode = dcOrder.dc_code || dcOrder.school_code || ''
+        const schoolCode = dcOrder.school_code || dcOrder.dc_code || ''
         const key = schoolName || schoolCode || dc._id
 
         if (key && !schoolMap.has(key)) {
@@ -267,6 +274,27 @@ export default function AssignTrainingServicePage() {
     }
   }
 
+  const loadLastCompletedSchedule = async (
+    school: School,
+    type: 'training' | 'service',
+    subject?: string
+  ) => {
+    setLoadingLastSchedule(true)
+    try {
+      const info = await fetchLastCompletedSchedule(apiRequest, {
+        schoolCode: school.school_code,
+        schoolName: school.school_name,
+        type,
+        subject,
+      })
+      setLastScheduleInfo(info)
+    } catch {
+      setLastScheduleInfo(null)
+    } finally {
+      setLoadingLastSchedule(false)
+    }
+  }
+
   const handleAssignClick = (school: School, type: 'training' | 'service') => {
     setSelectedSchool(school)
     setAssignType(type)
@@ -280,11 +308,30 @@ export default function AssignTrainingServicePage() {
       remarks: '',
       status: 'Scheduled',
     })
+    setLastScheduleInfo(null)
     setAssignDialogOpen(true)
+    loadLastCompletedSchedule(school, type)
   }
+
+  useEffect(() => {
+    if (!assignDialogOpen || !selectedSchool) return
+    const t = setTimeout(() => {
+      loadLastCompletedSchedule(
+        selectedSchool,
+        assignType,
+        assignForm.subject || undefined
+      )
+    }, 200)
+    return () => clearTimeout(t)
+  }, [assignDialogOpen, selectedSchool, assignType, assignForm.subject])
 
   const handleAssignSubmit = async () => {
     if (!selectedSchool) return
+
+    if (assignForm.date && assignForm.date < todayMin) {
+      toast.error('Cannot schedule on a past date')
+      return
+    }
 
     if (assignType === 'training') {
       // For training, validate required fields: Product, Trainer, Term, Training Date, Training Level
@@ -634,6 +681,34 @@ export default function AssignTrainingServicePage() {
             <DialogTitle>{assignType === 'training' ? 'Add Training Schedule Details' : 'Add Service Schedule Details'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {selectedSchool && (
+              <p className="text-sm text-neutral-700">
+                School: <span className="font-medium">{selectedSchool.school_name}</span>
+                {selectedSchool.school_code ? ` (${selectedSchool.school_code})` : ''}
+              </p>
+            )}
+            {lastScheduleInfo && (
+              <div>
+                <Label>{lastScheduleInfo.fieldLabel}</Label>
+                <Input
+                  className="bg-emerald-50 text-neutral-900 border-emerald-200"
+                  readOnly
+                  value={
+                    lastScheduleInfo.detail
+                      ? `${lastScheduleInfo.formattedDate} (${lastScheduleInfo.detail})`
+                      : lastScheduleInfo.formattedDate
+                  }
+                />
+                <p className="text-xs text-neutral-500 mt-1">
+                  Shown only when this school already has a completed{' '}
+                  {assignType === 'training' ? 'training' : 'service'}
+                  {assignForm.subject ? ` for ${assignForm.subject}` : ''}.
+                </p>
+              </div>
+            )}
+            {loadingLastSchedule && !lastScheduleInfo && (
+              <p className="text-xs text-neutral-500">Checking previous schedule…</p>
+            )}
             <div>
               <Label>Product *</Label>
               <Select value={assignForm.subject} onValueChange={(v) => setAssignForm(f => ({ ...f, subject: v }))}>
@@ -695,6 +770,7 @@ export default function AssignTrainingServicePage() {
                   <Input
                     type="date"
                     className="bg-white text-neutral-900"
+                    min={todayMin}
                     value={assignForm.date}
                     onChange={(e) => setAssignForm(f => ({ ...f, date: e.target.value }))}
                     required
@@ -744,6 +820,7 @@ export default function AssignTrainingServicePage() {
                   <Input
                     type="date"
                     className="bg-white text-neutral-900"
+                    min={todayMin}
                     value={assignForm.date}
                     onChange={(e) => setAssignForm(f => ({ ...f, date: e.target.value }))}
                     required

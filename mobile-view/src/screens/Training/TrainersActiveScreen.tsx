@@ -52,6 +52,29 @@ export default function TrainersActiveScreen({ navigation }: any) {
               <Text style={styles.trainerName}>{trainer.name || 'Trainer'}</Text>
               <Text style={styles.trainerEmail}>{trainer.email || '-'}</Text>
               {trainer.mobile && <Text style={styles.trainerMobile}>Mobile: {trainer.mobile}</Text>}
+              {trainer.zone && <Text style={styles.trainerMeta}>Zone: {trainer.zone}</Text>}
+              {trainer.trainerType && <Text style={styles.trainerMeta}>Type: {trainer.trainerType}</Text>}
+              {(trainer.trainerProducts || []).length > 0 && (
+                <Text style={styles.trainerMeta}>Products: {(trainer.trainerProducts || []).join(', ')}</Text>
+              )}
+              {(trainer.trainerAbacusLevels || trainer.trainerVedicLevels || trainer.trainerLevels) && (
+                <Text style={styles.trainerMeta}>
+                  Levels:{' '}
+                  {[
+                    trainer.trainerAbacusLevels ? `Abacus: ${trainer.trainerAbacusLevels}` : '',
+                    trainer.trainerVedicLevels ? `Vedic: ${trainer.trainerVedicLevels}` : '',
+                    trainer.trainerLevels || '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              )}
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() => navigation.navigate('TrainersEdit', { id: trainer._id })}
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
             </View>
           ))
         )}
@@ -79,6 +102,9 @@ const styles = StyleSheet.create({
   trainerName: { ...typography.heading.h3, color: colors.textPrimary, marginBottom: 8 },
   trainerEmail: { ...typography.body.medium, color: colors.textSecondary, marginBottom: 4 },
   trainerMobile: { ...typography.body.medium, color: colors.textSecondary },
+  trainerMeta: { ...typography.body.small, color: colors.textSecondary, marginTop: 4 },
+  editButton: { marginTop: 12, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center' },
+  editButtonText: { ...typography.label.medium, color: colors.textLight, fontWeight: '600' },
 });
 
 

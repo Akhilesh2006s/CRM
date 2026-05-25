@@ -122,7 +122,7 @@ export default function FirstTimeAttendanceScreen({ navigation }: any) {
       await checkAuth();
       Alert.alert('Success', 'Attendance submitted successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.message || 'Failed to submit attendance');
+      Alert.alert('Error', error?.message || 'Failed to submit attendance');
     } finally {
       setLoading(false);
     }

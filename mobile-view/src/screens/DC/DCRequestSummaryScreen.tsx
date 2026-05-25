@@ -37,12 +37,41 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
     if (orderId) loadOrder();
   }, [orderId]);
 
+  const resolveTerm = (p: any): string => {
+    const t = String(p?.term ?? '').trim();
+    if (t === 'Term 2') return 'Term 2';
+    if (t === 'Both' || t === 'Term 1' || !t) return 'Term 1';
+    const collapsed = t.toLowerCase().replace(/[\s_-]+/g, '');
+    if (collapsed === 'term2' || collapsed === 't2') return 'Term 2';
+    return 'Term 1';
+  };
+
   const loadOrder = async () => {
     if (!orderId) return;
     try {
       setLoading(true);
       const data = await apiService.get(`/dc-orders/${orderId}`);
-      setOrder(data);
+      let mergedProducts = Array.isArray(data.products) ? [...data.products] : [];
+      try {
+        const related = await apiService.get(`/dc?dcOrderId=${encodeURIComponent(orderId)}`);
+        const list = Array.isArray(related) ? related : [];
+        list.forEach((dc: any) => {
+          if (Array.isArray(dc.productDetails)) {
+            dc.productDetails.forEach((line: any) => {
+              mergedProducts.push({
+                product_name: line.product || line.productName,
+                quantity: line.quantity ?? line.strength,
+                unit_price: line.price ?? line.unit_price,
+                term: line.term,
+                level: line.level,
+              });
+            });
+          }
+        });
+      } catch {
+        /* optional */
+      }
+      setOrder({ ...data, products: mergedProducts });
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to load order');
       navigation.goBack();
@@ -78,11 +107,49 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
   if (!order) return null;
 
   const products = order.products && Array.isArray(order.products) ? order.products : [];
-  const totalAmount = products.reduce((s: number, p: any) => s + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0), 0);
+  const term1Products = products.filter((p: any) => {
+    const term = resolveTerm(p);
+    return term === 'Term 1' || term === 'Both';
+  });
+  const term2Products = products.filter((p: any) => resolveTerm(p) === 'Term 2');
+  const showSplit = term1Products.length > 0 && term2Products.length > 0;
+
+  const renderProductTable = (rows: any[], title: string) => (
+    <View style={styles.section} key={title}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.tableWrap}>
+        <View style={styles.tableHeader}>
+          <Text style={[styles.th, styles.colProduct]}>Product</Text>
+          <Text style={[styles.th, styles.colQty]}>Qty</Text>
+          <Text style={[styles.th, styles.colPrice]}>Unit price</Text>
+          <Text style={[styles.th, styles.colTotal]}>Total</Text>
+        </View>
+        {rows.map((p: any, idx: number) => {
+          const q = Number(p.quantity) || 0;
+          const up = Number(p.unit_price) || 0;
+          return (
+            <View key={`${title}-${idx}`} style={styles.tableRow}>
+              <Text style={[styles.td, styles.colProduct]} numberOfLines={1}>
+                {p.product_name || p.product || '-'}
+              </Text>
+              <Text style={[styles.td, styles.colQty]}>{q}</Text>
+              <Text style={[styles.td, styles.colPrice]}>{up}</Text>
+              <Text style={[styles.td, styles.colTotal]}>{(q * up).toFixed(2)}</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const totalAmount = products.reduce(
+    (s: number, p: any) => s + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0),
+    0
+  );
 
   return (
     <ScreenShell
-      title="Request DC"
+      title={`Request DC${order.school_name ? ` - ${order.school_name}` : ''}`}
       loading={loading}
     >
 <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
@@ -108,28 +175,15 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
           <ReadOnlyField label="PO Document" value={order.pod_proof_url ? 'Attached' : 'Not attached'} />
         </View>
 
+        {showSplit ? (
+          <>
+            {renderProductTable(term1Products, 'Term 1 products')}
+            {renderProductTable(term2Products, 'Term 2 products')}
+          </>
+        ) : (
+          renderProductTable(products, 'Products & quantities')
+        )}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Products & quantities</Text>
-          <View style={styles.tableWrap}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.th, styles.colProduct]}>Product</Text>
-              <Text style={[styles.th, styles.colQty]}>Qty</Text>
-              <Text style={[styles.th, styles.colPrice]}>Unit price</Text>
-              <Text style={[styles.th, styles.colTotal]}>Total</Text>
-            </View>
-            {products.map((p: any, idx: number) => {
-              const q = Number(p.quantity) || 0;
-              const up = Number(p.unit_price) || 0;
-              return (
-                <View key={idx} style={styles.tableRow}>
-                  <Text style={[styles.td, styles.colProduct]} numberOfLines={1}>{p.product_name || p.product || '-'}</Text>
-                  <Text style={[styles.td, styles.colQty]}>{q}</Text>
-                  <Text style={[styles.td, styles.colPrice]}>{up}</Text>
-                  <Text style={[styles.td, styles.colTotal]}>{(q * up).toFixed(2)}</Text>
-                </View>
-              );
-            })}
-          </View>
           <ReadOnlyField label="Total amount" value={String(totalAmount.toFixed(2))} />
         </View>
 
@@ -137,6 +191,9 @@ export default function DCRequestSummaryScreen({ navigation, route }: any) {
       </ScrollView>
 
       <View style={styles.stickyFooter}>
+        <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.requestButton, submitting && styles.buttonDisabled]}
           onPress={handleRequestDC}
@@ -180,8 +237,36 @@ const styles = StyleSheet.create({
   colPrice: { width: 72 },
   colTotal: { width: 64 },
   spacer: { height: 24 },
-  stickyFooter: { padding: 20, paddingBottom: 32, backgroundColor: colors.backgroundLight, borderTopWidth: 1, borderTopColor: colors.border },
-  requestButton: { paddingVertical: 16, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
+  stickyFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 20,
+    paddingBottom: 32,
+    backgroundColor: colors.backgroundLight,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  cancelButtonText: { ...typography.body.medium, color: colors.textPrimary, fontWeight: '600' },
+  requestButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
   requestButtonText: { ...typography.heading.h4, color: colors.textLight, fontWeight: '600' },
   buttonDisabled: { opacity: 0.7 },
 });

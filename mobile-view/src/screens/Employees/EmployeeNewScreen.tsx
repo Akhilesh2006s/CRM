@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import ScreenShell, { PageSection } from '../../ui/ScreenShell';
 import { WebInput, WebButton, WebSelect, DataTable, WebLabel } from '../../ui/WebPrimitives';
 import { apiService } from '../../services/api';
+import EmployeeTaggingPicker, { supportsEmployeeTagging } from '../../components/EmployeeTaggingPicker';
 
 export default function EmployeeNewScreen({ navigation }: any) {
   const [form, setForm] = useState({
@@ -23,12 +24,16 @@ export default function EmployeeNewScreen({ navigation }: any) {
     city: '',
     pincode: '',
     role: 'Executive',
+    taggedEmployeeIds: [] as string[],
   });
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const roles = ['Executive', 'Trainer', 'Finance Manager', 'Coordinator', 'Senior Coordinator', 'Manager', 'Admin', 'Super Admin'];
+  const roles = [
+    'Executive', 'Trainer', 'Finance Manager', 'Coordinator', 'Senior Coordinator',
+    'Manager', 'Executive Manager', 'Warehouse Executive', 'Warehouse Manager', 'Admin', 'Super Admin',
+  ];
 
   const scrollRef = useRef<ScrollView>(null);
 
@@ -83,6 +88,9 @@ export default function EmployeeNewScreen({ navigation }: any) {
       };
       if (form.role !== 'Executive') {
         delete payload.cluster;
+      }
+      if (!supportsEmployeeTagging(form.role)) {
+        delete payload.taggedEmployeeIds;
       }
       await apiService.post('/employees/create', payload);
       setSuccessMessage('Employee created successfully.');
@@ -149,16 +157,32 @@ export default function EmployeeNewScreen({ navigation }: any) {
               <TouchableOpacity
                 key={role}
                 style={[styles.roleOption, form.role === role && styles.roleOptionSelected]}
-                onPress={() => setForm((f) => ({ ...f, role }))}
+                onPress={() =>
+                  setForm((f) => ({
+                    ...f,
+                    role,
+                    taggedEmployeeIds: supportsEmployeeTagging(role) ? f.taggedEmployeeIds : [],
+                  }))
+                }
               >
                 <Text style={[styles.roleOptionText, form.role === role && styles.roleOptionTextSelected]}>{role}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
+        <EmployeeTaggingPicker
+          role={form.role}
+          selectedIds={form.taggedEmployeeIds}
+          onChange={(taggedEmployeeIds) => setForm((f) => ({ ...f, taggedEmployeeIds }))}
+        />
         <FormField label="Password *" value={form.password} onChangeText={(text: string) => setForm((f) => ({ ...f, password: text }))} placeholder="Password" secureTextEntry />
         <TouchableOpacity style={[styles.submitButton, submitting && styles.submitButtonDisabled]} onPress={handleSubmit} disabled={submitting}>
-          </TouchableOpacity>
+          {submitting ? (
+            <ActivityIndicator color={colors.textLight} />
+          ) : (
+            <Text style={styles.submitButtonText}>Submit</Text>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </ScreenShell>
   );
