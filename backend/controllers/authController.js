@@ -3,6 +3,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mockDataService = require('../services/mockDataService');
+const { buildAuthPayload, loadUserPermissions, isSuperAdminUser } = require('../utils/permissions');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -37,13 +38,8 @@ const register = async (req, res) => {
     });
 
     if (user) {
-      res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user._id),
-      });
+      const payload = await buildAuthPayload(user, generateToken(user._id));
+      res.status(201).json(payload);
     } else {
       res.status(400).json({ message: 'Invalid user data' });
       }
@@ -65,14 +61,46 @@ const register = async (req, res) => {
       });
 
       res.status(201).json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user._id),
+        ...(await buildAuthPayload({ ...user, _id: user._id }, generateToken(user._id))),
       });
     }
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Register franchise user (Admin/Super Admin creates franchise login)
+// @route   POST /api/auth/register-franchise
+// @access  Private (Admin, Super Admin)
+const registerFranchise = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name?.trim() || !email?.trim() || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Database not available' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    const user = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      password,
+      role: 'Franchise',
+    });
+
+    const payload = await buildAuthPayload(user, generateToken(user._id));
+    res.status(201).json(payload);
+  } catch (error) {
+    if (error.code === 11000 || error.code === 11001) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
     res.status(500).json({ message: error.message });
   }
 };
@@ -82,90 +110,49 @@ const register = async (req, res) => {
 // @access  Public
 const login = async (req, res) => {
   try {
-    const { email, password, mobile } = req.body;
-    const identifier = String(email || mobile || '').trim();
-    if (!identifier || !password) {
-      return res.status(400).json({ message: 'Mobile number or email and password are required' });
-    }
-
-    const buildLoginQuery = () => {
-      const normalized = identifier.toLowerCase();
-      const digits = identifier.replace(/\D/g, '');
-      const or = [{ email: normalized }];
-      if (digits.length >= 10) {
-        or.push({ mobile: digits });
-        or.push({ phone: digits });
-        const last10 = digits.slice(-10);
-        if (last10.length === 10) {
-          or.push({ mobile: { $regex: `${last10}$` } });
-          or.push({ phone: { $regex: `${last10}$` } });
-        }
-      }
-      return { $or: or };
-    };
+    const { email, password } = req.body;
 
     if (mongoose.connection.readyState === 1) {
-    const user = await User.findOne(buildLoginQuery());
-
-    if (user && user.isActive === false) {
-      return res.status(403).json({ message: 'Account is deactivated. Please contact admin.' });
-    }
+    const user = await User.findOne({ email });
 
     if (user && (await user.comparePassword(password))) {
       // Ensure special admin emails have correct role
       const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com')
         .split(',')
         .map((s) => s.trim().toLowerCase())
-      if (superAdminEmails.includes(String(user.email || '').toLowerCase()) && user.role !== 'Super Admin') {
+      if (superAdminEmails.includes(String(email).toLowerCase()) && user.role !== 'Super Admin') {
         user.role = 'Super Admin'
       }
       // Update last login
       user.lastLogin = new Date();
       await user.save();
 
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        mobile: user.mobile,
-        role: user.role,
-        roles: user.roles || [],
-        hasCompletedFirstTimeSetup: user.hasCompletedFirstTimeSetup || false,
-        token: generateToken(user._id),
-      });
+      const payload = await buildAuthPayload(user, generateToken(user._id));
+      res.json(payload);
     } else {
-      res.status(401).json({ message: 'Invalid mobile number, email, or password' });
+      res.status(401).json({ message: 'Invalid email or password' });
       }
     } else {
       // Use mock data service
-      const user = await mockDataService.findUser({ email: identifier });
-
-      if (user && user.isActive === false) {
-        return res.status(403).json({ message: 'Account is deactivated. Please contact admin.' });
-      }
+      const user = await mockDataService.findUser({ email });
 
       if (user && (await bcrypt.compare(password, user.password))) {
         const superAdminEmails = (process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com')
           .split(',')
           .map((s) => s.trim().toLowerCase())
-        if (superAdminEmails.includes(String(user.email || '').toLowerCase()) && user.role !== 'Super Admin') {
+        if (superAdminEmails.includes(String(email).toLowerCase()) && user.role !== 'Super Admin') {
           user.role = 'Super Admin'
         }
         // Update last login
         await mockDataService.updateUser(user._id, { lastLogin: new Date() });
 
-        res.json({
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          mobile: user.mobile,
-          role: user.role,
-          roles: user.roles || [],
-          hasCompletedFirstTimeSetup: user.hasCompletedFirstTimeSetup || false,
-          token: generateToken(user._id),
-        });
+        const payload = await buildAuthPayload(
+          { ...user, lastLogin: new Date() },
+          generateToken(user._id)
+        );
+        res.json(payload);
       } else {
-        res.status(401).json({ message: 'Invalid mobile number, email, or password' });
+        res.status(401).json({ message: 'Invalid email or password' });
       }
     }
   } catch (error) {
@@ -180,7 +167,16 @@ const getMe = async (req, res) => {
   try {
     if (mongoose.connection.readyState === 1) {
     const user = await User.findById(req.user._id).select('-password');
-    res.json(user);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    const { permissionKeys, isSuperAdmin, roleName, roleId } = await loadUserPermissions(user);
+    res.json({
+      ...user.toObject(),
+      roleName: roleName || user.role,
+      roleId: roleId || user.roleId,
+      permissions: permissionKeys,
+      isSuperAdmin,
+      rbacEnabled: process.env.RBAC_ENABLED !== 'false',
+    });
     } else {
       // Use mock data service
       const user = await mockDataService.findUser({ _id: req.user._id });
@@ -230,95 +226,49 @@ const firebaseLogin = async (req, res) => {
   }
 };
 
-// @desc    Register franchise user
-// @route   POST /api/auth/register-franchise
-// @access  Private (Admin only - should be called from admin panel)
-const registerFranchise = async (req, res) => {
+// @desc    Change password for logged-in user
+// @route   PUT /api/auth/change-password
+// @access  Private
+const changePassword = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { oldPassword, newPassword } = req.body;
 
-    if (!name || !String(name).trim()) {
-      return res.status(400).json({ message: 'Franchise name is required' });
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new password are required' });
     }
-    if (!email || !String(email).trim()) {
-      return res.status(400).json({ message: 'Franchise email is required' });
-    }
-    if (!password || !String(password).trim()) {
-      return res.status(400).json({ message: 'Franchise password is required' });
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
     }
 
-    // Password security: min 6 characters
-    if (String(password).length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Database not available' });
     }
 
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(String(email).trim())) {
-      return res.status(400).json({ message: 'Invalid email format' });
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    if (mongoose.connection.readyState === 1) {
-      const userExists = await User.findOne({ email: String(email).trim().toLowerCase() });
-
-      if (userExists) {
-        // If user exists, update it to Franchise role if needed
-        if (userExists.role !== 'Franchise') {
-          userExists.role = 'Franchise';
-          userExists.name = String(name).trim();
-          if (password) {
-            userExists.password = String(password);
-          }
-          await userExists.save();
-        }
-        return res.json({
-          _id: userExists._id,
-          name: userExists.name,
-          email: userExists.email,
-          role: userExists.role,
-          message: 'Franchise user account updated',
-        });
-      }
-
-      const user = await User.create({
-        name: String(name).trim(),
-        email: String(email).trim().toLowerCase(),
-        password: String(password),
-        role: 'Franchise',
-        isActive: true,
-      });
-
-      if (user) {
-        res.status(201).json({
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          message: 'Franchise user account created successfully',
-        });
-      } else {
-        res.status(400).json({ message: 'Invalid franchise data' });
-      }
-    } else {
-      res.status(503).json({ message: 'Database not available' });
+    const valid = await user.comparePassword(oldPassword);
+    if (!valid) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
     }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ message: 'Email already exists' });
-    }
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message).join('. ');
-      return res.status(400).json({ message: messages });
-    }
     res.status(500).json({ message: error.message });
   }
 };
 
 module.exports = {
   register,
+  registerFranchise,
   login,
   getMe,
   firebaseLogin,
-  registerFranchise,
+  changePassword,
 };
 

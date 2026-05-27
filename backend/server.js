@@ -44,6 +44,8 @@ const app = express();
 const isDev = process.env.NODE_ENV !== 'production';
 const productionOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
   'http://localhost:8081',
   'https://crm-frontend-gilt-five.vercel.app',
   ...(process.env.CORS_ORIGINS || '')
@@ -198,6 +200,9 @@ app.use('/api/program-billing', programBillingRoutes);
 app.use('/api/zones-clusters', require('./routes/zoneClusterRoutes'));
 app.use('/api/zones', require('./routes/zoneRoutes'));
 app.use('/api/clusters', require('./routes/clusterRoutes'));
+app.use('/api/roles', require('./routes/roleRoutes'));
+app.use('/api/users', require('./routes/userRoleRoutes'));
+app.use('/api/settings', require('./routes/settingsRoutes'));
 
 // Health check
 app.get('/api/health', (req, res) => {

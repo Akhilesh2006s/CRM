@@ -18,18 +18,10 @@ import {
 } from '@/lib/dcStudentTypeOptions'
 import { SCHOOL_TYPE_OPTIONS } from '@/lib/warehouseOptions'
 import { Badge } from '@/components/ui/badge'
-import { shortageParentRowKey } from '@/lib/shortageDcRowKey'
-import { useProducts } from '@/hooks/useProducts'
-import { fetchDcInvoiceData, type DcInvoiceData } from '@/lib/dcInvoiceData'
-import DcInvoiceViewDialog from '@/components/dc/DcInvoiceViewDialog'
 import { toast } from 'sonner'
-import { Pencil, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
+import { Can } from '@/components/permissions/Can'
+import { Pencil, X, Upload, FileText, Download } from 'lucide-react'
 import jsPDF from 'jspdf'
-
-/** List column: only PO-stage remarks (dcRemarks), not warehouse deliveryNotes. */
-function poStageRemarks(dc: { dcRemarks?: string }): string {
-  return (dc.dcRemarks ?? '').trim()
-}
 
 type Row = {
   _id: string
@@ -73,7 +65,6 @@ export default function CompletedDCPage() {
     lrCost: '',
     deliveryStatus: '',
     remarks: '',
-    poRemarks: '',
   })
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [pdfDC, setPdfDC] = useState<Row | null>(null)
@@ -83,18 +74,12 @@ export default function CompletedDCPage() {
   const [replacingPdfFor, setReplacingPdfFor] = useState<Row | null>(null)
   const [shortageDialogOpen, setShortageDialogOpen] = useState(false)
   const [shortageTargetDC, setShortageTargetDC] = useState<any | null>(null)
-  const { hasProductCategories, getProductCategories, getCalculationType, getCatalogFallbackCount } =
-    useProducts()
-  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
-  const [invoiceData, setInvoiceData] = useState<DcInvoiceData | null>(null)
-  const [invoiceLoadingDcId, setInvoiceLoadingDcId] = useState<string | null>(null)
   const [shortageRows, setShortageRows] = useState<Array<{
     id: string
     product: string
     class: string
     category: string
     term: string
-    productCategory?: string
     orderedQuantity: number
     deliveredQuantity: number
     shortageQuantity: number
@@ -335,7 +320,7 @@ export default function CompletedDCPage() {
           boxes: dc.boxes || '',
           transportArea: dc.transportArea || '',
           deliveryStatus: dc.deliveryStatus || '',
-          remarks: poStageRemarks(dc),
+          remarks: dc.deliveryNotes || dc.remarks || '',
           completedDate: dc.completedAt || '',
           poPhotoUrl: dc.poPhotoUrl || dc.poDocument || '',
           poDocument: dc.poDocument || dc.poPhotoUrl || '',
@@ -375,7 +360,6 @@ export default function CompletedDCPage() {
             row.poDocument = matchingDC.poDocument || matchingDC.poPhotoUrl || row.poDocument
             row.poPhotoUrl = matchingDC.poPhotoUrl || matchingDC.poDocument || row.poPhotoUrl
             row.lrCost = matchingDC.lrCost || row.lrCost
-            row.remarks = poStageRemarks(matchingDC)
             row.lrNo = matchingDC.lrNo || row.lrNo
             row.deliveryStatus = matchingDC.deliveryStatus || row.deliveryStatus
             row.schoolType = matchingDC.dcOrderId?.school_type || row.schoolType
@@ -534,32 +518,24 @@ export default function CompletedDCPage() {
         })
         .forEach((x: any) => {
           ;(x.productDetails || []).forEach((p: any) => {
-            const key = shortageParentRowKey(p)
+            const key = `${(p.product || p.productName || '').toLowerCase()}::${(p.class || '').toLowerCase()}::${(p.category || '').toLowerCase()}::${(p.term || 'term 1').toLowerCase()}`
             const qty = Number(p.quantity || p.strength || 0)
             consumed.set(key, (consumed.get(key) || 0) + qty)
           })
         })
 
       const mappedRows = (Array.isArray(fullDC.productDetails) ? fullDC.productDetails : []).map((p: any, idx: number) => {
-        const prodName = p.product || p.productName || ''
         const orderedQuantity = Number(p.quantity || p.strength || 0)
         const deliveredQuantity = Number(p.deliveredQuantity ?? orderedQuantity)
-        const key = shortageParentRowKey(p)
+        const key = `${(p.product || p.productName || '').toLowerCase()}::${(p.class || '').toLowerCase()}::${(p.category || '').toLowerCase()}::${(p.term || 'term 1').toLowerCase()}`
         const alreadyRaised = Number(consumed.get(key) || 0)
         const calculatedShortage = Math.max(orderedQuantity - deliveredQuantity - alreadyRaised, 0)
-        const skuCats = hasProductCategories(prodName) ? getProductCategories(prodName) : []
-        const rawPc = typeof p.productCategory === 'string' ? p.productCategory.trim() : ''
-        const resolvedProductCategory =
-          rawPc && skuCats.some((c) => c.toLowerCase() === rawPc.toLowerCase())
-            ? skuCats.find((c) => c.toLowerCase() === rawPc.toLowerCase()) || rawPc
-            : rawPc || skuCats[0] || undefined
         return {
-          id: `${idx}-${prodName || 'product'}`,
-          product: prodName,
+          id: `${idx}-${p.product || p.productName || 'product'}`,
+          product: p.product || p.productName || '',
           class: p.class || '1',
           category: p.category || 'new Students',
           term: p.term || 'Term 1',
-          productCategory: resolvedProductCategory,
           orderedQuantity,
           deliveredQuantity,
           shortageQuantity: Number(p.shortageQuantity ?? calculatedShortage),
@@ -599,10 +575,6 @@ export default function CompletedDCPage() {
         class: r.class,
         category: r.category,
         term: r.term,
-        productCategory:
-          hasProductCategories(r.product) && r.productCategory?.trim()
-            ? r.productCategory.trim()
-            : undefined,
         quantity: Number(r.shortageQuantity),
         deliveredQuantity: Number(r.deliveredQuantity),
         shortageQuantity: Number(r.shortageQuantity),
@@ -686,8 +658,7 @@ export default function CompletedDCPage() {
             : '',
         lrCost: fullDC?.lrCost || row.lrCost || '',
         deliveryStatus: fullDC?.deliveryStatus || row.deliveryStatus || '',
-        remarks: '',
-        poRemarks: poStageRemarks(fullDC || row),
+        remarks: fullDC?.deliveryNotes || fullDC?.remarks || row.remarks || '',
       })
     } catch (err: any) {
       console.error('Error opening edit dialog:', err)
@@ -1239,27 +1210,6 @@ export default function CompletedDCPage() {
     }
   }
 
-  const openInvoiceView = async (row: Row) => {
-    const dcId = row.dcId || row._id
-    if (!dcId) {
-      toast.error('DC not found')
-      return
-    }
-    setInvoiceLoadingDcId(dcId)
-    try {
-      const data = await fetchDcInvoiceData(dcId, {
-        getCalculationType,
-        getCatalogFallbackCount,
-      })
-      setInvoiceData(data)
-      setInvoiceModalOpen(true)
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to load invoice')
-    } finally {
-      setInvoiceLoadingDcId(null)
-    }
-  }
-
   const downloadCSV = () => {
     if (rows.length === 0) {
       toast.error('No data to export')
@@ -1484,45 +1434,33 @@ export default function CompletedDCPage() {
                     <div className="flex items-center gap-2">
                       <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); openEditDialog(r) }}><Pencil size={14} /></Button>
                       {(r.poDocument || r.poPhotoUrl) && (
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            openPDF(r) 
-                          }}
-                          title="View PDF"
-                        >
-                          View PDF
-                        </Button>
+                        <Can permission="warehouse.completed_dc.view_pdf">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openPDF(r)
+                            }}
+                            title="View PDF"
+                          >
+                            View PDF
+                          </Button>
+                        </Can>
                       )}
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          openReplacePdfDialog(r) 
-                        }}
-                        title="Replace PDF"
-                      >
-                        Replace PDF
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={invoiceLoadingDcId === (r.dcId || r._id)}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openInvoiceView(r)
-                        }}
-                        title="View Invoice"
-                      >
-                        {invoiceLoadingDcId === (r.dcId || r._id) ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          'View Invoice'
-                        )}
-                      </Button>
+                      <Can permission="warehouse.completed_dc.replace_pdf">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openReplacePdfDialog(r)
+                          }}
+                          title="Replace PDF"
+                        >
+                          Replace PDF
+                        </Button>
+                      </Can>
                       <div
                         className="flex flex-col gap-1 min-w-[200px]"
                         onClick={(e) => e.stopPropagation()}
@@ -1591,7 +1529,6 @@ export default function CompletedDCPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Product</TableHead>
-                  <TableHead>Product Category</TableHead>
                   <TableHead>Class</TableHead>
                   <TableHead>Ordered</TableHead>
                   <TableHead>Delivered</TableHead>
@@ -1602,7 +1539,6 @@ export default function CompletedDCPage() {
                 {shortageRows.map((row, idx) => (
                   <TableRow key={row.id}>
                     <TableCell>{row.product || '-'}</TableCell>
-                    <TableCell className="text-sm text-neutral-600">{row.productCategory || '—'}</TableCell>
                     <TableCell>{row.class}</TableCell>
                     <TableCell>{row.orderedQuantity}</TableCell>
                     <TableCell>{row.deliveredQuantity}</TableCell>
@@ -1749,20 +1685,11 @@ export default function CompletedDCPage() {
                 </Select>
               </div>
               <div className="col-span-2">
-                <Label>PO Remarks (up to PO done)</Label>
-                <Input
-                  value={editForm.poRemarks}
-                  readOnly
-                  placeholder="—"
-                  className="mt-1 bg-neutral-50"
-                />
-              </div>
-              <div className="col-span-2">
-                <Label>LR / Warehouse Remarks <span className="text-red-500">*</span></Label>
+                <Label>Remarks <span className="text-red-500">*</span></Label>
                 <Input
                   value={editForm.remarks}
                   onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })}
-                  placeholder="Enter LR / delivery remarks (not prefilled)"
+                  placeholder="Remarks"
                   className={`mt-1 ${!editForm.remarks || !editForm.remarks.trim() ? 'border-red-500' : ''}`}
                   required
                 />
@@ -1862,12 +1789,6 @@ export default function CompletedDCPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <DcInvoiceViewDialog
-        open={invoiceModalOpen}
-        onOpenChange={setInvoiceModalOpen}
-        invoiceData={invoiceData}
-      />
 
       {/* PDF Viewer Dialog */}
       <Dialog open={!!pdfUrl} onOpenChange={(open) => {
