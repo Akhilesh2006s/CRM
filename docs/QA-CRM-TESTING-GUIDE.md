@@ -365,7 +365,11 @@ Sidebar links to:
 
 ### G. RBAC (critical)
 
+**Planning and module status:** see [RBAC-ROADMAP.md](./RBAC-ROADMAP.md) (phases, per-module checklist, exit criteria).
+
 For **each role**: log in, export visible menu, then **hit denied deep URLs** (from section 4) directly in the address bar. Expect redirect, 403 from API, or empty data — **define expected behavior with dev** and document pass/fail.
+
+After Super Admin changes role permissions, the test user must **sign out and sign in again** (or use **Refresh my permissions** on Settings → Roles & Permissions) before menu/API checks.
 
 ---
 

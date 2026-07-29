@@ -8,6 +8,7 @@ const Product = require('../models/Product');
 const Lead = require('../models/Lead');
 const ContactQuery = require('../models/ContactQuery');
 const Zone = require('../models/Zone');
+const { DEFAULT_EXPENSE_POLICY } = require('../utils/expensePolicy');
 
 const SETTINGS_KEY = 'global';
 const BACKUP_DIR = path.join(__dirname, '../uploads/backups');
@@ -274,8 +275,6 @@ const runBackup = async (req, res) => {
     res.status(500).json({ message: e.message || 'Backup failed' });
   }
 };
-
-const { DEFAULT_EXPENSE_POLICY } = require('../utils/expensePolicy');
 
 const getExpensePolicyAdmin = async (req, res) => {
   try {

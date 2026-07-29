@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const { getExpensePolicy } = require('../utils/expensePolicy');
+const { validateExpensePayload, summarizeBatchTotals } = require('../utils/expenseValidation');
+const { calculateRouteDistanceKm } = require('../utils/expenseDistance');
 const Expense = require('../models/Expense');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
@@ -41,6 +43,29 @@ const upload = multer({
   },
   fileFilter: fileFilter
 });
+
+function parseExpenseBody(body) {
+  const bodyData = { ...body };
+  const numericFields = ['amount', 'approxKms', 'claimedDistanceKm', 'gpsDistance'];
+  for (const key of numericFields) {
+    if (bodyData[key] !== undefined && bodyData[key] !== '') {
+      bodyData[key] = parseFloat(bodyData[key]);
+    }
+  }
+  Object.keys(bodyData).forEach((key) => {
+    if (bodyData[key] === 'undefined' || bodyData[key] === 'null' || bodyData[key] === '') {
+      delete bodyData[key];
+    }
+  });
+  return bodyData;
+}
+
+function applyUploadedFiles(expenseData, files) {
+  const billFile = files?.bill?.[0] || (files?.bill && !Array.isArray(files.bill) ? files.bill : null);
+  const ticketFile = files?.ticket?.[0] || (files?.ticket && !Array.isArray(files.ticket) ? files.ticket : null);
+  if (billFile) expenseData.receipt = `/uploads/expenses/${billFile.filename}`;
+  if (ticketFile) expenseData.ticketReceipt = `/uploads/expenses/${ticketFile.filename}`;
+}
 
 // @desc    Get all expenses
 // @route   GET /api/expenses
@@ -208,6 +233,118 @@ const uploadExpenseBill = async (req, res) => {
   } catch (error) {
     console.error('Error uploading expense bill:', error);
     res.status(500).json({ message: error.message || 'Failed to upload bill' });
+  }
+};
+
+// @desc    Calculate GPS/route distance for travel
+// @route   POST /api/expenses/calculate-distance
+// @access  Private
+const calculateRouteDistance = async (req, res) => {
+  try {
+    const { from, to } = req.body;
+    const result = await calculateRouteDistanceKm(from, to);
+    if (result.error && result.gpsDistance == null) {
+      return res.status(200).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create multiple expenses in one submission
+// @route   POST /api/expenses/create-batch
+// @access  Private
+const createExpenseBatch = async (req, res) => {
+  try {
+    const policy = await getExpensePolicy();
+    const { expenses: lines, submissionBatchId } = req.body;
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return res.status(400).json({ message: 'expenses array is required' });
+    }
+
+    const batchId =
+      submissionBatchId ||
+      `batch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const created = [];
+
+    for (const line of lines) {
+      const bodyData = parseExpenseBody({ ...line, submissionBatchId: batchId });
+      const { errors, data } = validateExpensePayload(bodyData, policy, {});
+      if (errors.length) {
+        return res.status(400).json({ message: errors.join(' '), line });
+      }
+      const expenseData = {
+        ...data,
+        status: 'Pending',
+        createdBy: req.user._id,
+        submissionBatchId: batchId,
+      };
+      if (line.receipt) expenseData.receipt = line.receipt;
+      if (line.ticketReceipt) expenseData.ticketReceipt = line.ticketReceipt;
+      if (['Executive', 'Sales BDE', 'Employee', 'Trainer'].includes(req.user.role)) {
+        expenseData.employeeId = req.user._id;
+      }
+      const expense = await Expense.create(expenseData);
+      created.push(expense);
+    }
+
+    const populated = await Expense.find({ _id: { $in: created.map((e) => e._id) } })
+      .populate('createdBy', 'name email')
+      .populate('employeeId', 'name email');
+
+    res.status(201).json({
+      submissionBatchId: batchId,
+      expenses: populated,
+      totals: summarizeBatchTotals(populated),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Resubmit expense after Needs Correction
+// @route   PUT /api/expenses/:id/resubmit
+// @access  Private
+const resubmitExpense = async (req, res) => {
+  try {
+    const expense = await Expense.findById(req.params.id);
+    if (!expense) return res.status(404).json({ message: 'Expense not found' });
+    if (expense.status !== 'Needs Correction') {
+      return res.status(400).json({ message: 'Only expenses marked Needs Correction can be resubmitted' });
+    }
+    if (String(expense.createdBy) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Only the submitter can resubmit this expense' });
+    }
+
+    const policy = await getExpensePolicy();
+    const bodyData = parseExpenseBody(req.body);
+    const { errors, data } = validateExpensePayload(bodyData, policy, req.files);
+    if (errors.length) return res.status(400).json({ message: errors.join(' ') });
+
+    applyUploadedFiles(data, req.files);
+
+    Object.assign(expense, data, {
+      status: 'Pending',
+      rejectionReason: '',
+      returnedBy: undefined,
+      returnedAt: undefined,
+      executiveManagerApprovedBy: undefined,
+      executiveManagerApprovedAt: undefined,
+      managerApprovedBy: undefined,
+      managerApprovedAt: undefined,
+      approvedBy: undefined,
+      approvedAt: undefined,
+      approvedAmount: undefined,
+    });
+    await expense.save();
+
+    const populated = await Expense.findById(expense._id)
+      .populate('employeeId', 'name email')
+      .populate('createdBy', 'name email');
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -736,6 +873,9 @@ module.exports = {
   getExpense,
   getExpensePolicySettings,
   createExpense,
+  createExpenseBatch,
+  calculateRouteDistance,
+  resubmitExpense,
   approveExpense,
   getManagerPendingExpenses,
   getExecutiveManagerPendingExpenses,
@@ -747,5 +887,6 @@ module.exports = {
   updateExpense,
   uploadExpenseBill,
   uploadExpenseBillMiddleware: upload.single('bill'),
+  uploadExpenseBillSingleMiddleware: upload.single('bill'),
 };
 

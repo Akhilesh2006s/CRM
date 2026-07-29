@@ -3,7 +3,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { getCurrentUser } from '@/lib/auth'
+import { usePermissions } from '@/components/permissions/PermissionsProvider'
+import { canAccessHref } from '@/lib/access'
+import {
+  buildRbacSidebarNav,
+  rbacCatalogHrefs,
+  type BuiltRbacNavItem,
+} from '@/lib/rbac-nav'
 import { useSidebar } from '@/contexts/SidebarContext'
 import {
   LayoutDashboard,
@@ -168,6 +174,8 @@ const NAV: NavItem[] = [
       { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
       { label: 'EMP DC', href: '/dashboard/dc/emp', icon: UserCircle2 },
       { label: 'Term-Wise DC', href: '/dashboard/dc/term-wise', icon: FileText },
+      { label: 'My Clients', href: '/dashboard/dc/client-dc', icon: Users },
+      { label: 'Term-Wise My Clients', href: '/dashboard/dc/client-dc/term-wise', icon: FileText },
     ],
   },
   {
@@ -179,6 +187,15 @@ const NAV: NavItem[] = [
       { label: 'Inactive Employees', href: '/dashboard/employees/inactive' },
       { label: 'Zones', href: '/dashboard/employees/zones', icon: Database },
       { label: 'Clusters', href: '/dashboard/employees/clusters', icon: Database },
+    ],
+  },
+  {
+    label: 'Executive Managers',
+    icon: Shield,
+    children: [
+      { label: 'All Managers', href: '/dashboard/executive-managers' },
+      { label: 'Create Manager', href: '/dashboard/executive-managers/new' },
+      { label: 'Executives', href: '/dashboard/executive-managers/executives' },
     ],
   },
   {
@@ -278,10 +295,95 @@ const NAV: NavItem[] = [
       { label: 'App Dashboard Data Upload', href: '/dashboard/settings/upload' },
       { label: 'SMS', href: '/dashboard/settings/sms' },
       { label: 'DB Backup', href: '/dashboard/settings/backup' },
+      { label: 'Expense policy', href: '/dashboard/settings/expenses', adminOnly: true },
+      { label: 'Roles & Permissions', href: '/dashboard/settings/roles' },
     ],
   },
   { label: 'Sign out', icon: LogOut, href: '/auth/login' },
 ]
+
+const RBAC_MODULE_ICONS: Record<string, typeof LayoutDashboard> = {
+  dashboard: LayoutDashboard,
+  clients: Truck,
+  leads: TrendingUp,
+  employees: Users,
+  leaves: CalendarCheck2,
+  training: GraduationCap,
+  warehouse: Boxes,
+  returns: RefreshCw,
+  payments: CreditCard,
+  expenses: Calculator,
+  reports: BarChart3,
+  products: Package,
+  settings: Settings,
+  executive_managers: Users,
+  samples: Package,
+  vendor: Boxes,
+}
+
+function filterNavByPermissions(
+  nav: NavItem[],
+  user: { permissions?: string[]; role?: string; isSuperAdmin?: boolean; rbacEnabled?: boolean } | null
+): NavItem[] {
+  return nav
+    .map((item) => {
+      if (item.href === '/auth/login') return item
+      if (item.children?.length) {
+        const children = item.children.filter((c) => canAccessHref(user as any, c.href))
+        if (children.length === 0) return null
+        return { ...item, children }
+      }
+      if (item.href && !canAccessHref(user as any, item.href)) return null
+      return item
+    })
+    .filter((x): x is NavItem => x !== null)
+}
+
+function rbacBuiltToNavItems(built: BuiltRbacNavItem[]): NavItem[] {
+  return built.map((item) => {
+    const icon = RBAC_MODULE_ICONS[item.module] || LayoutDashboard
+    if (item.href) {
+      return { label: item.label, href: item.href, icon }
+    }
+    return {
+      label: item.label,
+      icon,
+      children: item.children?.map((c) => ({ label: c.label, href: c.href })) || [],
+    }
+  })
+}
+
+/** Role-specific links (e.g. executive-manager dashboard) not in the RBAC catalog. */
+function extractExtraNavItems(
+  nav: NavItem[],
+  user: { permissions?: string[]; isSuperAdmin?: boolean } | null,
+  catalogHrefs: Set<string>
+): NavItem[] {
+  const extras: NavItem[] = []
+  for (const item of nav) {
+    if (item.href === '/auth/login') continue
+    if (item.children?.length) {
+      const children = item.children.filter(
+        (c) =>
+          c.href &&
+          !catalogHrefs.has(c.href) &&
+          canAccessHref(user as any, c.href)
+      )
+      if (children.length > 0) {
+        extras.push({ ...item, children })
+      }
+      continue
+    }
+    if (
+      item.href &&
+      !catalogHrefs.has(item.href) &&
+      canAccessHref(user as any, item.href)
+    ) {
+      extras.push(item)
+    }
+  }
+  return extras
+}
 
 export function Sidebar() {
   const router = useRouter()
@@ -290,6 +392,8 @@ export function Sidebar() {
   const [user, setUser] = useState<{ _id?: string; name?: string; email?: string; role?: string } | null>(null)
   const { sidebarOpen, setSidebarOpen, toggleSidebar: toggleSidebarContext } = useSidebar()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const { user: permUser, rbacActive, permissionsReady } = usePermissions()
+  const [mounted, setMounted] = useState(false)
 
   // Load sidebar state from localStorage
   useEffect(() => {
@@ -297,8 +401,7 @@ export function Sidebar() {
       try {
         const raw = localStorage.getItem('authUser')
         if (raw) setUser(JSON.parse(raw))
-        
-        // Load persisted sidebar state
+
         const savedOpenState = localStorage.getItem('sidebarOpenState')
         if (savedOpenState) {
           try {
@@ -307,6 +410,7 @@ export function Sidebar() {
           } catch {}
         }
       } catch {}
+      setMounted(true)
     }
   }, [])
 
@@ -655,9 +759,23 @@ export function Sidebar() {
     })
   }
 
+  if (rbacActive && permissionsReady) {
+    const baseNav = finalNav.length > 0 ? finalNav : NAV
+    const catalogHrefs = rbacCatalogHrefs()
+    const fromPermissions = rbacBuiltToNavItems(buildRbacSidebarNav(permUser))
+    const extras = extractExtraNavItems(baseNav, permUser, catalogHrefs)
+    finalNav = [
+      ...fromPermissions,
+      ...extras,
+      { label: 'Sign out', icon: LogOut, href: '/auth/login' },
+    ]
+  }
+
+  const navReady = mounted && (!rbacActive || permissionsReady)
+
   // Auto-expand menu sections based on current route
   useEffect(() => {
-    if (!pathname) return
+    if (!pathname || !navReady) return
 
     setOpen((currentOpen) => {
       const newOpenState = { ...currentOpen }
@@ -769,7 +887,19 @@ export function Sidebar() {
 
         <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden dashboard-sidebar-scroll bg-[#0b1210] py-2">
         <ul className="block gap-0 px-2">
-          {finalNav.map((item) => (
+          {!navReady
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <li key={`nav-skeleton-${i}`} className="w-full px-2 py-1">
+                  <div
+                    className={`h-9 rounded-lg bg-white/10 animate-pulse ${
+                      sidebarOpen ? 'w-full' : 'w-9 mx-auto'
+                    }`}
+                  />
+                </li>
+              ))
+            : null}
+          {navReady &&
+            finalNav.map((item) => (
             <li
               key={item.label}
               className={`w-full ${item.label === 'Sign out' ? 'mt-3 pt-3 border-t border-white/15' : ''}`}

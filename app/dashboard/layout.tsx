@@ -6,6 +6,8 @@ import { TopBar } from "@/components/dashboard/TopBar"
 import { Sidebar } from "@/components/dashboard/Sidebar"
 import { RequireAuth } from "@/components/require-auth"
 import { SidebarProvider } from "@/contexts/SidebarContext"
+import { PermissionsProvider } from "@/components/permissions/PermissionsProvider"
+import { RouteGuard } from "@/components/permissions/RouteGuard"
 
 function MainContent({ children }: { children: React.ReactNode }) {
   return (
@@ -14,7 +16,9 @@ function MainContent({ children }: { children: React.ReactNode }) {
       id="main-content"
     >
       <RequireAuth>
-        <div className="w-full min-w-0">{children}</div>
+        <RouteGuard>
+          <div className="w-full min-w-0">{children}</div>
+        </RouteGuard>
       </RequireAuth>
     </main>
   )
@@ -48,8 +52,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider>
-      <DashboardLayoutContent>{children}</DashboardLayoutContent>
-    </SidebarProvider>
+    <PermissionsProvider>
+      <SidebarProvider>
+        <DashboardLayoutContent>{children}</DashboardLayoutContent>
+      </SidebarProvider>
+    </PermissionsProvider>
   )
 }

@@ -1,45 +1,97 @@
-/** Local dev default — must match `backend/server.js` (`PORT` defaults to 5000). */
-export const LOCAL_API_BASE_URL = "http://localhost:5000";
+/** Local dev API — must match `backend/.env` PORT (5001 avoids macOS AirPlay on :5000). */
+export const LOCAL_API_BASE_URL = "http://localhost:5001";
 export const PROD_API_BASE_URL = "https://crm-backend-production-fc85.up.railway.app";
+
+function isBrowserDevProxy(): boolean {
+  if (typeof window === "undefined") return false;
+  if (process.env.NODE_ENV === "production") return false;
+  const h = window.location.hostname;
+  return h === "localhost" || h === "127.0.0.1";
+}
 
 function normalizeClientApiBase(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
-  if (fromEnv) {
-    try {
-      const u = new URL(fromEnv);
-      const isLocalHost =
-        u.hostname === "localhost" || u.hostname === "127.0.0.1";
-      if (process.env.NODE_ENV === "production" && isLocalHost) {
-        return PROD_API_BASE_URL;
-      }
-    } catch {
-      if (
-        process.env.NODE_ENV === "production" &&
-        (fromEnv.includes("localhost") || fromEnv.includes("127.0.0.1"))
-      ) {
-        return PROD_API_BASE_URL;
-      }
+  const raw =
+    fromEnv ||
+    (process.env.NODE_ENV === "production" ? PROD_API_BASE_URL : LOCAL_API_BASE_URL);
+
+  try {
+    const u = new URL(raw);
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    const isLocalHost = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+
+    if (process.env.NODE_ENV === "production" && isLocalHost) {
+      return PROD_API_BASE_URL;
     }
-    return fromEnv;
+
+    if (isLocalHost && port === "5000") {
+      return LOCAL_API_BASE_URL;
+    }
+  } catch {
+    if (
+      process.env.NODE_ENV === "production" &&
+      (raw.includes("localhost") || raw.includes("127.0.0.1"))
+    ) {
+      return PROD_API_BASE_URL;
+    }
+    if (raw.includes("localhost:5000") || raw.includes("127.0.0.1:5000")) {
+      return LOCAL_API_BASE_URL;
+    }
   }
-  if (process.env.NODE_ENV === "production") {
-    return PROD_API_BASE_URL;
-  }
-  return LOCAL_API_BASE_URL;
+  return raw;
 }
 
-export const API_BASE_URL = normalizeClientApiBase();
+function resolveApiBaseExport(): string {
+  if (typeof window !== "undefined" && isBrowserDevProxy()) {
+    return "";
+  }
+  return stripAirPlayPort(normalizeClientApiBase().replace(/\/$/, ""));
+}
 
-/**
- * Origin for static `/uploads` (must never be localhost:5000 — macOS AirPlay uses 5000, not Node).
- */
+export const API_BASE_URL = resolveApiBaseExport();
+
+export function apiUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  const full = p.startsWith("/api") ? p : `/api${p}`;
+  if (typeof window !== "undefined" && isBrowserDevProxy()) {
+    return full;
+  }
+  const base = stripAirPlayPort(normalizeClientApiBase().replace(/\/$/, ""));
+  return `${base}${full}`;
+}
+
+function stripAirPlayPort(url: string): string {
+  return url
+    .replace(/^http:\/\/localhost:5000(?=\/|$)/, LOCAL_API_BASE_URL)
+    .replace(/^http:\/\/127\.0\.0\.1:5000(?=\/|$)/, LOCAL_API_BASE_URL)
+    .replace(/localhost:5000/g, "localhost:5001")
+    .replace(/127\.0\.0\.1:5000/g, "127.0.0.1:5001");
+}
+
 function uploadsApiOrigin(): string {
-  return API_BASE_URL.replace(/\/$/, "");
+  if (isBrowserDevProxy()) return "";
+  const base = API_BASE_URL.replace(/\/$/, "");
+  if (
+    base.includes(":5000") &&
+    (base.includes("localhost") || base.includes("127.0.0.1"))
+  ) {
+    return LOCAL_API_BASE_URL;
+  }
+  return base;
 }
 
-/**
- * Files under /uploads are served by the API (Express static), not the Next.js app.
- */
+export function apiFetchUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  const apiPath = p.startsWith("/api") ? p : `/api${p}`;
+
+  if (isBrowserDevProxy()) {
+    return apiPath;
+  }
+
+  const base = normalizeClientApiBase().replace(/\/$/, "");
+  return stripAirPlayPort(`${base}${apiPath}`);
+}
+
 export function resolveUploadUrl(url: string | null | undefined): string {
   if (url == null || typeof url !== "string") return "";
   const trimmed = url.trim();
@@ -48,32 +100,41 @@ export function resolveUploadUrl(url: string | null | undefined): string {
     return trimmed;
   }
   if (trimmed.startsWith("uploads/")) {
-    return `${uploadsApiOrigin()}/${trimmed}`;
+    const origin = uploadsApiOrigin();
+    return origin ? stripAirPlayPort(`${origin}/${trimmed}`) : `/${trimmed}`;
   }
   if (trimmed.startsWith("/uploads/")) {
-    return `${uploadsApiOrigin()}${trimmed}`;
+    const origin = uploadsApiOrigin();
+    return origin ? stripAirPlayPort(`${origin}${trimmed}`) : trimmed;
   }
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     try {
       const u = new URL(trimmed);
       if (u.pathname.startsWith("/uploads/")) {
-        return `${uploadsApiOrigin()}${u.pathname}${u.search}${u.hash}`;
+        const port = u.port || (u.protocol === "https:" ? "443" : "80");
+        const isBadLocal5000 =
+          (u.hostname === "localhost" || u.hostname === "127.0.0.1") &&
+          port === "5000";
+        if (isBadLocal5000 || isBrowserDevProxy()) {
+          return `${u.pathname}${u.search}${u.hash}`;
+        }
+        return stripAirPlayPort(
+          `${uploadsApiOrigin()}${u.pathname}${u.search}${u.hash}`
+        );
       }
     } catch {
-      return trimmed;
+      return stripAirPlayPort(trimmed);
     }
-    return trimmed;
+    return stripAirPlayPort(trimmed);
   }
   if (/^po-\d+-\d+\.[a-z0-9]+$/i.test(trimmed)) {
-    return `${uploadsApiOrigin()}/uploads/po/${trimmed}`;
+    const origin = uploadsApiOrigin();
+    const path = `/uploads/po/${trimmed}`;
+    return origin ? stripAirPlayPort(`${origin}${path}`) : path;
   }
-  return trimmed;
+  return stripAirPlayPort(trimmed);
 }
 
-/**
- * Authenticated API URL for files under uploads/po (GET /api/dc/po-file).
- * Use this for fetch() instead of raw /uploads/po/... when static hosting returns 403.
- */
 export function poFileApiUrl(poPathOrUrl: string | null | undefined): string | null {
   if (poPathOrUrl == null || typeof poPathOrUrl !== "string") return null;
   const trimmed = poPathOrUrl.trim();
@@ -95,8 +156,10 @@ export function poFileApiUrl(poPathOrUrl: string | null | undefined): string | n
   }
   if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) return null;
   const pathParam = `po/${filename}`;
-  const base = API_BASE_URL.replace(/\/$/, "");
-  return `${base}/api/dc/po-file?path=${encodeURIComponent(pathParam)}`;
+  if (isBrowserDevProxy()) {
+    return `/api/dc/po-file?path=${encodeURIComponent(pathParam)}`;
+  }
+  return apiUrl(`/api/dc/po-file?path=${encodeURIComponent(pathParam)}`);
 }
 
 export async function apiRequest<T>(
@@ -115,8 +178,10 @@ export async function apiRequest<T>(
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
 
+  const url = apiFetchUrl(path);
+
   try {
-    const res = await fetch(`${API_BASE_URL}/api${path}`, {
+    const res = await fetch(url, {
       ...options,
       headers,
       cache: "no-store",
@@ -127,12 +192,10 @@ export async function apiRequest<T>(
       let details = null;
       try {
         const data = await res.json();
-        // Check for error, message, or details fields
         message = data?.error || data?.message || message;
         details = data?.details || null;
       } catch (_) {}
-      
-      // Include details in error message if available
+
       const errorMessage = details ? `${message}\n\n${details}` : message;
       const error = new Error(errorMessage);
       (error as any).status = res.status;
@@ -142,15 +205,11 @@ export async function apiRequest<T>(
 
     return (await res.json()) as T;
   } catch (error: any) {
-    // Handle network errors (backend not running, CORS, etc.)
     if (error instanceof TypeError && error.message.includes("fetch")) {
       throw new Error(
-        `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the backend is running.`
+        `Cannot connect to backend (${url}). Run: cd backend && npm run dev (port 5001), then from CRM root: rm -rf .next && npm run dev`
       );
     }
-    // Re-throw other errors as-is
     throw error;
   }
 }
-
-

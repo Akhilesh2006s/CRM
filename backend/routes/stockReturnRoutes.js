@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { requirePermission } = require('../middleware/permissionMiddleware');
 const multer = require('multer');
 const {
   createExecutiveReturn,
@@ -24,10 +25,14 @@ const {
   uploadReturnPhotoMiddleware,
 } = require('../controllers/stockReturnController');
 
+// Static paths first (before /:id)
 router.post('/executive', authMiddleware, createExecutiveReturn);
 router.get('/executive/list', authMiddleware, listExecutiveReturns);
-router.get('/executive', authMiddleware, listExecutiveReturns); // Keep for backward compatibility
+router.get('/executive', authMiddleware, listExecutiveReturns);
 router.get('/executive/mine', authMiddleware, listMyExecutiveReturns);
+
+router.post('/warehouse', authMiddleware, createWarehouseReturn);
+router.get('/warehouse', authMiddleware, listWarehouseReturns);
 
 router.get('/warehouse-executive/list', authMiddleware, listWarehouseExecutiveList);
 router.get('/warehouse-executive/queue', authMiddleware, listWarehouseExecutiveQueue);
@@ -39,13 +44,6 @@ router.get('/warehouse-manager/:id', authMiddleware, getReturnForWarehouseManage
 
 router.get('/admin/:id', authMiddleware, getReturnForAdmin);
 
-router.get('/:id', authMiddleware, getExecutiveReturnById);
-router.put('/:id', authMiddleware, updateExecutiveReturn);
-
-router.post('/warehouse', authMiddleware, createWarehouseReturn);
-router.get('/warehouse', authMiddleware, listWarehouseReturns);
-
-// Photo upload - must be before /:id routes
 router.post('/upload-photo', authMiddleware, (req, res, next) => {
   uploadReturnPhotoMiddleware(req, res, (err) => {
     if (err) {
@@ -63,11 +61,20 @@ router.post('/upload-photo', authMiddleware, (req, res, next) => {
 
 // Warehouse Executive save / verify
 router.put('/:id/warehouse-save', authMiddleware, saveWarehouseReturnUpdate);
-router.put('/:id/warehouse-verify', authMiddleware, warehouseVerifyReturn);
+router.put(
+  '/:id/warehouse-verify',
+  authMiddleware,
+  requirePermission('returns.warehouse.verify'),
+  warehouseVerifyReturn
+);
+router.put(
+  '/:id/manager-action',
+  authMiddleware,
+  requirePermission('returns.warehouse.approve'),
+  managerAction
+);
 
-// Warehouse Manager action endpoint
-router.put('/:id/manager-action', authMiddleware, managerAction);
+router.get('/:id', authMiddleware, getExecutiveReturnById);
+router.put('/:id', authMiddleware, updateExecutiveReturn);
 
 module.exports = router;
-
-
