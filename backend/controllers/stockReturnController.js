@@ -1,5 +1,13 @@
 const StockReturn = require('../models/StockReturn');
 const Lead = require('../models/Lead');
+const Product = require('../models/Product');
+const Payment = require('../models/Payment');
+const DC = require('../models/DC');
+const {
+  calculateProductTotal,
+  normalizeCalculationType,
+  roundToTwo,
+} = require('../utils/paymentDivisor');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -40,6 +48,174 @@ async function getNextReturnNumber(userId) {
   return latestNum + 1;
 }
 
+const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+async function loadProductMetaByName(productNames = []) {
+  const unique = Array.from(
+    new Set(
+      (productNames || [])
+        .map((n) => String(n || '').trim())
+        .filter(Boolean)
+    )
+  );
+  if (unique.length === 0) return new Map();
+  const docs = await Product.find({
+    productName: { $in: unique.map((n) => new RegExp(`^${escapeRegex(n)}$`, 'i')) },
+  })
+    .select('productName calculationType productLevels subjects')
+    .lean();
+  const map = new Map();
+  docs.forEach((d) => {
+    map.set(String(d.productName || '').trim().toLowerCase(), d);
+  });
+  return map;
+}
+
+function normalizeReturnRow(input = {}) {
+  return {
+    product: String(input.product || input.productName || '').trim(),
+    class: String(input.class || '').trim(),
+    level: String(input.level || '').trim(),
+    subject: String(input.subject || '').trim(),
+    soldQty: Number(input.soldQty) || 0,
+    returnQty: Number(input.returnQty) || 0,
+    unitPrice: Number(input.unitPrice) || 0,
+    reason: String(input.reason || '').trim(),
+    remarks: String(input.remarks || '').trim(),
+    receivedQty: Number(input.receivedQty) || 0,
+    condition: input.condition || undefined,
+    batchLot: String(input.batchLot || '').trim(),
+    storageLocation: String(input.storageLocation || '').trim(),
+    quantityMismatch: Boolean(input.quantityMismatch),
+    mismatchRemark: String(input.mismatchRemark || '').trim(),
+    managerDecision: input.managerDecision || undefined,
+    approvedQty: Number(input.approvedQty) || 0,
+    stockBucket: input.stockBucket || undefined,
+    managerRemark: String(input.managerRemark || '').trim(),
+  };
+}
+
+function groupedRowsForDivisor(rows, productName, className) {
+  return rows
+    .filter((r) => {
+      const pName = String(r.product || '').trim().toLowerCase();
+      const pTarget = String(productName || '').trim().toLowerCase();
+      if (!pName || pName !== pTarget) return false;
+      if (!className) return true;
+      return String(r.class || '').trim() === String(className || '').trim();
+    })
+    .map((r) => ({
+      strength: Number(r.returnQty) || 0,
+      level: r.level,
+      subject: r.subject,
+    }));
+}
+
+async function applyReturnBilling(rows = []) {
+  const normalized = rows.map(normalizeReturnRow);
+  const productMeta = await loadProductMetaByName(normalized.map((r) => r.product));
+
+  const computedRows = normalized.map((row) => {
+    const meta = productMeta.get(String(row.product || '').toLowerCase()) || null;
+    const ct = normalizeCalculationType(meta?.calculationType || row.calculationType || 'normal');
+    const divisorRows = groupedRowsForDivisor(normalized, row.product, row.class);
+    const fallbackCount =
+      ct === 'level_based'
+        ? Array.isArray(meta?.productLevels)
+          ? meta.productLevels.length
+          : 0
+        : ct === 'subject_based'
+          ? Array.isArray(meta?.subjects)
+            ? meta.subjects.length
+            : 0
+          : 0;
+    const bill = calculateProductTotal({
+      calculationType: ct,
+      unitPrice: row.unitPrice,
+      rows: divisorRows,
+      catalogFallbackCount: fallbackCount,
+    });
+    const lineStrength = Number(row.returnQty) || 0;
+    const sumStrength = Number(bill.sumStrength) || 0;
+    const ratio = sumStrength > 0 ? lineStrength / sumStrength : 0;
+    const lineTotal = roundToTwo((Number(bill.total) || 0) * ratio);
+    return {
+      ...row,
+      calculationType: bill.calculationType,
+      divisorUsed: Number(bill.divisorUsed) || 1,
+      lineTotal,
+    };
+  });
+
+  const returnValue = roundToTwo(computedRows.reduce((sum, r) => sum + (Number(r.lineTotal) || 0), 0));
+  return { products: computedRows, returnValue };
+}
+
+function computeApprovedReturnValue(products = []) {
+  const total = (products || []).reduce((sum, p) => {
+    const approvedQty = Number(p.approvedQty) || 0;
+    const requestedQty = Number(p.returnQty) || 0;
+    const lineTotal = Number(p.lineTotal) || 0;
+    if (approvedQty <= 0 || requestedQty <= 0 || lineTotal <= 0) return sum;
+    return sum + lineTotal * Math.min(1, approvedQty / requestedQty);
+  }, 0);
+  return roundToTwo(total);
+}
+
+async function createCreditNoteForReturn(returnDoc) {
+  if (!returnDoc || returnDoc.paymentAdjustmentCreated) return null;
+  const approvedValue = Number(returnDoc.approvedReturnValue) || 0;
+  if (approvedValue <= 0) return null;
+
+  const dcOrderId = typeof returnDoc.dcOrderId === 'object' ? returnDoc.dcOrderId?._id : returnDoc.dcOrderId;
+  let linkedDcId = null;
+  if (dcOrderId) {
+    const linkedDc = await DC.findOne({ dcOrderId }).select('_id').sort({ createdAt: -1 }).lean();
+    linkedDcId = linkedDc?._id || null;
+  }
+
+  const filter = {
+    status: 'Approved',
+    adjustmentType: { $ne: 'credit_note' },
+  };
+  if (linkedDcId) {
+    filter.dcId = linkedDcId;
+  } else if (returnDoc.customerName) {
+    filter.customerName = returnDoc.customerName;
+  }
+
+  const basePayment = await Payment.findOne(filter).sort({ paymentDate: 1, createdAt: 1 });
+  const creditNote = await Payment.create({
+    customerName: returnDoc.customerName || 'Unknown',
+    amount: -Math.abs(approvedValue),
+    paymentMethod: 'Other',
+    paymentDate: new Date(),
+    status: 'Approved',
+    description: `Credit note for stock return ${returnDoc.returnId}`,
+    schoolCode: basePayment?.schoolCode || '',
+    contactName: basePayment?.contactName || '',
+    mobileNumber: basePayment?.mobileNumber || '',
+    location: basePayment?.location || '',
+    zone: basePayment?.zone || '',
+    financialYear: basePayment?.financialYear || '',
+    dcId: basePayment?.dcId || undefined,
+    saleId: basePayment?.saleId || undefined,
+    programId: basePayment?.programId || undefined,
+    autoCreated: true,
+    adjustmentType: 'credit_note',
+    adjustmentForPaymentId: basePayment?._id,
+    adjustmentReason: `Return approved (${returnDoc.returnId})`,
+    approvedBy: returnDoc.approvedBy || undefined,
+    approvedAt: new Date(),
+    createdBy: returnDoc.approvedBy || returnDoc.createdBy,
+  });
+
+  returnDoc.paymentAdjustmentCreated = true;
+  returnDoc.paymentAdjustmentId = creditNote._id;
+  await returnDoc.save();
+  return creditNote;
+}
+
 // Executive create (supports Draft: optional returnId, optional products)
 const createExecutiveReturn = async (req, res) => {
   try {
@@ -59,9 +235,17 @@ const createExecutiveReturn = async (req, res) => {
       remarks,
       executiveRemarks,
       lrNumber,
+      lrDate,
       finYear,
       schoolType,
       schoolCode,
+      transport,
+      town,
+      address,
+      zone,
+      cluster,
+      contactPerson,
+      contactMobile,
       products,
       evidencePhotos,
       totalItems,
@@ -73,6 +257,12 @@ const createExecutiveReturn = async (req, res) => {
     if (!returnDate) return res.status(400).json({ message: 'returnDate is required' });
 
     if (!isDraft) {
+      if (!lrNumber || !String(lrNumber).trim()) {
+        return res.status(400).json({ message: 'LR No is required to submit' });
+      }
+      if (!finYear || !String(finYear).trim()) {
+        return res.status(400).json({ message: 'Fin Year is required to submit' });
+      }
       if (!products || !Array.isArray(products) || products.length === 0) {
         return res.status(400).json({ message: 'At least one product is required to submit' });
       }
@@ -99,6 +289,7 @@ const createExecutiveReturn = async (req, res) => {
     const generatedReturnId = returnId || `RET-${req.user._id}-${returnNumber}-${Date.now()}`;
 
     const productList = Array.isArray(products) ? products : [];
+    const billed = await applyReturnBilling(productList);
     const doc = await StockReturn.create({
       returnId: generatedReturnId,
       returnNumber,
@@ -116,19 +307,38 @@ const createExecutiveReturn = async (req, res) => {
       remarks: remarks || '',
       executiveRemarks: executiveRemarks || '',
       lrNumber: lrNumber || '',
+      lrDate: lrDate ? new Date(lrDate) : undefined,
       finYear: finYear || '',
       schoolType: schoolType || '',
       schoolCode: schoolCode || '',
-      products: productList.map(p => ({
+      transport: transport || '',
+      town: town || '',
+      address: address || '',
+      zone: zone || '',
+      cluster: cluster || '',
+      contactPerson: contactPerson || '',
+      contactMobile: contactMobile || '',
+      products: billed.products.map(p => ({
         product: p.product || '',
+        class: p.class || '',
+        level: p.level || '',
+        subject: p.subject || '',
         soldQty: Number(p.soldQty) || 0,
         returnQty: Number(p.returnQty) || 0,
+        unitPrice: Number(p.unitPrice) || 0,
+        calculationType: p.calculationType || 'normal',
+        divisorUsed: Number(p.divisorUsed) || 1,
+        lineTotal: Number(p.lineTotal) || 0,
         reason: p.reason || '',
         remarks: p.remarks || '',
       })),
       evidencePhotos: evidencePhotos || [],
-      totalItems: totalItems != null ? totalItems : productList.length,
-      totalQuantity: totalQuantity != null ? totalQuantity : productList.reduce((sum, p) => sum + (Number(p.returnQty) || 0), 0),
+      totalItems: totalItems != null ? totalItems : billed.products.length,
+      totalQuantity:
+        totalQuantity != null
+          ? totalQuantity
+          : billed.products.reduce((sum, p) => sum + (Number(p.returnQty) || 0), 0),
+      returnValue: billed.returnValue,
       status: isDraft ? 'Draft' : (status || 'Submitted'),
     });
 
@@ -212,15 +422,24 @@ const updateExecutiveReturn = async (req, res) => {
     if (executiveRemarks != null) doc.executiveRemarks = executiveRemarks;
     if (evidencePhotos && Array.isArray(evidencePhotos)) doc.evidencePhotos = evidencePhotos;
     if (products && Array.isArray(products)) {
-      doc.products = products.map(p => ({
+      const billed = await applyReturnBilling(products);
+      doc.products = billed.products.map((p) => ({
         product: p.product || p.productName || '',
+        class: p.class || '',
+        level: p.level || '',
+        subject: p.subject || '',
         soldQty: Number(p.soldQty) || 0,
         returnQty: Number(p.returnQty) || 0,
+        unitPrice: Number(p.unitPrice) || 0,
+        calculationType: p.calculationType || 'normal',
+        divisorUsed: Number(p.divisorUsed) || 1,
+        lineTotal: Number(p.lineTotal) || 0,
         reason: p.reason || '',
         remarks: p.remarks || '',
       }));
       doc.totalItems = totalItems != null ? totalItems : doc.products.length;
       doc.totalQuantity = totalQuantity != null ? totalQuantity : doc.products.reduce((sum, p) => sum + (Number(p.returnQty) || 0), 0);
+      doc.returnValue = billed.returnValue;
     }
     if (isSubmit) doc.status = 'Submitted';
 
@@ -258,6 +477,31 @@ const getExecutiveReturnById = async (req, res) => {
   }
 };
 
+const warehouseExecutivePopulate = [
+  { path: 'createdBy', select: 'name email' },
+  { path: 'executiveId', select: 'name email' },
+  { path: 'leadId', select: 'school_name contact_person contact_mobile location zone' },
+  {
+    path: 'dcOrderId',
+    select:
+      'dc_code school_name school_code contact_person contact_mobile address zone location city area cluster_code transport_name transport_location transportation_landmark',
+  },
+];
+
+// Warehouse Executive dashboard — full return stock list (all statuses)
+const listWarehouseExecutiveList = async (req, res) => {
+  try {
+    const filter = { sourceType: 'Executive' };
+    if (req.query.status) filter.status = req.query.status;
+    const items = await StockReturn.find(filter)
+      .populate(warehouseExecutivePopulate)
+      .sort({ returnDate: -1, createdAt: -1 });
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Warehouse Executive: queue of returns to verify (Submitted or Sent Back for re-verification)
 const listWarehouseExecutiveQueue = async (req, res) => {
   try {
@@ -265,10 +509,7 @@ const listWarehouseExecutiveQueue = async (req, res) => {
       sourceType: 'Executive',
       status: { $in: ['Submitted', 'Sent Back'] },
     })
-      .populate('createdBy', 'name email')
-      .populate('executiveId', 'name email')
-      .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name')
+      .populate(warehouseExecutivePopulate)
       .sort({ createdAt: -1 });
     res.json(items);
   } catch (error) {
@@ -282,15 +523,29 @@ const getReturnForWarehouseExecutive = async (req, res) => {
     const doc = await StockReturn.findOne({
       _id: req.params.id,
       sourceType: 'Executive',
-      status: { $in: ['Submitted', 'Sent Back', 'Received', 'Pending Manager Approval'] },
     })
-      .populate('createdBy', 'name email')
-      .populate('executiveId', 'name email')
-      .populate('verifiedBy', 'name email')
-      .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name');
+      .populate(warehouseExecutivePopulate)
+      .populate('verifiedBy', 'name email');
     if (!doc) return res.status(404).json({ message: 'Return not found' });
     res.json(doc);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Warehouse Manager dashboard — full list (same shape as warehouse executive list)
+const listWarehouseManagerList = async (req, res) => {
+  try {
+    const filter = { sourceType: 'Executive' };
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.pending === 'true') {
+      filter.status = { $in: ['Received', 'Pending Manager Approval'] };
+    }
+    const items = await StockReturn.find(filter)
+      .populate(warehouseExecutivePopulate)
+      .populate('verifiedBy', 'name email')
+      .sort({ returnDate: -1, createdAt: -1 });
+    res.json(items);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -303,11 +558,8 @@ const listWarehouseManagerQueue = async (req, res) => {
       sourceType: 'Executive',
       status: { $in: ['Received', 'Pending Manager Approval'] },
     })
-      .populate('createdBy', 'name email')
-      .populate('executiveId', 'name email')
+      .populate(warehouseExecutivePopulate)
       .populate('verifiedBy', 'name email')
-      .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name')
       .sort({ createdAt: -1 });
     res.json(items);
   } catch (error) {
@@ -321,14 +573,35 @@ const getReturnForWarehouseManager = async (req, res) => {
     const doc = await StockReturn.findOne({
       _id: req.params.id,
       sourceType: 'Executive',
-      status: { $in: ['Received', 'Pending Manager Approval'] },
     })
-      .populate('createdBy', 'name email')
-      .populate('executiveId', 'name email')
+      .populate(warehouseExecutivePopulate)
       .populate('verifiedBy', 'name email')
-      .populate('approvedBy', 'name email')
-      .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name');
+      .populate('approvedBy', 'name email');
+    if (!doc) return res.status(404).json({ message: 'Return not found' });
+    res.json(doc);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+function isStockReturnAdmin(user) {
+  const role = (user?.role || '').trim();
+  return role === 'Super Admin' || role === 'Admin';
+}
+
+// Super Admin / Admin: full return detail (comparison, decisions, rejection reason)
+const getReturnForAdmin = async (req, res) => {
+  try {
+    if (!isStockReturnAdmin(req.user)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    const doc = await StockReturn.findOne({
+      _id: req.params.id,
+      sourceType: 'Executive',
+    })
+      .populate(warehouseExecutivePopulate)
+      .populate('verifiedBy', 'name email')
+      .populate('approvedBy', 'name email');
     if (!doc) return res.status(404).json({ message: 'Return not found' });
     res.json(doc);
   } catch (error) {
@@ -339,11 +612,15 @@ const getReturnForWarehouseManager = async (req, res) => {
 // Executive lists - for warehouse executives to see all submitted returns
 const listExecutiveReturns = async (req, res) => {
   try {
-    const items = await StockReturn.find({ sourceType: 'Executive' })
+    const filter = { sourceType: 'Executive' };
+    if (req.query.dcOrderId) filter.dcOrderId = req.query.dcOrderId;
+    const items = await StockReturn.find(filter)
       .populate('createdBy', 'name email')
       .populate('executiveId', 'name email')
       .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name')
+      .populate('dcOrderId', 'dc_code school_name school_code')
+      .populate('verifiedBy', 'name email')
+      .populate('approvedBy', 'name email')
       .sort({ createdAt: -1 });
     res.json(items);
   } catch (error) {
@@ -353,7 +630,9 @@ const listExecutiveReturns = async (req, res) => {
 
 const listMyExecutiveReturns = async (req, res) => {
   try {
-    const items = await StockReturn.find({ sourceType: 'Executive', createdBy: req.user._id })
+    const filter = { sourceType: 'Executive', createdBy: req.user._id };
+    if (req.query.dcOrderId) filter.dcOrderId = req.query.dcOrderId;
+    const items = await StockReturn.find(filter)
       .populate('leadId', 'school_name contact_person location')
       .sort({ createdAt: -1 });
     res.json(items);
@@ -397,6 +676,107 @@ const listWarehouseReturns = async (req, res) => {
   }
 };
 
+function mergeWarehouseProductRows(returnDoc, productsPayload = []) {
+  return (productsPayload || returnDoc.products).map((p, index) => {
+    const existingByIndex = returnDoc.products[index];
+    const existing =
+      existingByIndex?.product === (p.product || existingByIndex?.product)
+        ? existingByIndex
+        : returnDoc.products.find((x) => x.product === (p.product || x.product));
+    const requested = Number(existing?.returnQty ?? p.returnQty) || 0;
+    const received = Number(p.receivedQty ?? p.qty ?? p.quantity) || 0;
+    const mismatch = requested > 0 && received !== requested;
+    const base = existing ? (existing.toObject ? existing.toObject() : existing) : p;
+    return {
+      ...base,
+      product: p.product || existing?.product || '',
+      class: p.class || existing?.class || '',
+      level: p.productName || p.level || existing?.level || '',
+      subject: p.subject || existing?.subject || '',
+      soldQty: Number(existing?.soldQty ?? p.soldQty) || 0,
+      returnQty: requested,
+      reason: existing?.reason ?? p.reason ?? '',
+      remarks: p.remarks || existing?.remarks || '',
+      receivedQty: received,
+      condition: p.condition || existing?.condition || (received > 0 ? 'Sellable' : ''),
+      batchLot: p.batchLot || existing?.batchLot || '',
+      storageLocation: p.storageLocation || existing?.storageLocation || '',
+      quantityMismatch: mismatch,
+      mismatchRemark: mismatch
+        ? String(p.mismatchRemark || existing?.mismatchRemark || '').trim()
+        : '',
+    };
+  });
+}
+
+// Warehouse Executive — save progress without submitting to manager
+const saveWarehouseReturnUpdate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      returnDate,
+      lrNumber,
+      lrDate,
+      remarks,
+      whReturnRemarks,
+      transport,
+      town,
+      address,
+      zone,
+      cluster,
+      contactPerson,
+      contactMobile,
+      schoolCode,
+      products,
+      warehousePhotos,
+    } = req.body;
+
+    const returnDoc = await StockReturn.findById(id);
+    if (!returnDoc) return res.status(404).json({ message: 'Return not found' });
+    if (returnDoc.sourceType !== 'Executive') {
+      return res.status(400).json({ message: 'Not an executive return' });
+    }
+    if (!['Submitted', 'Sent Back'].includes(returnDoc.status)) {
+      return res.status(400).json({ message: 'Only Submitted or Sent Back returns can be updated here' });
+    }
+
+    if (returnDate) returnDoc.returnDate = new Date(returnDate);
+    if (lrNumber != null) returnDoc.lrNumber = String(lrNumber).trim();
+    if (lrDate) returnDoc.lrDate = new Date(lrDate);
+    if (remarks != null) returnDoc.remarks = String(remarks).trim();
+    if (whReturnRemarks != null) returnDoc.whReturnRemarks = String(whReturnRemarks).trim();
+    if (transport != null) returnDoc.transport = String(transport).trim();
+    if (town != null) returnDoc.town = String(town).trim();
+    if (address != null) returnDoc.address = String(address).trim();
+    if (zone != null) returnDoc.zone = String(zone).trim();
+    if (cluster != null) returnDoc.cluster = String(cluster).trim();
+    if (contactPerson != null) returnDoc.contactPerson = String(contactPerson).trim();
+    if (contactMobile != null) returnDoc.contactMobile = String(contactMobile).trim();
+    if (schoolCode != null) returnDoc.schoolCode = String(schoolCode).trim();
+
+    if (products && Array.isArray(products)) {
+      returnDoc.products = mergeWarehouseProductRows(returnDoc, products);
+      returnDoc.totalQuantity = returnDoc.products.reduce(
+        (sum, p) => sum + (Number(p.returnQty) || 0),
+        0
+      );
+      returnDoc.totalReceivedQty = returnDoc.products.reduce(
+        (sum, p) => sum + (Number(p.receivedQty) || 0),
+        0
+      );
+    }
+    if (warehousePhotos && Array.isArray(warehousePhotos)) {
+      returnDoc.warehousePhotos = warehousePhotos;
+    }
+
+    await returnDoc.save();
+    const populated = await StockReturn.findById(returnDoc._id).populate(warehouseExecutivePopulate);
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Failed to save return update' });
+  }
+};
+
 // Warehouse Executive verification (only when status is Submitted)
 const warehouseVerifyReturn = async (req, res) => {
   try {
@@ -405,7 +785,19 @@ const warehouseVerifyReturn = async (req, res) => {
       products,
       warehousePhotos,
       totalReceivedQty,
-      status: bodyStatus,
+      returnDate,
+      lrNumber,
+      lrDate,
+      remarks,
+      whReturnRemarks,
+      transport,
+      town,
+      address,
+      zone,
+      cluster,
+      contactPerson,
+      contactMobile,
+      schoolCode,
     } = req.body;
 
     const returnDoc = await StockReturn.findById(id);
@@ -419,33 +811,41 @@ const warehouseVerifyReturn = async (req, res) => {
       return res.status(400).json({ message: 'Return can only be verified when status is Submitted or Sent Back' });
     }
 
-    // Map products: ensure verification fields, auto-set quantityMismatch when receivedQty !== returnQty
-    const updatedProducts = (products || returnDoc.products).map((p, index) => {
-      const existingByIndex = returnDoc.products[index];
-      const existing =
-        existingByIndex?.product === (p.product || existingByIndex?.product)
-          ? existingByIndex
-          : returnDoc.products.find((x) => x.product === (p.product || x.product));
-      const requested = Number(existing?.returnQty ?? p.returnQty) || 0;
-      const received = Number(p.receivedQty) || 0;
-      const mismatch = requested > 0 && received !== requested;
-      return {
-        ...(existing ? (existing.toObject ? existing.toObject() : existing) : p),
-        product: p.product || existing?.product,
-        soldQty: existing?.soldQty ?? p.soldQty,
-        returnQty: requested,
-        reason: existing?.reason ?? p.reason,
-        remarks: existing?.remarks ?? p.remarks,
-        receivedQty: received,
-        condition: p.condition || existing?.condition,
-        batchLot: p.batchLot || existing?.batchLot,
-        storageLocation: p.storageLocation || existing?.storageLocation,
-        quantityMismatch: mismatch,
-        mismatchRemark: mismatch
-          ? String(p.mismatchRemark || existing?.mismatchRemark || '').trim()
-          : '',
-      };
-    });
+    const lrNo = lrNumber != null ? String(lrNumber).trim() : returnDoc.lrNumber || '';
+    if (!lrNo) {
+      return res.status(400).json({
+        message: 'LR No is required — enter the number from the delivery partner lorry receipt',
+      });
+    }
+    if (!lrDate && !returnDoc.lrDate) {
+      return res.status(400).json({ message: 'LR Date is required when submitting to manager' });
+    }
+
+    if (returnDate) returnDoc.returnDate = new Date(returnDate);
+    if (lrNumber != null) returnDoc.lrNumber = lrNo;
+    if (lrDate) returnDoc.lrDate = new Date(lrDate);
+    if (remarks != null) returnDoc.remarks = String(remarks).trim();
+    if (whReturnRemarks != null) returnDoc.whReturnRemarks = String(whReturnRemarks).trim();
+    if (transport != null) returnDoc.transport = String(transport).trim();
+    if (town != null) returnDoc.town = String(town).trim();
+    if (address != null) returnDoc.address = String(address).trim();
+    if (zone != null) returnDoc.zone = String(zone).trim();
+    if (cluster != null) returnDoc.cluster = String(cluster).trim();
+    if (contactPerson != null) returnDoc.contactPerson = String(contactPerson).trim();
+    if (contactMobile != null) returnDoc.contactMobile = String(contactMobile).trim();
+    if (schoolCode != null) returnDoc.schoolCode = String(schoolCode).trim();
+
+    const updatedProducts = mergeWarehouseProductRows(returnDoc, products || returnDoc.products);
+    for (const p of updatedProducts) {
+      if ((Number(p.receivedQty) || 0) > 0 && !p.condition) {
+        return res.status(400).json({ message: `Condition is required for ${p.product}` });
+      }
+      if (p.quantityMismatch && !(p.mismatchRemark && String(p.mismatchRemark).trim())) {
+        return res.status(400).json({
+          message: `Mismatch remark is required for ${p.product} when received quantity does not match requested quantity`,
+        });
+      }
+    }
 
     returnDoc.products = updatedProducts;
     returnDoc.warehousePhotos = Array.isArray(warehousePhotos) ? warehousePhotos : (returnDoc.warehousePhotos || []);
@@ -455,24 +855,13 @@ const warehouseVerifyReturn = async (req, res) => {
     returnDoc.submittedToManagerAt = new Date();
 
     const hasMismatch = updatedProducts.some((p) => p.quantityMismatch);
-    if (hasMismatch) {
-      const missingRemark = updatedProducts.find((p) => p.quantityMismatch && !(p.mismatchRemark && String(p.mismatchRemark).trim()));
-      if (missingRemark) {
-        return res.status(400).json({
-          message: `Mismatch remark is required for ${missingRemark.product} when received quantity does not match requested quantity`,
-        });
-      }
-    }
     returnDoc.status = hasMismatch ? 'Pending Manager Approval' : 'Received';
 
     await returnDoc.save();
 
     const populated = await StockReturn.findById(returnDoc._id)
-      .populate('createdBy', 'name email')
-      .populate('executiveId', 'name email')
-      .populate('verifiedBy', 'name email')
-      .populate('leadId', 'school_name contact_person location')
-      .populate('dcOrderId', 'dc_code school_name');
+      .populate(warehouseExecutivePopulate)
+      .populate('verifiedBy', 'name email');
 
     res.json(populated);
   } catch (error) {
@@ -521,14 +910,31 @@ const managerAction = async (req, res) => {
     let newStatus = returnDoc.status;
     
     if (action === 'approve') {
-      // Check if all products are approved
-      const allApproved = returnDoc.products.every(p => 
-        p.managerDecision === 'Approve' && p.approvedQty > 0
+      const hasAnyApproval = returnDoc.products.some(
+        (p) =>
+          (p.managerDecision === 'Approve' || p.managerDecision === 'Partial Approve') &&
+          Number(p.approvedQty) > 0
       );
-      const hasPartial = returnDoc.products.some(p => 
-        p.managerDecision === 'Partial Approve'
+      if (!hasAnyApproval) {
+        return res.status(400).json({
+          message: 'At least one product line must be approved, or use Reject entire return',
+        });
+      }
+
+      const allApproved = returnDoc.products.every(
+        (p) =>
+          p.managerDecision === 'Reject' ||
+          p.managerDecision === 'Send Back' ||
+          (p.managerDecision === 'Approve' && Number(p.approvedQty) > 0)
       );
-      
+      const hasPartial = returnDoc.products.some(
+        (p) =>
+          p.managerDecision === 'Partial Approve' ||
+          (p.managerDecision === 'Approve' &&
+            Number(p.approvedQty) > 0 &&
+            Number(p.approvedQty) < Number(p.receivedQty))
+      );
+
       if (hasPartial) {
         newStatus = 'Partially Approved';
       } else {
@@ -604,8 +1010,12 @@ const managerAction = async (req, res) => {
     returnDoc.approvedBy = req.user._id;
     returnDoc.approvedAt = new Date();
     returnDoc.managerRemarks = managerRemarks || '';
+    returnDoc.approvedReturnValue = computeApprovedReturnValue(returnDoc.products);
 
     await returnDoc.save();
+    if (['Approved', 'Partially Approved', 'Stock Updated', 'Closed'].includes(returnDoc.status)) {
+      await createCreditNoteForReturn(returnDoc);
+    }
 
     const populated = await StockReturn.findById(returnDoc._id)
       .populate('createdBy', 'name email')
@@ -657,12 +1067,16 @@ module.exports = {
   getExecutiveReturnById,
   listExecutiveReturns,
   listMyExecutiveReturns,
+  listWarehouseExecutiveList,
   listWarehouseExecutiveQueue,
   getReturnForWarehouseExecutive,
+  listWarehouseManagerList,
   listWarehouseManagerQueue,
   getReturnForWarehouseManager,
+  getReturnForAdmin,
   createWarehouseReturn,
   listWarehouseReturns,
+  saveWarehouseReturnUpdate,
   warehouseVerifyReturn,
   managerAction,
   uploadReturnPhoto,

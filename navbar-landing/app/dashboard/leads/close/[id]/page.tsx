@@ -170,7 +170,10 @@ type CloseProductSectionLine = {
   id: string
   parentRowId: string
   product: string
+  /** @deprecated use selectedLevels — kept for saved leads */
   level: string
+  /** Term / level options chosen above the table (e.g. Term 1, Term 2). */
+  selectedLevels: string[]
   /** Per-product class + strength (independent for each product in the section). */
   classSelections: ClassStrengthSelection[]
   sameStrengthForAllClasses?: boolean
@@ -243,6 +246,29 @@ function lineHasValidClassSelections(line: CloseProductSectionLine, sec?: CloseP
   return getLineClassSelections(line, sec).some((s) => Number(s.strength) > 0)
 }
 
+function getLineSelectedLevels(
+  line: CloseProductSectionLine,
+  getDefaultLevel: (product: string) => string,
+  getProductLevels: (product: string) => string[]
+): string[] {
+  if (line.selectedLevels?.length) return line.selectedLevels
+  if (line.level) return [line.level]
+  const catalog = getProductLevels(line.product)
+  if (catalog.length === 1) return [catalog[0]]
+  if (catalog.length > 0) return [getDefaultLevel(line.product)]
+  return [getDefaultLevel(line.product)]
+}
+
+function lineHasValidLevelSelections(
+  line: CloseProductSectionLine,
+  getDefaultLevel: (product: string) => string,
+  getProductLevels: (product: string) => string[]
+): boolean {
+  const catalog = getProductLevels(line.product)
+  if (catalog.length === 0) return true
+  return getLineSelectedLevels(line, getDefaultLevel, getProductLevels).length > 0
+}
+
 function sectionHasValidClassSelections(sec: CloseProductSection): boolean {
   if (sec.lines.length === 0) return false
   return sec.lines.every((line) => lineHasValidClassSelections(line, sec))
@@ -280,6 +306,11 @@ function expandSectionsToProductDetails(
 
       const { fromClass, toClass } = classSelectionBounds(classSelections)
       const priceToUse = Number(line.price) || 0
+      const levelsToUse = line.selectedLevels?.length
+        ? line.selectedLevels
+        : line.level
+          ? [line.level]
+          : []
 
       const parentRow: ProductDetailRow = {
         id: line.parentRowId,
@@ -296,14 +327,14 @@ function expandSectionsToProductDetails(
         strength: classSelections[0]?.strength || 0,
         price: priceToUse,
         total: 0,
-        level: line.level,
+        level: levelsToUse[0] || line.level,
         specs: 'Regular',
         isParentRow: true,
         sameRateForAllClasses: line.sameRateForAllClasses,
         selectedSubjects: line.selectedSubjects || [],
         selectedSpecs: line.selectedSpecs || [],
         selectedDeliverables: line.selectedDeliverables || [],
-        selectedCategories: line.selectedCategories,
+        selectedCategories: undefined,
         term: line.term !== undefined && line.term !== '' ? normalizeProductTerm(line.term) : undefined,
       }
       out.push(parentRow)
@@ -313,38 +344,40 @@ function expandSectionsToProductDetails(
       const selectedSubjects = line.selectedSubjects || []
       const hasSubjects =
         ctx.hasProductSubjects(line.product) && selectedSubjects.length > 0
-      const selectedCategories = line.selectedCategories || []
-      const categoriesToUse = ctx.hasProductCategories(line.product)
-        ? selectedCategories.length > 0
-          ? selectedCategories
-          : ctx.getProductCategories(line.product)
-        : [schoolExisting ? 'Existing Students' : 'New Students']
+      const defaultCategory = ctx.hasProductCategories(line.product)
+        ? ctx.getProductCategories(line.product)[0] || ''
+        : schoolExisting
+          ? 'Existing Students'
+          : 'New Students'
+      const defaultSpec = specsToUse[0]
+      const subjectsToUse =
+        hasSubjects && selectedSubjects.length > 0 ? selectedSubjects : [undefined]
 
       let rowIdx = 0
       const parentId = line.parentRowId
+      if (levelsToUse.length === 0) continue
+
+      // One row per (selected class × selected level).
       for (const classSel of classSelections) {
-        const classNum = parseInt(classSel.class, 10)
         const strengthToUse = Number(classSel.strength) || 0
+        const classNum = parseInt(classSel.class, 10)
         if (!classNum || strengthToUse <= 0) continue
-        for (const spec of specsToUse) {
-          for (const category of categoriesToUse) {
-            const subjectDisplay =
-              hasSubjects && selectedSubjects.length > 0
-                ? selectedSubjects.join(', ')
-                : undefined
+
+        for (const level of levelsToUse) {
+          for (const subject of subjectsToUse) {
             out.push({
               id: `${parentId}_${classNum}_${rowIdx++}`,
               product: line.product,
               class: classNum.toString(),
-              category,
-              productCategory: ctx.hasProductCategories(line.product) ? category : undefined,
+              category: defaultCategory,
+              productCategory: ctx.hasProductCategories(line.product) ? defaultCategory : undefined,
               quantity: strengthToUse || 1,
-              strength: strengthToUse || 0,
+              strength: strengthToUse,
               price: priceToUse || 0,
-              total: (strengthToUse || 0) * (priceToUse || 0),
-              level: line.level,
-              specs: spec,
-              subject: subjectDisplay,
+              total: strengthToUse * (priceToUse || 0),
+              level,
+              specs: defaultSpec,
+              subject,
               isParentRow: false,
               sameRateForAllClasses: false,
             })
@@ -360,17 +393,25 @@ function parentRowToSectionLine(p: ProductDetailRow): CloseProductSectionLine {
   const from = p.fromClass ?? '0'
   const to = p.toClass ?? '0'
   const strength = Number(p.strength) || 0
+  const levelsFromSnapshot =
+    Array.isArray((p as ProductDetailRow & { levels_snapshot?: string[] }).levels_snapshot) &&
+    (p as ProductDetailRow & { levels_snapshot?: string[] }).levels_snapshot!.length > 0
+      ? (p as ProductDetailRow & { levels_snapshot?: string[] }).levels_snapshot!
+      : p.level
+        ? [p.level]
+        : []
   return {
     id: makeRowId(),
     parentRowId: p.id,
     product: p.product,
-    level: p.level,
+    level: levelsFromSnapshot[0] || p.level || '',
+    selectedLevels: levelsFromSnapshot,
     classSelections: rangeToClassSelections(from, to, strength),
     sameStrengthForAllClasses: false,
     selectedSpecs: p.selectedSpecs || [],
     selectedSubjects: p.selectedSubjects || [],
     selectedDeliverables: p.selectedDeliverables || [],
-    selectedCategories: p.selectedCategories,
+    selectedCategories: undefined,
     sameRateForAllClasses: p.sameRateForAllClasses || false,
     price: Number(p.price) || 0,
     term: p.term,
@@ -480,6 +521,13 @@ export default function CloseLeadPage() {
     childProductRows,
     groupProductOpts
   )
+  const showSpecsColumn = childProductRows.some((pd) => {
+    const specs = String(pd.specs || '').trim()
+    return specs.length > 0 && specs.toLowerCase() !== 'regular'
+  })
+  const showSubjectsColumn = childProductRows.some(
+    (pd) => String(pd.subject || '').trim().length > 0
+  )
 
   useEffect(() => {
     if (leadId) {
@@ -500,17 +548,50 @@ export default function CloseLeadPage() {
       }
       
       if (leadData) {
-        setLead(leadData)
+        const linkedSchool =
+          leadData.lead_type === 'renewal' &&
+          leadData.school_id &&
+          typeof leadData.school_id === 'object'
+            ? leadData.school_id
+            : null
+
+        const hydratedLead = {
+          ...(linkedSchool || {}),
+          ...leadData,
+          school_name: leadData.school_name || linkedSchool?.school_name || '',
+          contact_person: leadData.contact_person || linkedSchool?.contact_person || '',
+          contact_mobile: leadData.contact_mobile || linkedSchool?.contact_mobile || '',
+          email: leadData.email || linkedSchool?.email || '',
+        }
+
+        setLead(hydratedLead)
         // Pre-fill form with lead data
         // Only use estimated_delivery_date, NOT follow_up_date
-        const deliveryDate = leadData.estimated_delivery_date 
-          ? new Date(leadData.estimated_delivery_date).toISOString().split('T')[0]
+        const deliveryDate = (
+          hydratedLead.estimated_delivery_date ||
+          linkedSchool?.estimated_delivery_date
+        )
+          ? new Date(
+              hydratedLead.estimated_delivery_date || linkedSchool?.estimated_delivery_date
+            )
+              .toISOString()
+              .split('T')[0]
           : ''
         setForm({
-          contact_person2: leadData.decision_maker || leadData.contact_person2 || leadData.contact_person || '',
-          contact_mobile2: leadData.email || leadData.contact_mobile2 || '',
-                delivery_date: deliveryDate, // Do NOT use follow_up_date here
-                year: currentAcademicYear,
+          contact_person2:
+            hydratedLead.decision_maker ||
+            hydratedLead.contact_person2 ||
+            linkedSchool?.contact_person2 ||
+            hydratedLead.contact_person ||
+            '',
+          contact_mobile2:
+            hydratedLead.contact_mobile2 ||
+            linkedSchool?.contact_mobile2 ||
+            hydratedLead.email ||
+            linkedSchool?.email ||
+            '',
+          delivery_date: deliveryDate, // Do NOT use follow_up_date here
+          year: currentAcademicYear,
         })
         
         // Pre-fill selected products and product details - normalize product names to match availableProducts
@@ -632,7 +713,10 @@ export default function CloseLeadPage() {
               isParentRow: true,
               sameRateForAllClasses: false,
               selectedSubjects: [],
-              selectedSpecs: getProductSpecs(product),
+              selectedSpecs:
+                productData?.specs && String(productData.specs).trim()
+                  ? [String(productData.specs).trim()]
+                  : getProductSpecs(product).slice(0, 1),
               selectedDeliverables: productData?.deliverables || [],
               selectedCategories: hasProductCategories(product) 
                 ? getProductCategories(product) 
@@ -741,7 +825,11 @@ export default function CloseLeadPage() {
   const filteredProducts = availableProducts
 
   const lineAllowsProductConfig = (sec: CloseProductSection, line: CloseProductSectionLine) => {
-    return lineHasValidClassSelections(line, sec) && Boolean(line.product?.trim())
+    return (
+      lineHasValidClassSelections(line, sec) &&
+      Boolean(line.product?.trim()) &&
+      lineHasValidLevelSelections(line, getDefaultLevel, getProductLevels)
+    )
   }
 
   const updateLineInSection = (
@@ -855,17 +943,24 @@ export default function CloseLeadPage() {
     setProductSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== sectionId) return sec
+        const catalogLevels = getProductLevels(product)
         const newLine: CloseProductSectionLine = {
           id: newLineId,
           parentRowId: makeRowId(),
           product,
           level: getDefaultLevel(product),
+          selectedLevels:
+            catalogLevels.length === 1
+              ? [catalogLevels[0]]
+              : catalogLevels.length > 0
+                ? [getDefaultLevel(product)]
+                : [],
           classSelections: [],
           sameStrengthForAllClasses: false,
-          selectedSpecs: [],
+          selectedSpecs: getProductSpecs(product).slice(0, 1),
           selectedSubjects: [],
           selectedDeliverables: [],
-          selectedCategories: hasProductCategories(product) ? [] : undefined,
+          selectedCategories: undefined,
           sameRateForAllClasses: false,
           price: 0,
         }
@@ -954,7 +1049,7 @@ export default function CloseLeadPage() {
       const specsToUse = selectedSpecs.length > 0 ? selectedSpecs : ['Regular']
       const selectedSubjects = parentRow.selectedSubjects || []
       const hasSubjects = hasProductSubjects(parentRow.product) && selectedSubjects.length > 0
-      const subjectsToUse = hasSubjects ? selectedSubjects : [undefined] // Use undefined if no subjects
+      const subjectsToUse = hasSubjects ? selectedSubjects : [undefined]
       const selectedCategories = parentRow.selectedCategories || []
       // Use product-specific categories if available, otherwise use default student categories
       const categoriesToUse = hasProductCategories(parentRow.product)
@@ -976,26 +1071,24 @@ export default function CloseLeadPage() {
       for (let classNum = from; classNum <= to; classNum++) {
         specsToUse.forEach((spec) => {
           categoriesToUse.forEach((category) => {
-            // Create one row per class × spec × category combination
-            // Combine all selected subjects into a single string or use first subject
-            const subjectDisplay = hasSubjects && selectedSubjects.length > 0 
-              ? selectedSubjects.join(', ') 
-              : undefined
-            newRows.push({
-              id: parentId + '_' + classNum + '_' + rowIdx++,
-              product: parentRow.product,
-              class: classNum.toString(),
-              category: category,
-              productCategory: hasProductCategories(parentRow.product) ? category : undefined,
-              quantity: strengthToUse || 1,
-              strength: strengthToUse || 0,
-              price: priceToUse || 0,
-              total: (strengthToUse || 0) * (priceToUse || 0),
-              level: parentRow.level,
-              specs: spec,
-              subject: subjectDisplay, // Combined subjects or undefined
-              isParentRow: false,
-              sameRateForAllClasses: false,
+            subjectsToUse.forEach((subject) => {
+              // Create one row per class × spec × category × subject combination
+              newRows.push({
+                id: parentId + '_' + classNum + '_' + rowIdx++,
+                product: parentRow.product,
+                class: classNum.toString(),
+                category: category,
+                productCategory: hasProductCategories(parentRow.product) ? category : undefined,
+                quantity: strengthToUse || 1,
+                strength: strengthToUse || 0,
+                price: priceToUse || 0,
+                total: (strengthToUse || 0) * (priceToUse || 0),
+                level: parentRow.level,
+                specs: spec,
+                subject,
+                isParentRow: false,
+                sameRateForAllClasses: false,
+              })
             })
           })
         })
@@ -1959,9 +2052,8 @@ export default function CloseLeadPage() {
                         const selectedSubjects = line.selectedSubjects || []
                         const productSpecs = getProductSpecs(line.product)
                         const selectedSpecs = line.selectedSpecs || []
-                        const productCategories = hasProductCategories(line.product)
-                          ? getProductCategories(line.product)
-                          : []
+                        const productLevels = getProductLevels(line.product)
+                        const selectedLevels = line.selectedLevels || []
                         const childRows = productDetails.filter(
                           (row) => !row.isParentRow && row.id.startsWith(`${line.parentRowId}_`)
                         )
@@ -2089,6 +2181,46 @@ export default function CloseLeadPage() {
                                 )}
                               </div>
 
+                              {productLevels.length > 0 && (
+                                <div className="space-y-2 border-t pt-2">
+                                  <Label className="text-xs font-semibold">Select Levels:</Label>
+                                  <div className="flex flex-wrap gap-2">
+                                    {productLevels.map((lvl) => (
+                                      <div key={lvl} className="flex items-center space-x-1">
+                                        <Checkbox
+                                          id={`level-${line.id}-${lvl}`}
+                                          checked={selectedLevels.includes(lvl)}
+                                          onCheckedChange={(checked) => {
+                                            const newLevels = checked
+                                              ? [...selectedLevels, lvl]
+                                              : selectedLevels.filter((l) => l !== lvl)
+                                            if (newLevels.length === 0) {
+                                              toast.error('Select at least one level')
+                                              return
+                                            }
+                                            updateProductSectionLine(section.id, line.id, {
+                                              selectedLevels: newLevels,
+                                              level: newLevels[0],
+                                            })
+                                          }}
+                                        />
+                                        <Label
+                                          htmlFor={`level-${line.id}-${lvl}`}
+                                          className="text-xs cursor-pointer"
+                                        >
+                                          {lvl}
+                                        </Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {selectedLevels.length === 0 && (
+                                    <p className="text-xs text-amber-700">
+                                      Select at least one level to generate product rows.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
                               <div className="flex flex-wrap items-center gap-3 justify-between border-t pt-2">
                               <div className="flex items-center gap-2">
                                 <Checkbox
@@ -2129,8 +2261,10 @@ export default function CloseLeadPage() {
                                             checked={selectedSpecs.includes(spec)}
                                             onCheckedChange={(checked) => {
                                               const newSpecs = checked
-                                                ? [...selectedSpecs, spec]
-                                                : selectedSpecs.filter((s) => s !== spec)
+                                                ? [spec]
+                                                : selectedSpecs.length > 0
+                                                  ? selectedSpecs
+                                                  : [spec]
                                               updateProductSectionLine(section.id, line.id, {
                                                 selectedSpecs: newSpecs,
                                               })
@@ -2271,47 +2405,6 @@ export default function CloseLeadPage() {
                               )
                             })()}
 
-                            {hasProductCategories(line.product) && (() => {
-                              const selectedCats =
-                                line.selectedCategories ||
-                                (hasProductCategories(line.product) ? productCategories : [])
-                              return (
-                                <div className="mt-2 pt-2 border-t">
-                                  <Label className="text-xs font-semibold mb-2 block">
-                                    Select Product Categories:
-                                  </Label>
-                                  <div className="flex flex-wrap gap-2">
-                                    {productCategories.map((category) => (
-                                      <div key={category} className="flex items-center space-x-1">
-                                        <Checkbox
-                                          id={`category-${line.id}-${category}`}
-                                          checked={selectedCats.includes(category)}
-                                          onCheckedChange={(checked) => {
-                                            const newCategories = checked
-                                              ? [...selectedCats, category]
-                                              : selectedCats.filter((c) => c !== category)
-                                            if (newCategories.length === 0) {
-                                              toast.error('At least one product category must be selected')
-                                              return
-                                            }
-                                            updateProductSectionLine(section.id, line.id, {
-                                              selectedCategories: newCategories,
-                                            })
-                                          }}
-                                        />
-                                        <Label
-                                          htmlFor={`category-${line.id}-${category}`}
-                                          className="text-xs cursor-pointer"
-                                        >
-                                          {category}
-                                        </Label>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )
-                            })()}
-
                             {hasSubjects && productSubjects.length > 0 && (
                               <div className="mt-2 pt-2 border-t">
                                 <Label className="text-xs font-semibold mb-2 block">Select Subjects:</Label>
@@ -2360,40 +2453,39 @@ export default function CloseLeadPage() {
                     <thead className="bg-neutral-100">
                       <tr>
                         <th className="px-3 py-2 text-left">Product</th>
-                        <th className="px-3 py-2 text-left">Class</th>
-                        <th className="px-3 py-2 text-left">Category</th>
-                        <th className="px-3 py-2 text-left">Specs</th>
-                        <th className="px-3 py-2 text-left">Quantity (Strength) *</th>
                         <th className="px-3 py-2 text-left">Level</th>
+                        <th className="px-3 py-2 text-left">Class</th>
+                        <th className="px-3 py-2 text-left">Product Category</th>
+                        {showSpecsColumn && <th className="px-3 py-2 text-left">Specs</th>}
+                        {showSubjectsColumn && <th className="px-3 py-2 text-left">Subjects</th>}
+                        <th className="px-3 py-2 text-left">Quantity (Strength) *</th>
                         <th className="px-3 py-2 text-left">Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {productDetails
-                        .filter(pd => !pd.isParentRow) // Only show child rows, not parent rows
-                        .map((pd) => (
+                      {childProductRows.map((pd) => (
                         <tr key={pd.id} className="border-t">
                           <td className="px-3 py-2 font-medium">{pd.product}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{pd.level || '-'}</td>
                           <td className="px-3 py-2">{pd.class}</td>
                           <td className="px-3 py-2">
-                            <Select value={pd.category} onValueChange={(v) => updateProductDetail(pd.id, 'category', v)}>
-                              <SelectTrigger className="w-32 h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {hasProductCategories(pd.product) ? (
-                                  getProductCategories(pd.product).map(c => (
+                            {hasProductCategories(pd.product) ? (
+                              <Select value={pd.category} onValueChange={(v) => updateProductDetail(pd.id, 'category', v)}>
+                                <SelectTrigger className="w-32 h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getProductCategories(pd.product).map(c => (
                                     <SelectItem key={c} value={c}>{c}</SelectItem>
-                                  ))
-                                ) : (
-                                  defaultCategories.map(c => (
-                                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                                  ))
-                                )}
-                              </SelectContent>
-                            </Select>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-neutral-500">-</span>
+                            )}
                           </td>
-                          <td className="px-3 py-2">{pd.specs}</td>
+                          {showSpecsColumn && <td className="px-3 py-2">{pd.specs}</td>}
+                          {showSubjectsColumn && <td className="px-3 py-2">{pd.subject || '-'}</td>}
                           <td className="px-3 py-2">
                             <Input
                               type="number"
@@ -2422,18 +2514,6 @@ export default function CloseLeadPage() {
                             />
                           </td>
                           <td className="px-3 py-2">
-                            <Select value={pd.level} onValueChange={(v) => updateProductDetail(pd.id, 'level', v)}>
-                              <SelectTrigger className="w-28 h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {getProductLevels(pd.product).map(l => (
-                                  <SelectItem key={l} value={l}>{l}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="px-3 py-2">
                             <Button
                               type="button"
                               variant="ghost"
@@ -2447,7 +2527,10 @@ export default function CloseLeadPage() {
                       ))}
                       {/* Total Row */}
                       <tr className="border-t-2 border-neutral-300 bg-neutral-100 font-semibold">
-                        <td colSpan={4} className="px-3 py-3 text-right">
+                        <td
+                          colSpan={3 + (showSpecsColumn ? 1 : 0) + (showSubjectsColumn ? 1 : 0)}
+                          className="px-3 py-3 text-right"
+                        >
                           <span className="text-neutral-700">Total:</span>
                         </td>
                         <td className="px-3 py-3 text-right">

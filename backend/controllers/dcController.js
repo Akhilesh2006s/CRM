@@ -1260,6 +1260,19 @@ const submitPO = async (req, res) => {
     }
     await dc.save();
 
+    // Keep linked DcOrder in sync so Closed Sales reflects completion.
+    if (dc.dcOrderId) {
+      try {
+        const orderId =
+          typeof dc.dcOrderId === 'object' && dc.dcOrderId._id
+            ? dc.dcOrderId._id
+            : dc.dcOrderId;
+        await DcOrder.findByIdAndUpdate(orderId, { status: 'completed' }).exec();
+      } catch (syncErr) {
+        console.warn('Failed to sync DcOrder status to completed for DC:', dc._id, syncErr);
+      }
+    }
+
     // Update sale PO document if linked to Sale (optional, don't fail if Sale doesn't exist)
     if (dc.saleId) {
       try {

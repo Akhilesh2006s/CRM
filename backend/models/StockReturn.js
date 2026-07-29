@@ -21,8 +21,19 @@ const stockReturnSchema = new mongoose.Schema(
     // Products from executive return
     products: [{
       product: { type: String, required: true },
+      class: { type: String, default: '' },
+      level: { type: String, default: '' },
+      subject: { type: String, default: '' },
       soldQty: { type: Number, required: true },
       returnQty: { type: Number, required: true }, // Requested return quantity
+      unitPrice: { type: Number, default: 0 },
+      calculationType: {
+        type: String,
+        enum: ['normal', 'level_based', 'subject_based', 'none'],
+        default: 'normal',
+      },
+      divisorUsed: { type: Number, default: 1 },
+      lineTotal: { type: Number, default: 0 },
       reason: { type: String, required: true },
       remarks: { type: String },
       // Warehouse verification fields
@@ -42,9 +53,18 @@ const stockReturnSchema = new mongoose.Schema(
     remarks: { type: String, default: '', trim: true },
     executiveRemarks: { type: String },
     lrNumber: { type: String, default: '', trim: true },
+    lrDate: { type: Date },
     finYear: { type: String, default: '', trim: true },
     schoolType: { type: String, default: '', trim: true },
     schoolCode: { type: String, default: '', trim: true },
+    whReturnRemarks: { type: String, default: '', trim: true },
+    transport: { type: String, default: '', trim: true },
+    town: { type: String, default: '', trim: true },
+    address: { type: String, default: '', trim: true },
+    zone: { type: String, default: '', trim: true },
+    cluster: { type: String, default: '', trim: true },
+    contactPerson: { type: String, default: '', trim: true },
+    contactMobile: { type: String, default: '', trim: true },
 
     // Evidence photos
     evidencePhotos: [{ type: String }], // Executive uploaded photos
@@ -54,6 +74,10 @@ const stockReturnSchema = new mongoose.Schema(
     totalItems: { type: Number, default: 0 },
     totalQuantity: { type: Number, default: 0 }, // Requested total quantity
     totalReceivedQty: { type: Number, default: 0 }, // Total received quantity
+    returnValue: { type: Number, default: 0 },
+    approvedReturnValue: { type: Number, default: 0 },
+    paymentAdjustmentCreated: { type: Boolean, default: false },
+    paymentAdjustmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
 
     // Status workflow: Draft -> Submitted -> Received -> Pending Manager Approval -> Approved/Partially Approved/Rejected -> Stock Updated -> Closed
     status: { 

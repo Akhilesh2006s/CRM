@@ -88,7 +88,6 @@ async function loadPaymentBillTotals(
   previousDue: number
   totalPaidAsOn: number
   totalReturnValue: number
-  totalDue: number
   otherCharges: number
   otherChargesRemarks: string
   discount: number
@@ -116,17 +115,28 @@ async function loadPaymentBillTotals(
     const dcOrderId = dcOrder?._id
     if (dcOrderId) {
       try {
-        const allReturns = await apiRequest<any[]>(`/stock-returns/executive/list`).catch(() => [])
-        const returns = allReturns.filter((r: any) => {
-          const returnDcOrderId = typeof r.dcOrderId === 'object' ? r.dcOrderId?._id : r.dcOrderId
-          return returnDcOrderId === dcOrderId
-        })
+        const returns = await apiRequest<any[]>(
+          `/stock-returns/executive/list?dcOrderId=${encodeURIComponent(String(dcOrderId))}`
+        ).catch(() => [])
         const approvedReturns = returns.filter((r: any) =>
           ['Approved', 'Partially Approved', 'Stock Updated', 'Closed'].includes(r.status)
         )
         totalReturnValue = approvedReturns.reduce((sum: number, r: any) => {
+          const storedApproved = Number(r.approvedReturnValue)
+          if (storedApproved > 0) return sum + storedApproved
+          const storedRequested = Number(r.returnValue)
+          if (storedRequested > 0) return sum + storedRequested
           const returnValue =
             r.products?.reduce((productSum: number, product: any) => {
+              const lineTotal = Number(product.lineTotal)
+              if (lineTotal > 0) {
+                const approvedQty = Number(product.approvedQty) || 0
+                const requestedQty = Number(product.returnQty) || 0
+                if (approvedQty > 0 && requestedQty > 0) {
+                  return productSum + lineTotal * Math.min(1, approvedQty / requestedQty)
+                }
+                return productSum + lineTotal
+              }
               const approvedQty = Number(product.approvedQty) || 0
               const matchingProduct = paymentBreakdown.find((pb) => {
                 const pbName = (pb.product || '').toLowerCase().trim()
@@ -135,7 +145,7 @@ async function loadPaymentBillTotals(
                   pbName === returnName || pbName.includes(returnName) || returnName.includes(pbName)
                 )
               })
-              const unitPrice = matchingProduct?.unitPrice || 0
+              const unitPrice = Number(product.unitPrice) || matchingProduct?.unitPrice || 0
               return productSum + approvedQty * unitPrice
             }, 0) || 0
           return sum + returnValue
@@ -180,13 +190,10 @@ async function loadPaymentBillTotals(
     /* non-fatal */
   }
 
-  const totalDue = Math.max(0, totalPaidAsOn - totalReturnValue)
-
   return {
     previousDue,
     totalPaidAsOn,
     totalReturnValue,
-    totalDue,
     otherCharges,
     otherChargesRemarks,
     discount,
@@ -336,7 +343,6 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
           previousDue: 0,
           totalPaidAsOn: 0,
           totalReturnValue: 0,
-          totalDue: 0,
           otherCharges: Number(dcOrder?.otherCharges) || 0,
           otherChargesRemarks: String(dcOrder?.otherChargesRemarks || ''),
           discount: Number(dcOrder?.discount) || 0,
@@ -346,6 +352,12 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
 
   const productsSubtotal = totalAmount
   const currentTotalBill = productsSubtotal + bill.otherCharges - bill.discount
+  const totalDue = gate.invoicePending
+    ? 0
+    : Math.max(
+        0,
+        bill.previousDue + currentTotalBill - bill.totalPaidAsOn - bill.totalReturnValue
+      )
 
   return {
     schoolInfo,
@@ -357,7 +369,7 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
     previousDue: bill.previousDue,
     totalPaidAsOn: bill.totalPaidAsOn,
     totalReturnValue: bill.totalReturnValue,
-    totalDue: bill.totalDue,
+    totalDue,
     otherCharges: bill.otherCharges,
     otherChargesRemarks: bill.otherChargesRemarks,
     discount: bill.discount,

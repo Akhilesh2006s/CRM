@@ -96,6 +96,38 @@ const computeBucketAmount = ({
 };
 
 /**
+ * Unified billing output used by Returns + Invoice adjustments.
+ * Rows are expected to be for one product bucket.
+ */
+const calculateProductTotal = ({
+  calculationType,
+  unitPrice,
+  rows = [],
+  catalogFallbackCount = 0,
+}) => {
+  const ct = normalizeCalculationType(calculationType);
+  const normalizedRows = Array.isArray(rows) ? rows : [];
+  const sumStrength = normalizedRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0);
+  const divisorUsed = resolveDivisor({
+    calculationType: ct,
+    rows: normalizedRows,
+    catalogFallbackCount,
+  });
+  const total = computeBucketAmount({
+    calculationType: ct,
+    rows: normalizedRows,
+    unitPrice,
+    catalogFallbackCount,
+  });
+  return {
+    total,
+    sumStrength: roundToTwo(sumStrength),
+    divisorUsed,
+    calculationType: ct,
+  };
+};
+
+/**
  * Group rows by product+class key for billing buckets.
  */
 const bucketKey = (row) =>
@@ -106,5 +138,6 @@ module.exports = {
   normalizeCalculationType,
   resolveDivisor,
   computeBucketAmount,
+  calculateProductTotal,
   bucketKey,
 };

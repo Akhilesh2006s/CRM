@@ -211,7 +211,7 @@ const getLead = async (req, res) => {
       .populate('createdBy', 'name email')
       .populate(
         'school_id',
-        'school_name school_code dc_code contact_person contact_mobile zone location city state region area pincode strength address school_type products status remarks'
+        'school_name school_code dc_code contact_person contact_mobile contact_person2 contact_mobile2 email zone location city state region area pincode strength address school_type products status remarks estimated_delivery_date'
       );
 
     if (!lead) {

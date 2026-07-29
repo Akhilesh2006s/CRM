@@ -20,9 +20,7 @@ import { resolveProductSubject } from '@/lib/clientDcProductRows'
 function includeInClosedSalesList(deal: { status?: string; transport_name?: string; transport_location?: string; pincode?: string; pendingEdit?: { transport_name?: string; transport_location?: string; pincode?: string; status?: string } }) {
   const status = deal.status || ''
   if (status === 'completed') return true
-  if (status === 'dc_requested' || status === 'dc_accepted') {
-    return isTransportComplete(deal)
-  }
+  if (status === 'dc_requested' || status === 'dc_accepted') return true
   return false
 }
 
@@ -808,6 +806,46 @@ export default function ClosedSalesPage() {
             unit_price: 0,
           }])
         }
+      } else if (Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
+        // No dcRequestData yet and no DC created — prefill from DcOrder products.
+        const rowsFromOrder: ProductRow[] = normalizedDeal.products.map((p: any, idx: number) => {
+          const productName: string = p.product_name || p.product || 'ABACUS'
+          const skuCategories = getProductCategories(productName)
+          const rawSku = (p.productCategory || p.category || '').trim()
+          const matchedSku =
+            skuCategories.includes(rawSku)
+              ? rawSku
+              : skuCategories.find((c) => c.toLowerCase() === rawSku.toLowerCase())
+
+          return {
+            id: String(idx + 1),
+            product: productName,
+            class: p.class || '1',
+            category: normalizeCategoryForDropdown(
+              p.category,
+              normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
+            ),
+            productCategory: matchedSku || undefined,
+            specs: p.specs || 'Regular',
+            subject: resolveProductSubject(p),
+            strength: Number(p.quantity) || Number(p.strength) || 0,
+            level: p.level || getDefaultLevel(productName || 'Abacus'),
+            term: p.term || 'Term 1',
+            unit_price: Number(p.unit_price) || 0,
+          }
+        })
+
+        setProductRows(rowsFromOrder.length > 0 ? rowsFromOrder : [{
+          id: '1',
+          product: 'Abacus',
+          class: '1',
+          category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
+          specs: 'Regular',
+          strength: 0,
+          level: 'L1',
+          term: 'Term 1',
+          unit_price: 0,
+        }])
       } else if (existingDCForDeal) {
         // Load full DC details to get all fields
         try {
@@ -1814,8 +1852,25 @@ export default function ClosedSalesPage() {
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-col gap-1.5">
-                      {/* Show Raise DC button for both DcOrders and closed leads */}
-                      {(canRequestDC || canApproveDC) && (
+                      {/* Coordinator/Admin: review employee DC request (DC already created from My Clients) */}
+                      {canApproveDC &&
+                        (d.status === 'dc_requested' || d.status === 'dc_accepted') &&
+                        dealDCs[d._id] && (
+                          <Button
+                            size="sm"
+                            variant={d.status === 'dc_accepted' ? 'default' : 'destructive'}
+                            className={
+                              d.status === 'dc_accepted'
+                                ? '!bg-blue-600 hover:!bg-blue-700 !text-white !shadow-sm'
+                                : ''
+                            }
+                            onClick={() => openRaiseDC(d)}
+                          >
+                            {d.status === 'dc_requested' ? 'Review DC Request' : 'Update DC'}
+                          </Button>
+                        )}
+                      {/* Raise DC when no DC record exists yet */}
+                      {(canRequestDC || canApproveDC) && !dealDCs[d._id] && (
                         <Button
                           size="sm"
                           variant={d.status === 'dc_accepted' ? 'default' : 'destructive'}
@@ -1856,11 +1911,14 @@ export default function ClosedSalesPage() {
         >
           <DialogHeader className="pb-4 border-b border-slate-200">
             <DialogTitle className="text-slate-900 text-xl font-semibold">
-              {selectedDeal?.school_name || 'Client'} - {
-                selectedDeal?.status === 'dc_requested' ? 'Raise DC' : 
-                selectedDeal?.status === 'dc_accepted' ? 'Update DC' : 
-                'Raise DC'
-              }
+              {selectedDeal?.school_name || 'Client'} -{' '}
+              {selectedDeal?.status === 'dc_requested'
+                ? canApproveDC
+                  ? 'Review DC Request'
+                  : 'Raise DC'
+                : selectedDeal?.status === 'dc_accepted'
+                  ? 'Update DC'
+                  : 'Raise DC'}
             </DialogTitle>
             <DialogDescription className="text-slate-600 text-sm mt-1">
               {selectedDeal?.status === 'dc_requested' 

@@ -30,6 +30,7 @@ import {
   buildEditPOProductRows,
   computeEditPOTotalAmount,
   resolveProductSubject,
+  formatFlowProductName,
   dedupeProductDetailLines,
   mergeRequestDCProductDetails,
   type EditPOProductRow,
@@ -793,17 +794,28 @@ export default function ClientDCPage() {
         // Calculate return value from approved returns
         const approvedReturns = returns.filter((r: any) => ['Approved', 'Partially Approved', 'Stock Updated', 'Closed'].includes(r.status))
         totalReturnValue = approvedReturns.reduce((sum: number, r: any) => {
-          // Calculate return value from products
+          const storedApproved = Number(r.approvedReturnValue)
+          if (storedApproved > 0) return sum + storedApproved
+          const storedRequested = Number(r.returnValue)
+          if (storedRequested > 0) return sum + storedRequested
           const returnValue = r.products?.reduce((productSum: number, product: any) => {
+            const lineTotal = Number(product.lineTotal)
+            if (lineTotal > 0) {
+              const approvedQty = Number(product.approvedQty) || 0
+              const requestedQty = Number(product.returnQty) || 0
+              if (approvedQty > 0 && requestedQty > 0) {
+                return productSum + lineTotal * Math.min(1, approvedQty / requestedQty)
+              }
+              return productSum + lineTotal
+            }
             const approvedQty = Number(product.approvedQty) || 0
-            // Try to get price from matching product in paymentBreakdown
             const matchingProduct = paymentBreakdown.find((pb: any) => {
               const pbName = (pb.product || '').toLowerCase().trim()
               const returnName = (product.product || '').toLowerCase().trim()
               return pbName === returnName || pbName.includes(returnName) || returnName.includes(pbName)
             })
-            const unitPrice = matchingProduct?.unitPrice || 0
-            return productSum + (approvedQty * unitPrice)
+            const unitPrice = Number(product.unitPrice) || matchingProduct?.unitPrice || 0
+            return productSum + approvedQty * unitPrice
           }, 0) || 0
           return sum + returnValue
         }, 0)
@@ -861,8 +873,10 @@ export default function ClientDCPage() {
       const otherCharges = Number((dcOrder as any)?.otherCharges) || 0
       const discount = Number((dcOrder as any)?.discount) || 0
       const currentTotalBill = totalAmount + otherCharges - discount
-      // TotalDue = TotalPaid - ReturnValue (as per user requirement)
-      const totalDue = Math.max(0, totalPaidAsOn - totalReturnValue)
+      const totalDue = Math.max(
+        0,
+        previousDue + currentTotalBill - totalPaidAsOn - totalReturnValue
+      )
       
       const resolvedDcOrderId =
         dcOrder?._id ||
@@ -1690,38 +1704,10 @@ export default function ClientDCPage() {
           
           console.log('🔄 Updating DcOrder status to dc_requested with request data:', dcOrderId)
           
-          // Store the request data in DcOrder so Admin/Coordinator can see it in Closed Sales
-          // Also update the main products array to only contain Term 1 products (for display in Closed Sales)
-          const productsArrayForDcOrder = productsForDcOrder.map((p: any) => {
-            const subject = resolveProductSubject(p)
-            return {
-              product_name: p.product || p.product_name || 'Unknown',
-              quantity: p.quantity || p.strength || 0,
-              unit_price: p.unit_price || 0,
-              term: p.term || 'Term 1',
-              class: p.class || '1',
-              specs: p.specs || 'Regular',
-              level: p.level || undefined,
-              ...(subject ? { subject } : {}),
-              ...(Array.isArray(p.selected_subjects) && p.selected_subjects.length > 0
-                ? { selected_subjects: p.selected_subjects }
-                : subject
-                  ? {
-                      selected_subjects: subject
-                        .split(',')
-                        .map((s: string) => s.trim())
-                        .filter(Boolean),
-                    }
-                  : {}),
-            }
-          })
-          
           const updateResult = await apiRequest(`/dc-orders/${dcOrderId}`, {
             method: 'PUT',
             body: JSON.stringify({ 
               status: 'dc_requested',
-              // Update main products array to only show Term 1 products (for display in Closed Sales)
-              products: productsArrayForDcOrder,
               dcRequestData: {
                 // Store product details from the request (Term 1 products if split)
                 productDetails: productsForDcOrder,
@@ -2737,23 +2723,23 @@ export default function ClientDCPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {status === 'created' || status === 'po_submitted' || status === 'dc_requested' ? (
-                          <div className="flex items-center gap-2 justify-center">
-                            {d.poPhotoUrl && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => openEditPODialog(d)}
-                                className="border-neutral-200 hover:bg-neutral-50 shadow-sm"
-                              >
-                                <Pencil className="w-4 h-4 mr-2" />
-                                Edit PO
-                              </Button>
-                            )}
+                          {status === 'created' || status === 'po_submitted' ? (
+                            <div className="flex items-center gap-2 justify-center">
+                              {d.poPhotoUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEditPODialog(d)}
+                                  className="border-neutral-200 hover:bg-neutral-50 shadow-sm"
+                                >
+                                  <Pencil className="w-4 h-4 mr-2" />
+                                  Edit PO
+                                </Button>
+                              )}
                               {/* Always show Edit PO button if dcOrderId exists, even without PO photo */}
                               {!d.poPhotoUrl && d.dcOrderId && (
-                                <Button 
-                                  size="sm" 
+                                <Button
+                                  size="sm"
                                   variant="outline"
                                   onClick={() => openEditPODialog(d)}
                                   className="border-neutral-200 hover:bg-neutral-50 shadow-sm"
@@ -2763,32 +2749,32 @@ export default function ClientDCPage() {
                                 </Button>
                               )}
                               {/* Request DC: transport via Edit PO, no pending PO edits */}
-                              {status !== 'dc_requested' &&
-                                dcsWithCompleteTransport.has(d._id) &&
+                              {dcsWithCompleteTransport.has(d._id) &&
                                 !dcsWithPendingChanges.has(d._id) &&
                                 !dcsWithPendingEditRequests.has(d._id) && (
-                            <Button 
-                              size="sm" 
-                              onClick={() => openClientDCDialog(d)}
-                              className="bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg"
-                            >
-                              <Package className="w-4 h-4 mr-2" />
-                              Request DC
-                            </Button>
-                              )}
-                              {status === 'dc_requested' && (
-                                <span className="text-xs text-amber-700 max-w-[140px] text-center">
-                                  Awaiting Closed Sales review
-                                </span>
-                              )}
+                                  <Button
+                                    size="sm"
+                                    onClick={() => openClientDCDialog(d)}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:shadow-lg"
+                                  >
+                                    <Package className="w-4 h-4 mr-2" />
+                                    Request DC
+                                  </Button>
+                                )}
                               {!dcsWithCompleteTransport.has(d._id) &&
                                 !dcsWithPendingChanges.has(d._id) &&
                                 !dcsWithPendingEditRequests.has(d._id) && (
-                                <span className="text-xs text-neutral-500 max-w-[140px] text-center">
-                                  Complete transport in Edit PO to request DC
-                                </span>
-                              )}
-                          </div>
+                                  <span className="text-xs text-neutral-500 max-w-[140px] text-center">
+                                    Complete transport in Edit PO to request DC
+                                  </span>
+                                )}
+                            </div>
+                          ) : status === 'dc_requested' ? (
+                            <div className="flex items-center justify-center">
+                              <span className="text-xs text-amber-700 max-w-[160px] text-center">
+                                Awaiting Closed Sales review
+                              </span>
+                            </div>
                           ) : (
                             <div className="flex items-center gap-2 justify-center">
                               <Button 
@@ -2964,7 +2950,9 @@ export default function ClientDCPage() {
               <TableBody>
                 {shortageRows.map((row, idx) => (
                   <TableRow key={row.id}>
-                    <TableCell>{row.product || '-'}</TableCell>
+                    <TableCell>
+                      {formatFlowProductName(row.product, row.productCategory, row.subject)}
+                    </TableCell>
                     <TableCell className="min-w-[140px]">
                       {hasProductCategories(row.product) ? (
                         <Select
@@ -3854,6 +3842,17 @@ export default function ClientDCPage() {
                           />
                         </TableCell>
                         <TableCell>
+                            <Input
+                              value={row.class || '1'}
+                              onChange={(e) => {
+                                const updated = [...editProductRows]
+                                updated[actualIdx].class = e.target.value
+                                setEditProductRows(updated)
+                              }}
+                              placeholder="Class"
+                            />
+                          </TableCell>
+                          <TableCell>
                           {/* Level selector based on Products master configuration */}
                           <Select
                             value={
@@ -3977,6 +3976,7 @@ export default function ClientDCPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Product Name</TableHead>
+                              <TableHead>Class</TableHead>
                               <TableHead>Level</TableHead>
                               <TableHead>Quantity</TableHead>
                               <TableHead>Unit Price</TableHead>
@@ -3987,7 +3987,7 @@ export default function ClientDCPage() {
                           <TableBody>
                             {editProductRows.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
+                                <TableCell colSpan={7} className="text-center text-neutral-500 py-4">
                                   No products added yet
                                 </TableCell>
                               </TableRow>
@@ -4021,6 +4021,7 @@ export default function ClientDCPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
+                                <TableHead>Class</TableHead>
                                 <TableHead>Level</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Unit Price</TableHead>
@@ -4031,7 +4032,7 @@ export default function ClientDCPage() {
                             <TableBody>
                               {term1Products.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
+                                  <TableCell colSpan={7} className="text-center text-neutral-500 py-4">
                                     No Level 1 products added yet
                                   </TableCell>
                                 </TableRow>
@@ -4318,32 +4319,60 @@ export default function ClientDCPage() {
                   <span className="text-black">Rs.{invoiceData.totalDue?.toFixed(2) || '0.00'}</span>
                 </div>
 
-                {/* Products from Database */}
+                {/* Products from Database (group duplicate product rows into one line) */}
                 {invoiceData.paymentBreakdown && invoiceData.paymentBreakdown.length > 0 ? (
-                  invoiceData.paymentBreakdown.map((product: any, index: number) => {
-                    // Use strength as quantity (number of students/items), fallback to quantity field
-                    const quantity = product.strength !== undefined ? product.strength : (product.quantity !== undefined ? product.quantity : 0)
-                    // Get price from database - unitPrice comes from DcOrder or DC productDetails (both from database)
-                    const price = product.unitPrice !== undefined && product.unitPrice !== null 
-                      ? Number(product.unitPrice) 
-                      : (product.price !== undefined && product.price !== null 
-                          ? Number(product.price) 
-                          : 0)
-                    const productName = product.product || 'Product'
-                    const bgColor1 = (index * 2) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
-                    const bgColor2 = (index * 2 + 1) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
-                    
+                  Object.values(
+                    invoiceData.paymentBreakdown.reduce((acc: Record<string, any>, product: any) => {
+                      const productName = String(product.product || 'Product').trim() || 'Product'
+                      const quantity =
+                        product.strength !== undefined
+                          ? Number(product.strength) || 0
+                          : Number(product.quantity) || 0
+                      const unitPrice =
+                        product.unitPrice !== undefined && product.unitPrice !== null
+                          ? Number(product.unitPrice) || 0
+                          : Number(product.price) || 0
+                      const rowTotal = Number(product.total) || quantity * unitPrice
+
+                      if (!acc[productName]) {
+                        acc[productName] = {
+                          productName,
+                          quantity: 0,
+                          total: 0,
+                          unitPrices: new Set<number>(),
+                        }
+                      }
+
+                      acc[productName].quantity += quantity
+                      acc[productName].total += rowTotal
+                      if (unitPrice > 0) acc[productName].unitPrices.add(unitPrice)
+                      return acc
+                    }, {})
+                  ).map((group: any, index: number) => {
+                    const prices = Array.from(group.unitPrices || []) as number[]
+                    const unitPriceText =
+                      prices.length === 0
+                        ? '-'
+                        : prices.length === 1
+                          ? `Rs.${prices[0].toFixed(2)}`
+                          : 'Multiple'
+                    const bgColor1 = (index * 3) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
+                    const bgColor2 = (index * 3 + 1) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
+                    const bgColor3 = (index * 3 + 2) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
+
                     return (
-                      <div key={index}>
-                        {/* Product Quantity - show 0 if quantity is 0 */}
+                      <div key={`${group.productName}-${index}`}>
                         <div className={`flex justify-between items-center p-4 ${bgColor1}`}>
-                          <span className="text-teal-600 font-medium">{productName}:</span>
-                          <span className="text-black">{quantity}</span>
+                          <span className="text-teal-600 font-medium">{group.productName}:</span>
+                          <span className="text-black">{group.quantity}</span>
                         </div>
-                        {/* Product Price - from database (DcOrder.unit_price or DC.productDetails.price) */}
                         <div className={`flex justify-between items-center p-4 ${bgColor2}`}>
-                          <span className="text-teal-600 font-medium">{productName}Price:</span>
-                          <span className="text-black">{price > 0 ? `Rs.${price.toFixed(2)}` : '-'}</span>
+                          <span className="text-teal-600 font-medium">{group.productName}Price:</span>
+                          <span className="text-black">{unitPriceText}</span>
+                        </div>
+                        <div className={`flex justify-between items-center p-4 ${bgColor3}`}>
+                          <span className="text-teal-600 font-medium">{group.productName}Total:</span>
+                          <span className="text-black">Rs.{Number(group.total || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     )

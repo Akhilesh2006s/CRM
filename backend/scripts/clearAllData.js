@@ -45,20 +45,37 @@ const clearAllData = async () => {
     const collections = await db.listCollections().toArray();
     console.log(`Found ${collections.length} collections\n`);
 
-    // Step 1: Keep only Super Admin users
-    console.log('Step 1: Keeping only Super Admin users...');
-    const superAdminUsers = await User.find({ role: 'Super Admin' });
-    console.log(`Found ${superAdminUsers.length} Super Admin user(s)`);
-    
-    if (superAdminUsers.length === 0) {
-      console.log('⚠️  WARNING: No Super Admin users found!');
-      console.log('This script will delete ALL users including potential admins.');
-      console.log('Are you sure you want to continue?');
+    // Step 1: Keep exactly one Super Admin login
+    const primaryEmail = (
+      process.env.SUPER_ADMIN_EMAILS || 'amenityforge@gmail.com'
+    )
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+
+    console.log('Step 1: Keeping only Super Admin login...');
+    console.log(`Primary Super Admin email: ${primaryEmail}`);
+
+    let superAdmin = await User.findOne({ email: primaryEmail });
+    if (!superAdmin) {
+      superAdmin = await User.findOne({ role: 'Super Admin' });
     }
 
-    // Delete all non-Super Admin users
-    const deleteResult = await User.deleteMany({ role: { $ne: 'Super Admin' } });
-    console.log(`Deleted ${deleteResult.deletedCount} non-Super Admin users\n`);
+    const deleteNonSuper = await User.deleteMany({ role: { $ne: 'Super Admin' } });
+    console.log(`Deleted ${deleteNonSuper.deletedCount} non–Super Admin users`);
+
+    if (superAdmin) {
+      superAdmin.role = 'Super Admin';
+      await superAdmin.save();
+      const dupes = await User.deleteMany({
+        _id: { $ne: superAdmin._id },
+      });
+      console.log(`Removed ${dupes.deletedCount} extra user account(s)\n`);
+    } else {
+      const wipeAll = await User.deleteMany({});
+      console.log(`No Super Admin found; removed ${wipeAll.deletedCount} user(s)`);
+      console.log('Run: node scripts/createSuperAdmin.js to create the login.\n');
+    }
 
     // Step 2: Delete all other data collections
     console.log('Step 2: Deleting all other data...\n');
@@ -137,7 +154,8 @@ const clearAllData = async () => {
 
     console.log('\n✅ Data cleanup completed!');
     console.log(`Total documents deleted: ${totalDeleted}`);
-    console.log(`Super Admin users preserved: ${superAdminUsers.length}`);
+    const preserved = await User.countDocuments({ role: 'Super Admin' });
+    console.log(`Super Admin login(s) remaining: ${preserved}`);
     console.log('\n⚠️  IMPORTANT: Make sure you have at least one Super Admin user with valid credentials!');
 
   } catch (error) {

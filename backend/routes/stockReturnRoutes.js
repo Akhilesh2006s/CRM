@@ -8,12 +8,16 @@ const {
   getExecutiveReturnById,
   listExecutiveReturns,
   listMyExecutiveReturns,
+  listWarehouseExecutiveList,
   listWarehouseExecutiveQueue,
   getReturnForWarehouseExecutive,
+  listWarehouseManagerList,
   listWarehouseManagerQueue,
   getReturnForWarehouseManager,
+  getReturnForAdmin,
   createWarehouseReturn,
   listWarehouseReturns,
+  saveWarehouseReturnUpdate,
   warehouseVerifyReturn,
   managerAction,
   uploadReturnPhoto,
@@ -25,11 +29,15 @@ router.get('/executive/list', authMiddleware, listExecutiveReturns);
 router.get('/executive', authMiddleware, listExecutiveReturns); // Keep for backward compatibility
 router.get('/executive/mine', authMiddleware, listMyExecutiveReturns);
 
+router.get('/warehouse-executive/list', authMiddleware, listWarehouseExecutiveList);
 router.get('/warehouse-executive/queue', authMiddleware, listWarehouseExecutiveQueue);
 router.get('/warehouse-executive/:id', authMiddleware, getReturnForWarehouseExecutive);
 
+router.get('/warehouse-manager/list', authMiddleware, listWarehouseManagerList);
 router.get('/warehouse-manager/queue', authMiddleware, listWarehouseManagerQueue);
 router.get('/warehouse-manager/:id', authMiddleware, getReturnForWarehouseManager);
+
+router.get('/admin/:id', authMiddleware, getReturnForAdmin);
 
 router.get('/:id', authMiddleware, getExecutiveReturnById);
 router.put('/:id', authMiddleware, updateExecutiveReturn);
@@ -53,7 +61,8 @@ router.post('/upload-photo', authMiddleware, (req, res, next) => {
   });
 }, uploadReturnPhoto);
 
-// Warehouse Executive verification endpoint
+// Warehouse Executive save / verify
+router.put('/:id/warehouse-save', authMiddleware, saveWarehouseReturnUpdate);
 router.put('/:id/warehouse-verify', authMiddleware, warehouseVerifyReturn);
 
 // Warehouse Manager action endpoint
