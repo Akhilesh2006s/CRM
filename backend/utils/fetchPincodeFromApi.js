@@ -1,21 +1,21 @@
 const https = require('https');
 
-const PINCODE_HOST = 'api.postalpincode.in';
+const INDIA_POST_HOST = 'api.postalpincode.in';
+const FALLBACK_HOST = 'aniket-thapa.github.io';
 const REQUEST_TIMEOUT_MS = 12000;
 
-function fetchJson(path) {
+function fetchHttpsJson(hostname, path, { rejectUnauthorized = true } = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       {
-        hostname: PINCODE_HOST,
+        hostname,
         path,
         method: 'GET',
         headers: {
           Accept: 'application/json',
           'User-Agent': 'CRM-FORGE/1.0',
         },
-        // India Post API cert is often expired
-        rejectUnauthorized: false,
+        rejectUnauthorized,
       },
       (res) => {
         let body = '';
@@ -23,6 +23,10 @@ function fetchJson(path) {
           body += chunk;
         });
         res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode} from ${hostname}${path}`));
+            return;
+          }
           try {
             resolve(JSON.parse(body));
           } catch (e) {
@@ -34,14 +38,12 @@ function fetchJson(path) {
 
     req.on('error', reject);
     req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error('Pincode API request timed out'));
+      req.destroy(new Error(`Pincode API request timed out (${hostname})`));
     });
   });
 }
 
-async function fetchPincodeFromApi(pincode) {
-  const data = await fetchJson(`/pincode/${pincode}`);
-
+function mapIndiaPost(data) {
   if (
     data &&
     data[0] &&
@@ -66,6 +68,75 @@ async function fetchPincodeFromApi(pincode) {
         BranchType: po.BranchType,
       })),
     };
+  }
+  return null;
+}
+
+function titleCase(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function mapFallback(data, pincode) {
+  const offices = Array.isArray(data?.offices) ? data.offices : [];
+  if (!data?.state || !data?.district || offices.length === 0) {
+    return null;
+  }
+
+  const state = titleCase(data.state);
+  const district = titleCase(data.district);
+  const postOffices = offices.map((office) => ({
+    Name: office.officeName || office.Name || '',
+    District: district,
+    State: state,
+    Division: office.divisionName || '',
+    Region: office.regionName || district,
+    Block: '',
+    BranchType: office.officeType || '',
+  }));
+
+  const first = postOffices[0];
+  return {
+    success: true,
+    town: first.Name,
+    district,
+    state,
+    region: first.Region || first.Division || district,
+    postOffices,
+    pincode,
+  };
+}
+
+async function fetchFromIndiaPost(pincode) {
+  const data = await fetchHttpsJson(INDIA_POST_HOST, `/pincode/${pincode}`, {
+    rejectUnauthorized: false,
+  });
+  return mapIndiaPost(data);
+}
+
+async function fetchFromFallback(pincode) {
+  const data = await fetchHttpsJson(
+    FALLBACK_HOST,
+    `/india-pincode-api/pincodes/${pincode}.json`,
+  );
+  return mapFallback(data, pincode);
+}
+
+async function fetchPincodeFromApi(pincode) {
+  try {
+    const primary = await fetchFromIndiaPost(pincode);
+    if (primary?.success) return primary;
+  } catch (err) {
+    console.warn('India Post pincode API failed, trying fallback:', err.message);
+  }
+
+  try {
+    const fallback = await fetchFromFallback(pincode);
+    if (fallback?.success) return fallback;
+  } catch (err) {
+    console.warn('Fallback pincode API failed:', err.message);
+    throw err;
   }
 
   return { success: false };

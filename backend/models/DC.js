@@ -78,6 +78,15 @@ const dcSchema = new mongoose.Schema({
     default: 'created',
     index: true,
   },
+  /**
+   * Mutually exclusive pipeline stage for list pages.
+   * ClosedSales (parent order only) → PendingDC → EmpDC → CompletedDC
+   */
+  workflowStage: {
+    type: String,
+    enum: ['ClosedSales', 'PendingDC', 'EmpDC', 'CompletedDC'],
+    index: true,
+  },
   // Purchase Order photo URL (image file)
   poPhotoUrl: {
     type: String,

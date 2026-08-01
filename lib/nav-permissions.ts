@@ -89,6 +89,17 @@ export const HREF_PERMISSION_MAP: Record<string, string> = {
 /** Longest-prefix match for dynamic routes */
 export function permissionForPath(pathname: string): string | null {
   if (!pathname) return null
+
+  // Personal Executive Manager dashboard/leaves are not the admin "All Managers" list page.
+  // Leaving these unmapped here; canAccessPath applies the role/ownership check.
+  if (
+    /^\/dashboard\/executive-managers\/[^/]+\/(dashboard|leaves)(?:\/|$)/.test(
+      pathname
+    )
+  ) {
+    return null
+  }
+
   if (HREF_PERMISSION_MAP[pathname]) return HREF_PERMISSION_MAP[pathname]
   const sorted = Object.keys(HREF_PERMISSION_MAP).sort((a, b) => b.length - a.length)
   for (const href of sorted) {

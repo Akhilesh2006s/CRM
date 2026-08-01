@@ -52,6 +52,7 @@ const getEmployee = async (req, res) => {
 // @route   POST /api/employees/create
 // @access  Private
 const Role = require('../models/Role');
+const { validateStrictIndianMobile } = require('../utils/indianMobileValidation');
 
 const createEmployee = async (req, res) => {
   try {
@@ -68,6 +69,12 @@ const createEmployee = async (req, res) => {
     if (!body.name && body.firstName) {
       body.name = `${body.firstName} ${body.lastName || ''}`.trim();
     }
+
+    const mobileCheck = validateStrictIndianMobile(body.mobile);
+    if (!mobileCheck.ok) {
+      return res.status(400).json({ message: mobileCheck.message });
+    }
+    body.mobile = mobileCheck.digits;
     
     // Validate cluster uniqueness for Executive role
     if (body.role === 'Executive' && body.cluster) {
@@ -129,6 +136,14 @@ const updateEmployee = async (req, res) => {
       if (existingEmployee) {
         return res.status(400).json({ message: 'Cluster value must be unique. This cluster is already assigned to another executive.' });
       }
+    }
+
+    if (req.body.mobile !== undefined) {
+      const mobileCheck = validateStrictIndianMobile(req.body.mobile);
+      if (!mobileCheck.ok) {
+        return res.status(400).json({ message: mobileCheck.message });
+      }
+      req.body.mobile = mobileCheck.digits;
     }
 
     if (req.body.isActive === true) {

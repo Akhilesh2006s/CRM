@@ -14,6 +14,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
 
+/** DcOrder statuses that belong on the Closed Sales page. */
+function isClosedSalesOrderStatus(status?: string) {
+  return status === 'dc_requested' || status === 'dc_accepted'
+}
+
+/**
+ * Linked DC document statuses that mean the sale has left Closed Sales
+ * (Pending DC → EMP/Warehouse → Completed DC).
+ */
+const DC_LEFT_CLOSED_SALES = new Set([
+  'pending_dc',
+  'sent_to_manager',
+  'warehouse_processing',
+  'completed',
+  'hold',
+])
+
+function hasLeftClosedSalesStage(dc?: { status?: string } | null) {
+  if (!dc?.status) return false
+  return DC_LEFT_CLOSED_SALES.has(dc.status)
+}
+
 type DcOrder = {
   _id: string
   dc_code?: string
@@ -27,7 +49,7 @@ type DcOrder = {
   location?: string
   zone?: string
   cluster?: string
-  products?: Array<{ product_name: string; quantity: number }>
+  products?: Array<{ product_name: string; quantity: number; strength?: number }>
   assigned_to?: {
     _id: string
     name?: string
@@ -126,6 +148,11 @@ export default function ClosedSalesPage() {
   const [dcRemarks, setDcRemarks] = useState('')
   const [dcCategory, setDcCategory] = useState('')
   const [dcNotes, setDcNotes] = useState('')
+  const [dcDetailsErrors, setDcDetailsErrors] = useState<{
+    dcDate?: string
+    dcCategory?: string
+    dcRemarks?: string
+  }>({})
   
   // Product rows for DC (like in the Raise DC form)
   type ProductRow = {
@@ -136,13 +163,14 @@ export default function ClosedSalesPage() {
     productCategory?: string
     specs: string
     subject?: string
+    quantity: number
     strength: number
     level: string
     term: string
     unit_price: number
   }
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { id: '1', product: 'Abacus', class: '1', category: 'new Students', productCategory: undefined, specs: 'Regular', strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
+    { id: '1', product: 'Abacus', class: '1', category: 'new Students', productCategory: undefined, specs: 'Regular', quantity: 1, strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
   ])
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
@@ -169,6 +197,45 @@ export default function ClosedSalesPage() {
     return categoryOptions.includes(v) ? v : fallback
   }
   const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories, hasProductSubjects } = useProducts()
+
+  /** Map Create Sale / DcOrder / DC product lines into Closed Sales rows without mixing quantity ↔ strength. */
+  const mapSourceProductToRow = (p: any, idx: number, schoolType?: string): ProductRow => {
+    const originalProduct = p.product_name || p.product || 'Abacus'
+    const skuCategories = getProductCategories(originalProduct)
+    const rawSku = p.productCategory || p.category || ''
+    const normalizedSku = String(rawSku).trim()
+    const matchedSku =
+      skuCategories.includes(normalizedSku)
+        ? normalizedSku
+        : skuCategories.find((c) => c.toLowerCase() === normalizedSku.toLowerCase())
+
+    const quantityNum =
+      p.quantity !== undefined && p.quantity !== null && p.quantity !== ''
+        ? Number(p.quantity)
+        : 1
+    const strengthNum =
+      p.strength !== undefined && p.strength !== null && p.strength !== ''
+        ? Number(p.strength)
+        : 0
+
+    return {
+      id: String(idx + 1),
+      product: originalProduct,
+      class: p.class || '1',
+      category: normalizeCategoryForDropdown(
+        p.category,
+        schoolType === 'Existing' ? 'Old Students' : 'new Students'
+      ),
+      productCategory: matchedSku || undefined,
+      specs: p.specs || 'Regular',
+      subject: p.subject || undefined,
+      quantity: Number.isFinite(quantityNum) && quantityNum >= 0 ? quantityNum : 1,
+      strength: Number.isFinite(strengthNum) && strengthNum >= 0 ? strengthNum : 0,
+      level: p.level || getDefaultLevel(originalProduct || 'Abacus'),
+      term: p.term || 'Term 1',
+      unit_price: Number(p.unit_price) || Number(p.price) || 0,
+    }
+  }
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
@@ -193,41 +260,30 @@ export default function ClosedSalesPage() {
           ])
         }
         
-        // Reduced limit for faster initial load - can be increased if needed
-        // Fetch DcOrders with various statuses that should appear in Closed Sales
-        // Note: Term 2 split DCs (status 'scheduled_for_later') are NOT fetched here - they only appear in Term-Wise DC
-        const [completedRes, savedRes, dcRequestedRes, dcAcceptedRes] = await Promise.all([
-          apiCallWithTimeout(`/dc-orders?status=completed&limit=500`),
-          apiCallWithTimeout(`/dc-orders?status=saved&limit=500`),
+        // Closed Sales = DcOrders currently awaiting raise/accept only.
+        // Do NOT include saved (My Clients), completed (past stage), or later pipeline stages.
+        const [dcRequestedRes, dcAcceptedRes] = await Promise.all([
           apiCallWithTimeout(`/dc-orders?status=dc_requested&limit=500`),
           apiCallWithTimeout(`/dc-orders?status=dc_accepted&limit=500`),
         ])
-        // Extract data array from paginated response or use direct array
-        const completedArray = Array.isArray(completedRes) ? completedRes : (completedRes?.data || [])
-        const savedArray = Array.isArray(savedRes) ? savedRes : (savedRes?.data || [])
         const dcRequestedArray = Array.isArray(dcRequestedRes) ? dcRequestedRes : (dcRequestedRes?.data || [])
         const dcAcceptedArray = Array.isArray(dcAcceptedRes) ? dcAcceptedRes : (dcAcceptedRes?.data || [])
         
         console.log('📊 Loaded DcOrders for Closed Sales:', {
-          completed: completedArray.length,
-          saved: savedArray.length,
           dc_requested: dcRequestedArray.length,
           dc_accepted: dcAcceptedArray.length
         })
-        console.log('📋 dc_requested items (includes Term 1 DCs from split DCs):', dcRequestedArray.map((d: any) => ({
+        console.log('📋 dc_requested items:', dcRequestedArray.map((d: any) => ({
           id: d._id,
           school_name: d.school_name,
           status: d.status,
           updatedAt: d.updatedAt || d.updated_at
         })))
         
-        // When a DC is split:
-        // - DC 1 (Term 1 products) is represented by the DcOrder with status 'dc_requested' -> shows in Closed Sales
-        // - DC 2 (Term 2 products) has status 'scheduled_for_later' -> shows ONLY in Term-Wise DC (NOT in Closed Sales)
-        // So we keep all dc_requested DcOrders - they represent Term 1 DCs (even if split)
-        // Term 2 split DCs should NOT appear in Closed Sales, only in Term-Wise DC
-        data = [...completedArray, ...savedArray, ...dcRequestedArray, ...dcAcceptedArray].filter((d: any) => 
-          d.status !== 'dc_approved' && d.status !== 'dc_sent_to_senior'
+        data = [...dcRequestedArray, ...dcAcceptedArray].filter((d: any) =>
+          isClosedSalesOrderStatus(d.status) &&
+          d.status !== 'dc_approved' &&
+          d.status !== 'dc_sent_to_senior'
         )
       } catch (e) {
         // If no completed deals, try getting all deals and filter client-side
@@ -241,18 +297,8 @@ export default function ClosedSalesPage() {
           ])
           // Extract data array from paginated response or use direct array
           const dealsArray = Array.isArray(allDealsRes) ? allDealsRes : (allDealsRes?.data || [])
-          // Filter for deals that might be considered "closed" - including saved (converted leads)
-          data = dealsArray.filter((d: any) => 
-            (d.status === 'completed' || 
-            d.status === 'saved' || // Include saved status for converted leads
-            d.status === 'in_transit' || 
-            d.lead_status === 'Hot' ||
-            d.status === 'hold' ||
-            d.status === 'dc_requested' || // Include DC requests from employees
-            d.status === 'dc_accepted') && // Include accepted DC requests (can be updated later)
-            d.status !== 'dc_approved' && // Exclude approved (already processed)
-            d.status !== 'dc_sent_to_senior' // Exclude sent to senior coordinator
-          )
+          // Closed Sales stage only — never Pending/Completed/My Clients
+          data = dealsArray.filter((d: any) => isClosedSalesOrderStatus(d.status))
         } catch (timeoutError) {
           console.warn('Timeout loading all deals, using empty array')
           data = []
@@ -406,6 +452,20 @@ export default function ClosedSalesPage() {
         
         setDealDCs(dcMap)
         console.log('Loaded DCs for deals:', Object.keys(dcMap).length, 'DCs found')
+
+        // Drop deals whose linked DC has already left Closed Sales (Pending / Warehouse / Completed)
+        data = data.filter((deal: any) => {
+          const linkedDc = dcMap[deal._id]
+          if (hasLeftClosedSalesStage(linkedDc)) {
+            console.log(
+              `🚫 Excluding from Closed Sales (DC stage=${linkedDc?.status}):`,
+              deal.school_name || deal._id
+            )
+            return false
+          }
+          if (deal.isLead) return true
+          return isClosedSalesOrderStatus(deal.status)
+        })
       } catch (e) {
         console.warn('Failed to load DCs:', e)
         // Continue without DCs - they're optional
@@ -770,39 +830,11 @@ export default function ClosedSalesPage() {
         
         // Load product rows from request data
         if (dcRequestData.productDetails && Array.isArray(dcRequestData.productDetails) && dcRequestData.productDetails.length > 0) {
-          setProductRows(dcRequestData.productDetails.map((p: any, idx: number) => {
-            const productName: string = p.product || p.product_name || ''
-            const skuCategories = getProductCategories(productName)
-
-            const rawSku =
-              (typeof p.productCategory === 'string' ? p.productCategory : undefined) ??
-              (typeof p.category === 'string' ? p.category : undefined) ??
-              ''
-
-            const normalizedSku = rawSku.trim()
-            const matchedSku =
-              skuCategories.includes(normalizedSku)
-                ? normalizedSku
-                : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-
-            return {
-              id: String(idx + 1),
-              product: productName, // Use original product name as entered
-              class: p.class || '1',
-              category: normalizeCategoryForDropdown(
-                p.category,
-                normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students'
-              ),
-              // Pre-fill SKU product category to match available options exactly
-              productCategory: matchedSku || undefined,
-              specs: p.specs || 'Regular',
-              subject: p.subject || undefined,
-              strength: Number(p.strength) || Number(p.quantity) || 0,
-              level: p.level || getDefaultLevel(productName || 'Abacus'),
-              term: p.term || 'Term 1',
-              unit_price: Number(p.unit_price) || Number(p.price) || 0,
-            }
-          }))
+          setProductRows(
+            dcRequestData.productDetails.map((p: any, idx: number) =>
+              mapSourceProductToRow(p, idx, normalizedDeal.school_type)
+            )
+          )
         } else {
           setProductRows([{
             id: '1',
@@ -810,6 +842,7 @@ export default function ClosedSalesPage() {
             class: '1',
             category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
             specs: 'Regular',
+            quantity: 1,
             strength: 0,
             level: 'L1',
             term: 'Term 1',
@@ -851,91 +884,25 @@ export default function ClosedSalesPage() {
           // Load product rows from DC productDetails or DcOrder products
           // Use EXACT product names as they were entered when DC was requested
           if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-            console.log('=== LOADING PRODUCTS FOR CLOSED SALES ===')
-            console.log('Full productDetails from DC:', JSON.stringify(fullDC.productDetails, null, 2))
-            setProductRows(fullDC.productDetails.map((p: any, idx) => {
-              // Read all fields directly from the product object
-              // The productDetails array items should have strength, level directly on them
-              const rawLevel = p.level || getDefaultLevel(p.product || 'Abacus')
-              const rawStrength = p.strength !== undefined && p.strength !== null ? p.strength : 0
-              
-              // Convert to numbers - preserve 0 values, only default to 0 if null/undefined
-              const strengthNum = rawStrength !== null && rawStrength !== undefined ? Number(rawStrength) : 0
-              
-              // Use the original product name as entered (no matching/transformation)
-              const originalProduct = p.product || p.product_name || 'ABACUS'
-              const skuCategories = getProductCategories(originalProduct)
-              const rawSku =
-                (typeof p.productCategory === 'string' ? p.productCategory : undefined) ??
-                (typeof p.category === 'string' ? p.category : undefined) ??
-                ''
-              const normalizedSku = rawSku.trim()
-              const matchedSku =
-                skuCategories.includes(normalizedSku)
-                  ? normalizedSku
-                  : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-              
-              const productRow = {
-              id: String(idx + 1),
-                product: originalProduct, // Use original product name as entered
-              class: p.class || '1',
-              category: normalizeCategoryForDropdown(
-                p.category,
-                normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students'
-              ),
-                // Pre-fill SKU product category from DC.productDetails.
-                // Some older records may have it stored under `category`, so we fallback to that.
-                productCategory: matchedSku || undefined,
-                specs: p.specs || 'Regular',
-                subject: p.subject || undefined,
-                strength: strengthNum,
-                level: rawLevel,
-                term: p.term || 'Term 1',
-                unit_price: Number(p.unit_price) || Number(p.price) || 0,
-              }
-              
-              console.log(`Product ${idx + 1} - Using original product name:`, {
-                'p.product': p.product,
-                'p.product_name': p.product_name,
-                'originalProduct': originalProduct,
-                'final product': productRow.product,
-              })
-              return productRow
-            }))
+            setProductRows(
+              fullDC.productDetails.map((p: any, idx: number) =>
+                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
+              )
+            )
           } else if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-            setProductRows(normalizedDeal.products.map((p: any, idx: number) => {
-              // Use original product name as entered (no matching/transformation)
-              const originalProduct = p.product_name || p.product || 'ABACUS'
-              const skuCategories = getProductCategories(originalProduct)
-              const rawSku = (p as any).productCategory || (p as any).category || ''
-              const normalizedSku = rawSku.trim()
-              const matchedSku =
-                skuCategories.includes(normalizedSku)
-                  ? normalizedSku
-                  : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-              
-              return {
-              id: String(idx + 1),
-                product: originalProduct, // Use original product name as entered
-              class: '1',
-              category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-              // If product category exists in the source, map it into the SKU productCategory.
-                productCategory: matchedSku || undefined,
-                specs: 'Regular',
-                subject: undefined,
-              strength: p.strength || p.quantity || 0,
-                level: p.level || getDefaultLevel(p.product || 'Abacus'),
-                term: p.term || 'Term 1',
-                unit_price: Number(p.unit_price) || Number(p.price) || 0,
-              }
-            }))
+            setProductRows(
+              normalizedDeal.products.map((p: any, idx: number) =>
+                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
+              )
+            )
           } else {
             setProductRows([{
               id: '1',
-              product: 'ABACUS',
+              product: 'Abacus',
               class: '1',
               category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
               specs: 'Regular',
+              quantity: 1,
               strength: 0,
               level: 'L1',
               term: 'Term 1',
@@ -950,30 +917,11 @@ export default function ClosedSalesPage() {
           setDcCategory('')
           setDcNotes('')
           if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-          setProductRows(normalizedDeal.products.map((p: any, idx: number) => {
-            const originalProduct = p.product_name || p.product || 'Abacus'
-            const skuCategories = getProductCategories(originalProduct)
-            const rawSku = (p as any).productCategory || (p as any).category || ''
-            const normalizedSku = rawSku.trim()
-            const matchedSku =
-              skuCategories.includes(normalizedSku)
-                ? normalizedSku
-                : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-
-            return {
-              id: String(idx + 1),
-              product: originalProduct, // Use original product name as entered
-              class: '1',
-              category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-              productCategory: matchedSku || undefined,
-              specs: 'Regular',
-              subject: undefined,
-              strength: p.strength || p.quantity || 0,
-              level: p.level || 'L2',
-              term: p.term || 'Term 1',
-              unit_price: Number(p.unit_price) || Number(p.price) || 0,
-            }
-          }))
+            setProductRows(
+              normalizedDeal.products.map((p: any, idx: number) =>
+                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
+              )
+            )
           } else {
             setProductRows([{
               id: '1',
@@ -981,6 +929,7 @@ export default function ClosedSalesPage() {
               class: '1',
               category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
               specs: 'Regular',
+              quantity: 1,
               strength: 0,
               level: 'L1',
               term: 'Term 1',
@@ -996,30 +945,11 @@ export default function ClosedSalesPage() {
         setDcNotes('')
         // Initialize product rows from existing products in deal, or start with one empty row
         if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-          setProductRows(normalizedDeal.products.map((p: any, idx: number) => {
-            const originalProduct = p.product_name || p.product || 'Abacus'
-            const skuCategories = getProductCategories(originalProduct)
-            const rawSku = (p as any).productCategory || (p as any).category || ''
-            const normalizedSku = rawSku.trim()
-            const matchedSku =
-              skuCategories.includes(normalizedSku)
-                ? normalizedSku
-                : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-
-            return {
-              id: String(idx + 1),
-              product: originalProduct, // Use original product name as entered
-              class: '1',
-              category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-              productCategory: matchedSku || undefined,
-              specs: 'Regular',
-              subject: undefined,
-              strength: p.strength || p.quantity || 0,
-              level: p.level || 'L2',
-              term: p.term || 'Term 1',
-              unit_price: Number(p.unit_price) || Number(p.price) || 0,
-            }
-          }))
+          setProductRows(
+            normalizedDeal.products.map((p: any, idx: number) =>
+              mapSourceProductToRow(p, idx, normalizedDeal.school_type)
+            )
+          )
         } else {
           setProductRows([{
             id: '1',
@@ -1027,6 +957,7 @@ export default function ClosedSalesPage() {
             class: '1',
             category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
             specs: 'Regular',
+            quantity: 1,
             strength: 0,
             level: 'L1',
             term: 'Term 1',
@@ -1034,6 +965,7 @@ export default function ClosedSalesPage() {
           }])
         }
       }
+      setDcDetailsErrors({})
       setOpenRaiseDCDialog(true)
       
       console.log('Normalized deal for modal:', normalizedDeal)
@@ -1043,6 +975,7 @@ export default function ClosedSalesPage() {
       // Fallback to using the deal data we have
       setSelectedDeal(deal)
       setOpenRaiseDCDialog(true)
+      setDcDetailsErrors({})
       
       // Initialize form with deal data
       setDcDate('')
@@ -1050,30 +983,9 @@ export default function ClosedSalesPage() {
       setDcCategory('')
       setDcNotes('')
       if (deal.products && Array.isArray(deal.products) && deal.products.length > 0) {
-        setProductRows(deal.products.map((p: any, idx: number) => {
-          const originalProduct = p.product_name || p.product || 'Abacus'
-          const skuCategories = getProductCategories(originalProduct)
-          const rawSku = (p as any).productCategory || (p as any).category || ''
-          const normalizedSku = rawSku.trim()
-          const matchedSku =
-            skuCategories.includes(normalizedSku)
-              ? normalizedSku
-              : skuCategories.find(c => c.toLowerCase() === normalizedSku.toLowerCase())
-
-          return {
-            id: String(idx + 1),
-            product: originalProduct, // Use original product name as entered
-            class: '1',
-            category: deal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-            productCategory: matchedSku || undefined,
-            specs: 'Regular',
-            subject: undefined,
-            strength: p.strength || p.quantity || 0,
-            level: p.level || 'L2',
-            term: p.term || 'Term 1',
-            unit_price: Number(p.unit_price) || Number(p.price) || 0,
-          }
-        }))
+        setProductRows(
+          deal.products.map((p: any, idx: number) => mapSourceProductToRow(p, idx, deal.school_type))
+        )
       } else {
         setProductRows([{
           id: '1',
@@ -1081,6 +993,7 @@ export default function ClosedSalesPage() {
           class: '1',
           category: deal.school_type === 'Existing' ? 'Old Students' : 'new Students',
           specs: 'Regular',
+          quantity: 1,
           strength: 0,
           level: 'L1',
           term: 'Term 1',
@@ -1105,8 +1018,25 @@ export default function ClosedSalesPage() {
     setOpenLocationDialog(true)
   }
 
+  /** DC Date + Category are marked required in the Raise DC UI (*). Remarks is optional. */
+  const validateDcDetailsFields = (): boolean => {
+    const next: { dcDate?: string; dcCategory?: string; dcRemarks?: string } = {}
+    if (!dcDate || !String(dcDate).trim()) {
+      next.dcDate = 'DC Date is required.'
+    }
+    if (!dcCategory || !String(dcCategory).trim()) {
+      next.dcCategory = 'DC Category is required.'
+    }
+    setDcDetailsErrors(next)
+    return Object.keys(next).length === 0
+  }
+
   const handleSubmitToManager = async () => {
     if (!selectedDeal) return
+
+    if (!validateDcDetailsFields()) {
+      return
+    }
 
     // Check if employee is assigned - prioritize deal's assigned employee
     let employeeId = null
@@ -1136,8 +1066,9 @@ export default function ClosedSalesPage() {
       // First, raise DC (creates or gets existing DC)
       const raisePayload: any = {
         dcOrderId: selectedDeal._id,
-        dcDate: dcDate || undefined,
-        dcRemarks: dcRemarks || undefined,
+        dcDate: String(dcDate).trim(),
+        dcRemarks: dcRemarks.trim() || undefined,
+        dcCategory: String(dcCategory).trim(),
       }
       
       // Only include employeeId if deal doesn't already have one assigned (backend will use deal's assigned_to if available)
@@ -1145,8 +1076,8 @@ export default function ClosedSalesPage() {
         raisePayload.employeeId = employeeId
       }
 
-      // Calculate requested quantity from product rows (using strength)
-      const totalQuantity = productRows.reduce((sum, row) => sum + (row.strength || 0), 0)
+      // Calculate requested quantity from product rows (units ordered — not strength)
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
       raisePayload.requestedQuantity = totalQuantity || 1
       
       // Include product details in payload
@@ -1158,7 +1089,7 @@ export default function ClosedSalesPage() {
         specs: row.specs || 'Regular',
         subject: row.subject || undefined,
         strength: Number(row.strength) || 0,
-        quantity: Number(row.strength) || 0, // Quantity should match strength
+        quantity: Number(row.quantity) || 0,
         level: row.level || 'L2',
         term: row.term || 'Term 1',
       }))
@@ -1207,6 +1138,12 @@ export default function ClosedSalesPage() {
         })
       }
 
+      // Leave Closed Sales: DcOrder must no longer be dc_requested/dc_accepted
+      await apiRequest(`/dc-orders/${selectedDeal._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'dc_sent_to_senior' }),
+      })
+
       alert(existingDC ? 'DC updated and sent to Senior Coordinator successfully! It will appear in Pending DC list.' : 'DC created and sent to Senior Coordinator successfully! It will appear in Pending DC list.')
       setOpenRaiseDCDialog(false)
       // Reload to refresh the DC map
@@ -1221,6 +1158,10 @@ export default function ClosedSalesPage() {
   // Employee submits DC request (doesn't create DC, just requests it)
   const handleRequestDC = async () => {
     if (!selectedDeal) return
+
+    if (!validateDcDetailsFields()) {
+      return
+    }
 
     // Check if employee is assigned - prioritize deal's assigned employee
     let employeeId = null
@@ -1247,8 +1188,8 @@ export default function ClosedSalesPage() {
 
     setSaving(true)
     try {
-      // Calculate requested quantity from product rows (using strength)
-      const totalQuantity = productRows.reduce((sum, row) => sum + (row.strength || 0), 0)
+      // Calculate requested quantity from product rows (units ordered — not strength)
+      const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
       
       // Prepare DC request data to store in DcOrder
       const dcRequestData = {
@@ -1264,7 +1205,7 @@ export default function ClosedSalesPage() {
           specs: row.specs || 'Regular',
           subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
-          quantity: Number(row.strength) || 0, // Quantity should match strength
+          quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
           term: row.term || 'Term 1',
         })),
@@ -1295,15 +1236,19 @@ export default function ClosedSalesPage() {
   const handleAcceptDC = async () => {
     if (!selectedDeal) return
 
+    if (!validateDcDetailsFields()) {
+      return
+    }
+
     setSaving(true)
     try {
       // Get DC request data from DcOrder (or use current form data if it's an accepted request being updated)
       const dcRequestData = (selectedDeal as any).dcRequestData || {}
       
-      // Use current form data if available (for updates), otherwise use request data, otherwise use deal's products
-      const finalDcDate = dcDate || (dcRequestData.dcDate ? new Date(dcRequestData.dcDate).toISOString().split('T')[0] : undefined)
-      const finalDcRemarks = dcRemarks || dcRequestData.dcRemarks || undefined
-      const finalDcCategory = dcCategory || dcRequestData.dcCategory || undefined
+      // Use current form values (already validated) — do not fall back to empty request data
+      const finalDcDate = String(dcDate).trim()
+      const finalDcRemarks = dcRemarks.trim() || undefined
+      const finalDcCategory = String(dcCategory).trim()
       const finalDcNotes = dcNotes || dcRequestData.dcNotes || undefined
       
       // Determine product details: use form data if available, otherwise request data, otherwise deal's products
@@ -1317,7 +1262,7 @@ export default function ClosedSalesPage() {
         specs: row.specs || 'Regular',
         subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
-          quantity: Number(row.strength) || 0, // Quantity should match strength
+          quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
           term: row.term || 'Term 1',
         }))
@@ -1330,20 +1275,20 @@ export default function ClosedSalesPage() {
           class: '1',
           category: selectedDeal?.school_type === 'Existing' ? 'Old Students' : 'new Students',
           productName: p.product_name || 'Abacus',
-          quantity: p.quantity || 1,
-          strength: 0,
+          quantity: Number(p.quantity) || 1,
+          strength: Number(p.strength) || 0,
           level: getDefaultLevel(p.product_name || 'Abacus'),
         }))
       }
       
       const finalRequestedQuantity = finalProductDetails.length > 0
-        ? finalProductDetails.reduce((sum: number, p: any) => sum + (Number(p.quantity) || Number(p.strength) || 0), 0)
+        ? finalProductDetails.reduce((sum: number, p: any) => sum + (Number(p.quantity) || 0), 0)
         : 1
       
       // Prepare payload to create/update DC
       const raisePayload: any = {
         dcOrderId: selectedDeal._id,
-        dcDate: finalDcDate || undefined,
+        dcDate: finalDcDate,
         dcRemarks: finalDcRemarks,
         dcCategory: finalDcCategory,
         requestedQuantity: finalRequestedQuantity,
@@ -1412,6 +1357,10 @@ export default function ClosedSalesPage() {
   const handleSendToSeniorCoordinator = async () => {
     if (!selectedDeal) return
 
+    if (!validateDcDetailsFields()) {
+      return
+    }
+
     // Validate that all product fields are filled
     if (productRows.length === 0) {
       alert('Please add at least one product before sending to Senior Coordinator')
@@ -1428,10 +1377,15 @@ export default function ClosedSalesPage() {
       if (!row.specs || row.specs.trim() === '') {
         invalidRows.push(`Row ${rowNum}: Specs is required`)
       }
-      if (!row.strength || Number(row.strength) <= 0) {
+      if (!row.quantity || Number(row.quantity) <= 0) {
         invalidRows.push(`Row ${rowNum}: Quantity must be greater than 0`)
       }
-      if (!row.level || row.level.trim() === '') {
+      // Level is required only when the product has configured levels
+      if (
+        row.product &&
+        getProductLevels(row.product).length > 0 &&
+        (!row.level || row.level.trim() === '')
+      ) {
         invalidRows.push(`Row ${rowNum}: Level is required`)
       }
       if (!row.term || row.term.trim() === '') {
@@ -1457,11 +1411,11 @@ export default function ClosedSalesPage() {
       // Always use current productRows and form fields to ensure all changes are saved
       const raisePayload: any = {
         dcOrderId: selectedDeal._id, // Use DcOrder ID (will be resolved from term2DCId if needed)
-        dcDate: dcDate || dcRequestData.dcDate || undefined, // Prioritize current form value
-        dcRemarks: dcRemarks || dcRequestData.dcRemarks || undefined, // Prioritize current form value
-        dcCategory: dcCategory || dcRequestData.dcCategory || undefined, // Prioritize current form value
+        dcDate: String(dcDate).trim(),
+        dcRemarks: dcRemarks.trim() || undefined,
+        dcCategory: String(dcCategory).trim(),
         requestedQuantity: productRows.length > 0 
-          ? productRows.reduce((sum, row) => sum + (row.strength || 0), 0) || 1
+          ? productRows.reduce((sum, row) => sum + (row.quantity || 0), 0) || 1
           : (dcRequestData.requestedQuantity || 1),
         // Always use current productRows to save all edited product details
         productDetails: productRows.length > 0 
@@ -1473,7 +1427,7 @@ export default function ClosedSalesPage() {
           specs: row.specs || 'Regular',
           subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
-          quantity: Number(row.strength) || 0, // Quantity should match strength
+          quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
               term: row.term || 'Term 1',
             }))
@@ -1538,7 +1492,7 @@ export default function ClosedSalesPage() {
     if (dc?.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
       return dc.productDetails.map((p: any) => {
         const productName = p.product || p.product_name || 'Unknown'
-        const qty = p.quantity || p.strength || 0
+        const qty = typeof p.quantity === 'number' ? p.quantity : Number(p.quantity) || 0
         return `${productName}${qty ? ` - ${qty}` : ''}`
       }).join(', ')
     }
@@ -1548,7 +1502,7 @@ export default function ClosedSalesPage() {
     return deal.products.map(p => {
       // Handle both DcOrder format (product_name) and DC format (product)
       const productName = (p as any).product_name || (p as any).product || 'Unknown'
-      const qty = (p as any).quantity || (p as any).strength || 0
+      const qty = typeof (p as any).quantity === 'number' ? (p as any).quantity : Number((p as any).quantity) || 0
       return `${productName}${qty ? ` - ${qty}` : ''}`
     }).join(', ')
   }
@@ -2128,6 +2082,7 @@ export default function ClosedSalesPage() {
                         class: '1',
                         category: selectedDeal?.school_type === 'Existing' ? 'Old Students' : 'new Students',
                         specs: 'Regular',
+                        quantity: 1,
                         strength: 0,
                         level: 'L2',
                         term: 'Term 1',
@@ -2308,7 +2263,7 @@ export default function ClosedSalesPage() {
                           <td className="py-4 px-5">
                             <Input
                               type="number"
-                              value={row.strength || ''}
+                              value={row.quantity || ''}
                               onChange={(e) => {
                                 let value = e.target.value
                                 // Remove leading zeros (but allow single '0')
@@ -2318,15 +2273,15 @@ export default function ClosedSalesPage() {
                                 // Convert to number, use 0 if empty
                                 const numValue = value === '' ? 0 : Number(value)
                                 const updated = [...productRows]
-                                updated[idx].strength = numValue
+                                updated[idx].quantity = numValue
                                 setProductRows(updated)
                               }}
                               onBlur={(e) => {
                                 // Normalize on blur to remove any remaining leading zeros
                                 const numValue = Number(e.target.value) || 0
-                                if (numValue !== row.strength) {
+                                if (numValue !== row.quantity) {
                                   const updated = [...productRows]
-                                  updated[idx].strength = numValue
+                                  updated[idx].quantity = numValue
                                   setProductRows(updated)
                                 }
                               }}
@@ -2336,27 +2291,29 @@ export default function ClosedSalesPage() {
                             />
                           </td>
                           <td className="py-4 px-5">
-                            <Select
-                              value={row.level || 'L2'}
-                              onValueChange={(value) => {
-                                const updated = [...productRows]
-                                updated[idx].level = value
-                                setProductRows(updated)
-                              }}
-                            >
-                              <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-20">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {row.product ? getProductLevels(row.product).map((level) => (
-                                  <SelectItem key={level} value={level}>
-                                    {level}
-                                  </SelectItem>
-                                )) : (
-                                  <SelectItem value="L2">L2</SelectItem>
-                                )}
-                              </SelectContent>
-                            </Select>
+                            {row.product && getProductLevels(row.product).length > 0 ? (
+                              <Select
+                                value={row.level || getDefaultLevel(row.product)}
+                                onValueChange={(value) => {
+                                  const updated = [...productRows]
+                                  updated[idx].level = value
+                                  setProductRows(updated)
+                                }}
+                              >
+                                <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-20">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {getProductLevels(row.product).map((level) => (
+                                    <SelectItem key={level} value={level}>
+                                      {level}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
                           </td>
                           <td className="py-4 px-5">
                             <Select
@@ -2399,7 +2356,7 @@ export default function ClosedSalesPage() {
                         </td>
                         <td className="px-5 py-4 text-right">
                           <span className="text-slate-800 text-base">
-                            {productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                            {productRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0)}
                           </span>
                         </td>
                         <td colSpan={4} className="px-5 py-4"></td>
@@ -2421,15 +2378,39 @@ export default function ClosedSalesPage() {
                     <Input
                       type="date"
                       value={dcDate}
-                      onChange={(e) => setDcDate(e.target.value)}
+                      onChange={(e) => {
+                        setDcDate(e.target.value)
+                        if (dcDetailsErrors.dcDate) {
+                          setDcDetailsErrors((prev) => {
+                            const next = { ...prev }
+                            delete next.dcDate
+                            return next
+                          })
+                        }
+                      }}
                       placeholder="mm/dd/yyyy"
-                      className="h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white"
+                      className={`h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white ${dcDetailsErrors.dcDate ? 'border-red-500' : ''}`}
                     />
+                    {dcDetailsErrors.dcDate && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcDate}</p>
+                    )}
                   </div>
                   <div>
                     <Label className="text-sm font-semibold mb-2.5 block text-slate-700">DC Category *</Label>
-                    <Select value={dcCategory} onValueChange={setDcCategory}>
-                      <SelectTrigger className="h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white">
+                    <Select
+                      value={dcCategory}
+                      onValueChange={(v) => {
+                        setDcCategory(v)
+                        if (dcDetailsErrors.dcCategory) {
+                          setDcDetailsErrors((prev) => {
+                            const next = { ...prev }
+                            delete next.dcCategory
+                            return next
+                          })
+                        }
+                      }}
+                    >
+                      <SelectTrigger className={`h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white ${dcDetailsErrors.dcCategory ? 'border-red-500' : ''}`}>
                         <SelectValue placeholder="Select DC Category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2439,15 +2420,30 @@ export default function ClosedSalesPage() {
                         <SelectItem value="Full Year">Full Year</SelectItem>
                       </SelectContent>
                     </Select>
+                    {dcDetailsErrors.dcCategory && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcCategory}</p>
+                    )}
                   </div>
                   <div>
                     <Label className="text-sm font-semibold mb-2.5 block text-slate-700">DC Remarks</Label>
                     <Input
                       value={dcRemarks}
-                      onChange={(e) => setDcRemarks(e.target.value)}
+                      onChange={(e) => {
+                        setDcRemarks(e.target.value)
+                        if (dcDetailsErrors.dcRemarks) {
+                          setDcDetailsErrors((prev) => {
+                            const next = { ...prev }
+                            delete next.dcRemarks
+                            return next
+                          })
+                        }
+                      }}
                       placeholder="Enter remarks"
-                      className="h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white"
+                      className={`h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white ${dcDetailsErrors.dcRemarks ? 'border-red-500' : ''}`}
                     />
+                    {dcDetailsErrors.dcRemarks && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcRemarks}</p>
+                    )}
                   </div>
                 </div>
               </div>

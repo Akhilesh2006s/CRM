@@ -74,6 +74,18 @@ const leadSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    email: {
+      type: String,
+      trim: true,
+    },
+    contact_person2: {
+      type: String,
+      trim: true,
+    },
+    contact_mobile2: {
+      type: String,
+      trim: true,
+    },
     products: {
       type: [productSchema],
       default: [],

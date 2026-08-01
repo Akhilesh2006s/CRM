@@ -24,9 +24,19 @@ import { toast } from 'sonner'
 import { Pencil, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
 
-/** List column: only PO-stage remarks (dcRemarks), not warehouse deliveryNotes. */
+/** PO-stage remarks (dcRemarks) — shown read-only as PO Remarks in the edit modal. */
 function poStageRemarks(dc: { dcRemarks?: string }): string {
   return (dc.dcRemarks ?? '').trim()
+}
+
+/**
+ * Completed DC list Remarks column: LR / Warehouse remarks saved as deliveryNotes.
+ * Falls back to PO dcRemarks only when warehouse remarks were never set.
+ */
+function listRemarks(dc: { deliveryNotes?: string; dcRemarks?: string }): string {
+  const warehouse = (dc.deliveryNotes ?? '').trim()
+  if (warehouse) return warehouse
+  return poStageRemarks(dc)
 }
 
 type Row = {
@@ -348,7 +358,7 @@ export default function CompletedDCPage() {
           boxes: dc.boxes || '',
           transportArea: dc.transportArea || '',
           deliveryStatus: dc.deliveryStatus || '',
-          remarks: poStageRemarks(dc),
+          remarks: listRemarks(dc),
           completedDate: dc.completedAt || '',
           poPhotoUrl: dc.poPhotoUrl || dc.poDocument || '',
           poDocument: dc.poDocument || dc.poPhotoUrl || '',
@@ -388,7 +398,7 @@ export default function CompletedDCPage() {
             row.poDocument = matchingDC.poDocument || matchingDC.poPhotoUrl || row.poDocument
             row.poPhotoUrl = matchingDC.poPhotoUrl || matchingDC.poDocument || row.poPhotoUrl
             row.lrCost = matchingDC.lrCost || row.lrCost
-            row.remarks = poStageRemarks(matchingDC)
+            row.remarks = listRemarks(matchingDC)
             console.log(`Found DC ${row.dcId} for DcOrder ${row._id}`)
           } else {
             console.warn(`No DC found for DcOrder ${row._id} - this entry cannot be updated`)
@@ -651,7 +661,7 @@ export default function CompletedDCPage() {
             : '',
         lrCost: fullDC?.lrCost || row.lrCost || '',
         deliveryStatus: fullDC?.deliveryStatus || row.deliveryStatus || '',
-        remarks: '',
+        remarks: (fullDC?.deliveryNotes ?? '').trim() || (row.remarks ?? '').trim() || '',
         poRemarks: poStageRemarks(fullDC || row),
       })
     } catch (err: any) {
@@ -1127,12 +1137,47 @@ export default function CompletedDCPage() {
         updateData.lrCost = editForm.lrCost.trim()
       }
       
-      const response = await apiRequest(`/dc/${dcIdToUpdate}`, {
+      const response = await apiRequest<any>(`/dc/${dcIdToUpdate}`, {
         method: 'PUT',
         body: JSON.stringify(updateData),
       })
       
       console.log('Update response:', response)
+
+      // Immediately sync list/filter state from saved values (before PDF / reload)
+      const savedLrCost =
+        response?.lrCost != null && String(response.lrCost).trim() !== ''
+          ? String(response.lrCost)
+          : editForm.lrCost.trim()
+      const savedRemarks =
+        (response?.deliveryNotes != null && String(response.deliveryNotes).trim() !== ''
+          ? String(response.deliveryNotes).trim()
+          : editForm.remarks.trim()) || ''
+      const savedLrNo = response?.lrNo ?? editForm.lrNo
+      const savedLrDate = response?.lrDate ?? editForm.lrDate
+      const savedTransport = response?.transport ?? editForm.transport
+      const savedDeliveryStatus = response?.deliveryStatus ?? editForm.deliveryStatus
+      const patchRow = (r: Row): Row => {
+        const matches =
+          r._id === editingDC._id ||
+          r.dcId === dcIdToUpdate ||
+          r._id === dcIdToUpdate
+        if (!matches) return r
+        return {
+          ...r,
+          lrCost: savedLrCost,
+          remarks: savedRemarks,
+          lrNo: savedLrNo || r.lrNo,
+          lrDate: savedLrDate || r.lrDate,
+          transport: savedTransport || r.transport,
+          deliveryStatus: savedDeliveryStatus || r.deliveryStatus,
+          transportArea: editForm.transportArea || r.transportArea,
+          boxes: editForm.boxes || r.boxes,
+          dcCategory: editForm.dcCategory || r.dcCategory,
+        }
+      }
+      setRows((prev) => prev.map(patchRow))
+      setAllRows((prev) => prev.map(patchRow))
       
       // Generate PDF after successful update
       try {
@@ -1157,7 +1202,7 @@ export default function CompletedDCPage() {
       }
       
       setEditingDC(null)
-      await load() // Reload to show updated data
+      await load() // Reload to show updated data from MongoDB
     } catch (err: any) {
       console.error('Update error:', err)
       const errorMessage = err?.message || err?.response?.data?.message || 'Failed to update DC'

@@ -98,6 +98,15 @@ const dcOrderSchema = new mongoose.Schema(
       default: 'pending',
       index: true,
     },
+    /**
+     * Mutually exclusive pipeline stage for list pages.
+     * ClosedSales → PendingDC → EmpDC → CompletedDC
+     */
+    workflowStage: {
+      type: String,
+      enum: ['ClosedSales', 'PendingDC', 'EmpDC', 'CompletedDC'],
+      index: true,
+    },
     hold: {
       type: Boolean,
       default: false,

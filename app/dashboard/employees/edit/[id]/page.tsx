@@ -10,6 +10,13 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
+import {
+  validateEmployeeFirstName,
+  validateEmployeeLastName,
+  validateEmployeeCode,
+  validateEmployeeIdentityFields,
+  type EmployeeIdentityErrors,
+} from '@/lib/employeeFormValidation'
 
 const TAGGING_ROLES = ['Executive', 'Coordinator', 'Senior Coordinator', 'Finance Manager', 'Warehouse Manager']
 
@@ -40,6 +47,7 @@ export default function EditEmployeePage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [identityErrors, setIdentityErrors] = useState<EmployeeIdentityErrors>({})
   const [zones, setZones] = useState<string[]>([])
   const [clustersByZone, setClustersByZone] = useState<Record<string, string[]>>({})
   const [tagOptions, setTagOptions] = useState<EmployeeOption[]>([])
@@ -102,9 +110,68 @@ export default function EditEmployeePage() {
     })()
   }, [id])
 
+  const clearIdentityError = (field: keyof EmployeeIdentityErrors) => {
+    setIdentityErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setForm((f) => ({ ...f, [name]: value }))
+    if (name === 'firstName') {
+      if (!value.trim()) {
+        clearIdentityError('firstName')
+      } else {
+        const check = validateEmployeeFirstName(value)
+        setIdentityErrors((prev) => ({
+          ...prev,
+          firstName: check.ok ? undefined : check.message,
+        }))
+      }
+    } else if (name === 'lastName') {
+      const check = validateEmployeeLastName(value)
+      setIdentityErrors((prev) => ({
+        ...prev,
+        lastName: check.ok ? undefined : check.message,
+      }))
+    } else if (name === 'empCode') {
+      if (!value.trim()) {
+        clearIdentityError('empCode')
+      } else {
+        const check = validateEmployeeCode(value)
+        setIdentityErrors((prev) => ({
+          ...prev,
+          empCode: check.ok ? undefined : check.message,
+        }))
+      }
+    }
+  }
+
+  const onIdentityBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    if (name === 'firstName') {
+      const check = validateEmployeeFirstName(value)
+      setIdentityErrors((prev) => ({
+        ...prev,
+        firstName: check.ok ? undefined : check.message,
+      }))
+    } else if (name === 'lastName') {
+      const check = validateEmployeeLastName(value)
+      setIdentityErrors((prev) => ({
+        ...prev,
+        lastName: check.ok ? undefined : check.message,
+      }))
+    } else if (name === 'empCode') {
+      const check = validateEmployeeCode(value)
+      setIdentityErrors((prev) => ({
+        ...prev,
+        empCode: check.ok ? undefined : check.message,
+      }))
+    }
   }
 
   const toggleTagged = (empId: string) => {
@@ -121,6 +188,24 @@ export default function EditEmployeePage() {
     setSubmitting(true)
     setError(null)
     try {
+      const identityCheck = validateEmployeeIdentityFields({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        empCode: form.empCode,
+      })
+      if (!identityCheck.ok) {
+        setIdentityErrors(identityCheck.errors)
+        const firstMsg =
+          identityCheck.errors.firstName ||
+          identityCheck.errors.lastName ||
+          identityCheck.errors.empCode ||
+          'Please fix the highlighted fields.'
+        setError(firstMsg)
+        setSubmitting(false)
+        return
+      }
+      setIdentityErrors({})
+
       if (form.role === 'Executive' && !form.cluster?.trim()) {
         setError('Cluster is required for Executive role')
         setSubmitting(false)
@@ -128,7 +213,10 @@ export default function EditEmployeePage() {
       }
       const payload: Record<string, unknown> = {
         ...form,
-        name: `${form.firstName} ${form.lastName}`.trim(),
+        firstName: identityCheck.values.firstName,
+        lastName: identityCheck.values.lastName,
+        empCode: identityCheck.values.empCode,
+        name: `${identityCheck.values.firstName} ${identityCheck.values.lastName}`.trim(),
         phone: form.phone || form.mobile,
         mobile: form.mobile,
       }
@@ -154,15 +242,44 @@ export default function EditEmployeePage() {
           <div className="md:col-span-2 text-lg font-semibold mb-2">Personal Data</div>
           <div>
             <Label>First Name *</Label>
-            <Input className="bg-white text-neutral-900" name="firstName" value={form.firstName} onChange={onChange} required />
+            <Input
+              className={`bg-white text-neutral-900 ${identityErrors.firstName ? 'border-red-500' : ''}`}
+              name="firstName"
+              value={form.firstName}
+              onChange={onChange}
+              onBlur={onIdentityBlur}
+              required
+            />
+            {identityErrors.firstName && (
+              <p className="text-xs text-red-600 mt-1">{identityErrors.firstName}</p>
+            )}
           </div>
           <div>
             <Label>Last Name</Label>
-            <Input className="bg-white text-neutral-900" name="lastName" value={form.lastName} onChange={onChange} />
+            <Input
+              className={`bg-white text-neutral-900 ${identityErrors.lastName ? 'border-red-500' : ''}`}
+              name="lastName"
+              value={form.lastName}
+              onChange={onChange}
+              onBlur={onIdentityBlur}
+            />
+            {identityErrors.lastName && (
+              <p className="text-xs text-red-600 mt-1">{identityErrors.lastName}</p>
+            )}
           </div>
           <div>
             <Label>Emp ID / Code</Label>
-            <Input className="bg-white text-neutral-900" name="empCode" value={form.empCode} onChange={onChange} />
+            <Input
+              className={`bg-white text-neutral-900 ${identityErrors.empCode ? 'border-red-500' : ''}`}
+              name="empCode"
+              value={form.empCode}
+              onChange={onChange}
+              onBlur={onIdentityBlur}
+              required
+            />
+            {identityErrors.empCode && (
+              <p className="text-xs text-red-600 mt-1">{identityErrors.empCode}</p>
+            )}
           </div>
           <div>
             <Label>Email Id *</Label>

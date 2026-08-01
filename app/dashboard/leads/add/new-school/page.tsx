@@ -111,6 +111,24 @@ export default function NewSchoolPage() {
   const [loadingPincode, setLoadingPincode] = useState(false)
   const [pincodeError, setPincodeError] = useState<string | null>(null)
   const [areas, setAreas] = useState<Array<{ name: string; district: string; block?: string; branchType?: string }>>([])
+  const [zones, setZones] = useState<string[]>([])
+
+  // Load available zones for editable Zone select
+  useEffect(() => {
+    const loadZones = async () => {
+      try {
+        const data = await apiRequest<Array<{ name?: string }>>('/zones')
+        const names = (Array.isArray(data) ? data : [])
+          .map((z) => (z?.name || '').trim())
+          .filter(Boolean)
+        setZones(Array.from(new Set(names)))
+      } catch (err) {
+        console.error('Failed to load zones:', err)
+        setZones([])
+      }
+    }
+    loadZones()
+  }, [])
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -214,6 +232,17 @@ export default function NewSchoolPage() {
       setSubmitting(false)
       return
     }
+    if (!form.email || !form.email.trim()) {
+      setError('Email is required')
+      setSubmitting(false)
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(form.email.trim())) {
+      setError('Please enter a valid email address')
+      setSubmitting(false)
+      return
+    }
     const contactMobileCheck = validateIndianMobile(form.contact_mobile, 'Contact mobile')
     if (!contactMobileCheck.ok) {
       setError(contactMobileCheck.message)
@@ -251,6 +280,11 @@ export default function NewSchoolPage() {
     }
     if (!form.remarks || !form.remarks.trim()) {
       setError('Remarks is required')
+      setSubmitting(false)
+      return
+    }
+    if (!form.zone || !form.zone.trim()) {
+      setError('Zone is required')
       setSubmitting(false)
       return
     }
@@ -330,7 +364,7 @@ export default function NewSchoolPage() {
       
       const payload: any = {
         school_name: form.school_name,
-        school_type: form.school_type || 'New', // Use selected school type (New or Employee)
+        school_type: form.school_type || 'New', // Use selected school type (New or Existing)
         contact_person: form.contact_person,
         contact_mobile: contactMobileCheck.digits,
         contact_person2: form.decision_maker_name || undefined,
@@ -399,7 +433,7 @@ export default function NewSchoolPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="New">New</SelectItem>
-                <SelectItem value="Employee">Employee</SelectItem>
+                <SelectItem value="Existing">Existing</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -424,8 +458,8 @@ export default function NewSchoolPage() {
             <p className="text-xs text-neutral-500 mt-1">Digits only (10–15 digits)</p>
           </div>
           <div>
-            <Label>Email</Label>
-            <Input className="bg-white text-neutral-900" type="email" name="email" value={form.email} onChange={onChange} />
+            <Label>Email *</Label>
+            <Input className="bg-white text-neutral-900" type="email" name="email" value={form.email} onChange={onChange} required />
           </div>
           <div>
             <Label>Decision Maker Name *</Label>
@@ -694,18 +728,36 @@ export default function NewSchoolPage() {
             </p>
           </div>
           <div>
-            <Label>Zone</Label>
-            <Input 
-              className="bg-neutral-100 text-neutral-900 cursor-not-allowed" 
-              name="zone" 
-              value={form.zone} 
-              onChange={onChange}
-              readOnly
-              disabled
-            />
-            <p className="text-xs text-neutral-500 mt-1">
-              Zone is automatically set based on your assigned zone
-            </p>
+            <Label>Zone *</Label>
+            {zones.length > 0 ? (
+              <Select
+                value={form.zone || undefined}
+                onValueChange={(v) => setForm((f) => ({ ...f, zone: v }))}
+              >
+                <SelectTrigger className="bg-white text-neutral-900">
+                  <SelectValue placeholder="Select zone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(form.zone && !zones.includes(form.zone)
+                    ? [form.zone, ...zones]
+                    : zones
+                  ).map((z) => (
+                    <SelectItem key={z} value={z}>
+                      {z}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                className="bg-white text-neutral-900"
+                name="zone"
+                value={form.zone}
+                onChange={onChange}
+                placeholder="Enter zone"
+                required
+              />
+            )}
           </div>
           <div>
             <Label>Cluster Code</Label>

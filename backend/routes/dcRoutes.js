@@ -81,7 +81,18 @@ router.post('/:id/submit-to-manager', authMiddleware, submitDCToManager);
 router.post('/:id/record-shortage', authMiddleware, recordShortageDC);
 
 // Legacy actions
-router.post('/raise', authMiddleware, requirePermission('clients.closed_sales.approve_dc'), raiseDC);
+// approve_dc: Closed Sales admin approve
+// leads.followup / leads.add: Executive "Turn Lead to Client" from Close Lead
+router.post(
+  '/raise',
+  authMiddleware,
+  requirePermission(
+    'clients.closed_sales.approve_dc',
+    'leads.followup.page.view',
+    'leads.add.page.view'
+  ),
+  raiseDC
+);
 router.post('/:id/request-warehouse', authMiddleware, requestWarehouse);
 router.post('/:id/warehouse-submit', authMiddleware, warehouseSubmit);
 router.post('/:id/delivery-submit', authMiddleware, deliverySubmit);
@@ -89,6 +100,8 @@ router.post('/:id/complete', authMiddleware, completeDC);
 router.post('/:id/hold', authMiddleware, holdDC);
 
 // Update DC
+// PO fields on completed DC replace require warehouse.completed_dc.replace_pdf.
+// My Clients "Request DC" also sends poPhotoUrl — allow request_dc / my_clients too.
 router.put(
   '/:id',
   authMiddleware,
@@ -96,7 +109,9 @@ router.put(
     (req) =>
       req.body &&
       (req.body.poDocument !== undefined || req.body.poPhotoUrl !== undefined),
-    'warehouse.completed_dc.replace_pdf'
+    'warehouse.completed_dc.replace_pdf',
+    'clients.closed_sales.request_dc',
+    'clients.my_clients.page.view'
   ),
   updateDC
 );

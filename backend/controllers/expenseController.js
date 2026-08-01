@@ -184,6 +184,20 @@ const createExpense = async (req, res) => {
       expenseData.receipt = `/uploads/expenses/${req.file.filename}`;
     }
 
+    // Receipt No and bill upload are mandatory for Create Expense
+    const receiptNumber = String(expenseData.receiptNumber || '').trim();
+    if (!receiptNumber) {
+      return res.status(400).json({ message: 'Receipt No is required.' });
+    }
+    expenseData.receiptNumber = receiptNumber;
+
+    const hasBill =
+      !!req.file ||
+      !!(expenseData.receipt && String(expenseData.receipt).trim());
+    if (!hasBill) {
+      return res.status(400).json({ message: 'Bill upload is required.' });
+    }
+
     // Normalize category to lowercase for consistency
     if (expenseData.category) {
       const categoryMap = {

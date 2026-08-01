@@ -12,6 +12,13 @@ import { SearchableSelect } from '@/components/ui/searchable-select'
 import { toast } from 'sonner'
 import { apiRequest } from '@/lib/api'
 import { INDIAN_STATES } from '@/lib/indianStatesCities'
+import {
+  sanitizeTrainerMobileInput,
+  validateTrainerMobile,
+  validateTrainerEmail,
+  validateTrainerZone,
+  validateTrainerContactFields,
+} from '@/lib/trainerFormValidation'
 
 const TRAINER_CATEGORIES = ['Abacus', 'Vedic Maths', 'ECC', 'IIT']
 
@@ -39,6 +46,9 @@ export default function EditTrainerPage() {
   })
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [mobileError, setMobileError] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [zoneError, setZoneError] = useState<string | null>(null)
   const [zones, setZones] = useState<string[]>([])
   const [clustersByZone, setClustersByZone] = useState<Record<string, string[]>>({})
 
@@ -95,13 +105,42 @@ export default function EditTrainerPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const contactCheck = validateTrainerContactFields({
+      mobile: form.mobile,
+      email: form.email,
+      zone: form.zone,
+    })
+    if (!contactCheck.ok) {
+      setMobileError(contactCheck.errors.mobile || null)
+      setEmailError(contactCheck.errors.email || null)
+      setZoneError(contactCheck.errors.zone || null)
+      toast.error(
+        contactCheck.errors.mobile ||
+          contactCheck.errors.email ||
+          contactCheck.errors.zone ||
+          'Please fix the highlighted fields.'
+      )
+      return
+    }
+    setMobileError(null)
+    setEmailError(null)
+    setZoneError(null)
+
     if (!form.trainerProducts?.length) {
       toast.error('Please select at least one product category')
       return
     }
     setSubmitting(true)
     try {
-      await apiRequest(`/trainers/${id}`, { method: 'PUT', body: JSON.stringify(form) })
+      await apiRequest(`/trainers/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...form,
+          mobile: contactCheck.values.mobile,
+          email: contactCheck.values.email,
+          zone: contactCheck.values.zone,
+        }),
+      })
       toast.success('Trainer updated successfully!')
       router.push('/dashboard/training/trainers/active')
     } catch (e: any) {
@@ -133,11 +172,53 @@ export default function EditTrainerPage() {
           </div>
           <div>
             <Label>Mobile *</Label>
-            <Input className="bg-white text-neutral-900" value={form.mobile} onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))} required />
+            <Input
+              className={`bg-white text-neutral-900 ${mobileError ? 'border-red-500' : ''}`}
+              type="tel"
+              inputMode="numeric"
+              maxLength={15}
+              value={form.mobile}
+              onChange={(e) => {
+                const value = sanitizeTrainerMobileInput(e.target.value)
+                setForm((f) => ({ ...f, mobile: value }))
+                if (!value) {
+                  setMobileError(null)
+                } else {
+                  const check = validateTrainerMobile(value)
+                  setMobileError(check.ok ? null : check.message)
+                }
+              }}
+              onBlur={() => {
+                const check = validateTrainerMobile(form.mobile)
+                setMobileError(check.ok ? null : check.message)
+              }}
+              required
+            />
+            {mobileError && <p className="text-xs text-red-600 mt-1">{mobileError}</p>}
           </div>
           <div>
-            <Label>Email</Label>
-            <Input className="bg-white text-neutral-900" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            <Label>Email *</Label>
+            <Input
+              className={`bg-white text-neutral-900 ${emailError ? 'border-red-500' : ''}`}
+              type="email"
+              value={form.email}
+              onChange={(e) => {
+                const value = e.target.value
+                setForm((f) => ({ ...f, email: value }))
+                if (!value.trim()) {
+                  setEmailError(null)
+                } else {
+                  const check = validateTrainerEmail(value)
+                  setEmailError(check.ok ? null : check.message)
+                }
+              }}
+              onBlur={() => {
+                const check = validateTrainerEmail(form.email)
+                setEmailError(check.ok ? null : check.message)
+              }}
+              required
+            />
+            {emailError && <p className="text-xs text-red-600 mt-1">{emailError}</p>}
           </div>
           <div>
             <Label>Employment Type *</Label>
@@ -161,15 +242,20 @@ export default function EditTrainerPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="trainer-zone">Zone</Label>
+            <Label htmlFor="trainer-zone">Zone *</Label>
             <SearchableSelect
               id="trainer-zone"
               value={form.zone}
-              onValueChange={(v) => setForm((f) => ({ ...f, zone: v, cluster: '' }))}
+              onValueChange={(v) => {
+                setForm((f) => ({ ...f, zone: v, cluster: '' }))
+                const check = validateTrainerZone(v)
+                setZoneError(check.ok ? null : check.message)
+              }}
               placeholder="Select Zone"
               searchPlaceholder="Search zones…"
               options={zoneOptions}
             />
+            {zoneError && <p className="text-xs text-red-600 mt-1">{zoneError}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="trainer-cluster">Cluster</Label>

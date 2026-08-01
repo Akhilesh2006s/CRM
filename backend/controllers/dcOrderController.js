@@ -1,5 +1,6 @@
 const DcOrder = require('../models/DcOrder');
 const DC = require('../models/DC');
+const Lead = require('../models/Lead');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
 const {
   ensureSchoolCode,
@@ -10,6 +11,7 @@ const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPri
 const { dealProductsToFollowUpSnapshot } = require('../utils/dealProductsToFollowUpSnapshot');
 const { attachResolvedUpdatedByToHistory } = require('../utils/resolveHistoryUpdatedBy');
 const { isTransportCompleteForUpdate } = require('../utils/dcTransport');
+const { validateSaleIdentityFields, validateSaleProducts } = require('../utils/saleFieldValidation');
 const mongoose = require('mongoose');
 
 const SCHOOL_LEAD_STATUSES = new Set(['Hot', 'Warm', 'Cold']);
@@ -64,7 +66,7 @@ const list = async (req, res) => {
       });
     }
 
-    const { status, q, zone, assigned_to, lead_status, from, to } = req.query;
+    const { status, q, zone, assigned_to, lead_status, from, to, workflowStage } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (zone) filter.zone = zone;
@@ -85,6 +87,36 @@ const list = async (req, res) => {
         { location: new RegExp(q, 'i') },
         { email: new RegExp(q, 'i') },
       ];
+    }
+
+    const { WORKFLOW_STAGE, POST_CLOSED_SALES_STAGES } = require('../constants/dcWorkflow');
+    // DC is already imported at top of this file
+
+    // Closed Sales = ONLY sales waiting for Raise DC.
+    // Frontend calls ?status=dc_requested|dc_accepted — enforce mutual exclusivity in backend.
+    const closedSalesStatuses = ['dc_requested', 'dc_accepted'];
+    const isClosedSalesQuery =
+      workflowStage === WORKFLOW_STAGE.ClosedSales ||
+      (status && closedSalesStatuses.includes(String(status)));
+
+    if (workflowStage && !isClosedSalesQuery) {
+      filter.workflowStage = workflowStage;
+    }
+
+    if (isClosedSalesQuery) {
+      // Never return a sale that already has a raised pipeline DC
+      const raisedOrderIds = await DC.distinct('dcOrderId', {
+        status: {
+          $in: ['pending_dc', 'sent_to_manager', 'warehouse_processing', 'completed', 'hold'],
+        },
+      });
+
+      filter.status = status || { $in: closedSalesStatuses };
+      // Must not already be PendingDC / EmpDC / CompletedDC on the sale itself
+      filter.workflowStage = { $nin: POST_CLOSED_SALES_STAGES };
+      if (raisedOrderIds && raisedOrderIds.length > 0) {
+        filter._id = { $nin: raisedOrderIds.filter(Boolean) };
+      }
     }
     // Pagination support
     const page = parseInt(req.query.page) || 1;
@@ -115,7 +147,7 @@ const list = async (req, res) => {
     // Query with pagination - optimized for performance
     // Only populate essential fields, skip updateHistory populate for list view
     const query = DcOrder.find(filter)
-      .select('school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks school_type priority lead_status assigned_to created_by pendingEdit products') // products: used for follow-up list lead status from line items
+      .select('school_name school_code contact_person contact_mobile zone status workflowStage follow_up_date location address branches strength createdAt remarks school_type priority lead_status assigned_to created_by pendingEdit products') // products: used for follow-up list lead status from line items
       .populate('assigned_to', 'name email') // Only populate assigned_to for list view
       .populate('pendingEdit.requestedBy', 'name email') // Populate pendingEdit.requestedBy for Executive Manager
       .sort({ createdAt: -1 })
@@ -180,7 +212,7 @@ const getOne = async (req, res) => {
 
     const item = await DcOrder.findById(req.params.id)
       .populate('created_by', 'name email')
-      .populate('assigned_to', 'name email')
+      .populate('assigned_to', 'name email cluster')
       .populate('updateHistory.updatedBy', 'name email')
       .populate('pendingEdit.requestedBy', 'name email')
       .populate('pendingEdit.approvedBy', 'name email')
@@ -309,10 +341,71 @@ const create = async (req, res) => {
     if (Array.isArray(payload.products)) {
       payload.products = normalizeDcOrderProductTermsInArray(payload.products);
     }
-    
-    // Auto-generate school code if not provided
-    // Use assigned_to if available, otherwise use created_by (the user creating)
-    if (!payload.school_code) {
+
+    const identity = validateSaleIdentityFields(payload);
+    if (!identity.ok) {
+      return res.status(400).json({ message: identity.message });
+    }
+    Object.assign(payload, identity.fields);
+    if (identity.fields.school_code === undefined) {
+      delete payload.school_code;
+    }
+    if (identity.fields.contact_person2 === undefined) {
+      delete payload.contact_person2;
+    }
+    if (identity.fields.contact_mobile2 === undefined) {
+      delete payload.contact_mobile2;
+    }
+
+    const productsCheck = validateSaleProducts(payload.products);
+    if (!productsCheck.ok) {
+      return res.status(400).json({ message: productsCheck.message });
+    }
+
+    const followUpRaw =
+      payload.follow_up_date ||
+      payload.followUpDate ||
+      payload.estimated_delivery_date;
+    if (followUpRaw === undefined || followUpRaw === null || String(followUpRaw).trim() === '') {
+      return res.status(400).json({ message: 'Follow-up Date is required.' });
+    }
+    const followUpDate = new Date(followUpRaw);
+    if (Number.isNaN(followUpDate.getTime())) {
+      return res.status(400).json({ message: 'Follow-up Date is required.' });
+    }
+    payload.follow_up_date = followUpDate;
+    payload.estimated_delivery_date = followUpDate;
+
+    // Normalize / validate email when provided
+    if (payload.email !== undefined && payload.email !== null && String(payload.email).trim() !== '') {
+      const email = String(payload.email).trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+      payload.email = email;
+    }
+
+    // School code: use provided value when present; never overwrite with a generated one
+    if (payload.school_code !== undefined && payload.school_code !== null) {
+      payload.school_code = String(payload.school_code).trim();
+    }
+    if (payload.school_code) {
+      const codeRegex = new RegExp(
+        `^${payload.school_code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+        'i'
+      );
+      const [existingOrder, existingLead] = await Promise.all([
+        DcOrder.findOne({ school_code: codeRegex }).select('_id school_code').lean(),
+        Lead.findOne({ school_code: codeRegex }).select('_id school_code').lean(),
+      ]);
+      if (existingOrder || existingLead) {
+        return res.status(400).json({
+          message: 'School Code already exists. Please enter a unique School Code.',
+        });
+      }
+    } else {
+      // Auto-generate school code only when not provided
       try {
         const schoolCode = await generateSchoolCode({
           region: payload.region || '',
@@ -322,8 +415,6 @@ const create = async (req, res) => {
           payload.school_code = schoolCode;
         }
       } catch (codeError) {
-        // If school code generation fails, log but don't fail the creation
-        // (in case the user is not an executive or cluster is not set)
         console.warn('School code generation failed:', codeError.message);
       }
     }
@@ -472,7 +563,7 @@ const update = async (req, res) => {
       return null;
     };
 
-    if (isFollowUpSubmission || hasProductsInterested) {
+    if (hasProductsInterested) {
       const productErr = validateFollowUpProducts(normalizedProductsInterested);
       if (productErr) {
         return res.status(400).json({ message: productErr });
@@ -631,6 +722,19 @@ const update = async (req, res) => {
       }
       updateData.requestedBy = req.user._id;
       updateData.requestedAt = new Date();
+      updateData.workflowStage = 'ClosedSales';
+    }
+    if (req.body.status === 'dc_accepted') {
+      updateData.workflowStage = 'ClosedSales';
+    }
+    if (req.body.status === 'dc_sent_to_senior') {
+      // Leaving Closed Sales — stage is owned by Raise DC / DC pipeline if not already set
+      if (!updateData.workflowStage && !req.body.workflowStage) {
+        updateData.workflowStage = 'PendingDC';
+      }
+    }
+    if (req.body.workflowStage !== undefined) {
+      updateData.workflowStage = req.body.workflowStage;
     }
     
     // Build the MongoDB update query

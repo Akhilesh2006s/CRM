@@ -29,6 +29,8 @@ export default function CreateExpensePage() {
   const [myDCs, setMyDCs] = useState<DC[]>([])
   const [loadingDCs, setLoadingDCs] = useState(true)
   const [billUrl, setBillUrl] = useState<string>('')
+  const [billFile, setBillFile] = useState<File | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{ receiptNumber?: string; bill?: string }>({})
 
   const [form, setForm] = useState({
     type: '', // travel, food, accommodation, others
@@ -63,22 +65,31 @@ export default function CreateExpensePage() {
 
   const handleBillUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file) {
+      setBillFile(null)
+      return
+    }
 
     // Validate file type
     if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
       toast.error('Only image files (JPG, PNG) and PDF files are allowed')
+      e.target.value = ''
+      setBillFile(null)
       return
     }
 
     // Validate file size (5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error('File size must be less than 5MB')
+      e.target.value = ''
+      setBillFile(null)
       return
     }
 
     // File will be uploaded with the form submission
+    setBillFile(file)
     setBillUrl('')
+    setFieldErrors((prev) => ({ ...prev, bill: undefined }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,12 +120,29 @@ export default function CreateExpensePage() {
         return
       }
 
+      const nextErrors: { receiptNumber?: string; bill?: string } = {}
+      if (!form.receiptNumber.trim()) {
+        nextErrors.receiptNumber = 'Receipt No is required.'
+      }
+      const fileInput = document.getElementById('bill') as HTMLInputElement
+      const file = billFile || fileInput?.files?.[0] || null
+      if (!file && !billUrl) {
+        nextErrors.bill = 'Bill upload is required.'
+      }
+      setFieldErrors(nextErrors)
+      if (nextErrors.receiptNumber || nextErrors.bill) {
+        if (nextErrors.receiptNumber) toast.error(nextErrors.receiptNumber)
+        else if (nextErrors.bill) toast.error(nextErrors.bill)
+        setSubmitting(false)
+        return
+      }
+
       const expenseData: any = {
         title: `${form.type.charAt(0).toUpperCase() + form.type.slice(1)} Expense`,
         category: form.type,
         amount: parseFloat(form.amount),
         date: form.date,
-        receiptNumber: form.receiptNumber || undefined,
+        receiptNumber: form.receiptNumber.trim(),
         employeeRemarks: form.remarks || undefined,
         status: 'Pending',
         dcId: form.dcId && form.dcId !== 'none' ? form.dcId : undefined,
@@ -134,10 +162,6 @@ export default function CreateExpensePage() {
       if (billUrl) {
         expenseData.receipt = billUrl
       }
-
-      // Get the file input element
-      const fileInput = document.getElementById('bill') as HTMLInputElement
-      const file = fileInput?.files?.[0]
 
       // If we have a file, use FormData, otherwise use JSON
       if (file) {
@@ -248,15 +272,23 @@ export default function CreateExpensePage() {
 
           {/* Receipt Number */}
           <div>
-            <Label htmlFor="receiptNumber">Receipt No.</Label>
+            <Label htmlFor="receiptNumber">Receipt No. *</Label>
             <Input
               id="receiptNumber"
               type="text"
               value={form.receiptNumber}
-              onChange={(e) => setForm({ ...form, receiptNumber: e.target.value })}
-              className="bg-white"
+              onChange={(e) => {
+                setForm({ ...form, receiptNumber: e.target.value })
+                if (fieldErrors.receiptNumber) {
+                  setFieldErrors((prev) => ({ ...prev, receiptNumber: undefined }))
+                }
+              }}
+              className={`bg-white ${fieldErrors.receiptNumber ? 'border-red-500' : ''}`}
               placeholder="Enter receipt number"
             />
+            {fieldErrors.receiptNumber && (
+              <p className="text-xs text-red-600 mt-1">{fieldErrors.receiptNumber}</p>
+            )}
           </div>
 
           {/* Remarks */}
@@ -274,15 +306,18 @@ export default function CreateExpensePage() {
 
           {/* Bill Upload */}
           <div>
-            <Label htmlFor="bill">Upload Bill</Label>
+            <Label htmlFor="bill">Upload Bill *</Label>
             <Input
               id="bill"
               type="file"
               accept="image/*,.pdf"
               onChange={handleBillUpload}
               disabled={submitting}
-              className="bg-white"
+              className={`bg-white ${fieldErrors.bill ? 'border-red-500' : ''}`}
             />
+            {fieldErrors.bill && (
+              <p className="text-xs text-red-600 mt-1">{fieldErrors.bill}</p>
+            )}
             <p className="text-sm text-neutral-500 mt-1">Accepted formats: JPG, PNG, PDF (Max 5MB)</p>
           </div>
 

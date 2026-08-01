@@ -71,22 +71,22 @@ export default function HoldDCPage() {
   async function moveToWarehouse(row: HoldRow) {
     try {
       if (row.isDcOrder) {
-        // For DcOrder: use the warehouse endpoint to toggle hold (changes from 'hold' to 'pending')
+        // For DcOrder: use the warehouse endpoint to toggle hold
         await apiRequest(`/warehouse/dc/${row._id}/hold`, { method: 'POST' })
       } else {
-        // For DC model: update status to pending_dc so it appears in DC @ Warehouse list
+        // Restore to DC @ Warehouse (same status as "Submit to Warehouse" → EmpDC list).
+        // Do NOT use pending_dc — that returns the sale to Pending DC.
         await apiRequest(`/dc/${row._id}`, {
           method: 'PUT',
           body: JSON.stringify({
-            status: 'pending_dc',
-            holdReason: '', // Clear hold reason when moving to warehouse
+            status: 'sent_to_manager',
           }),
         })
       }
       
       // Remove from list after successful move
       setRows((prev) => prev.filter((r) => r._id !== row._id))
-      toast.success('DC moved to warehouse successfully. It will appear in DC @ Warehouse list.')
+      toast.success('DC moved back to DC @ Warehouse successfully.')
     } catch (err: any) {
       toast.error(err?.message || 'Failed to move DC to warehouse')
     }

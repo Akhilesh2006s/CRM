@@ -6,6 +6,32 @@ import {
   isSuperAdmin,
 } from './permissions'
 
+/** Personal EM routes — must not inherit All Managers (`executive_managers.list`) permission. */
+const EXECUTIVE_MANAGER_OWN_ROUTE =
+  /^\/dashboard\/executive-managers\/([^/]+)\/(dashboard|leaves)(?:\/|$)/
+
+function canAccessExecutiveManagerOwnRoute(
+  user: AuthUserWithPermissions,
+  pathname: string
+): boolean {
+  const match = pathname.match(EXECUTIVE_MANAGER_OWN_ROUTE)
+  if (!match) return false
+
+  const managerId = match[1]
+
+  // Admins who can list managers may open any manager's dashboard/leaves
+  if (user.role === 'Admin' || hasPermission(user, 'executive_managers.list.page.view')) {
+    return true
+  }
+
+  // Executive Manager may only open their own dashboard/leaves
+  if (user.role === 'Executive Manager') {
+    return String(user._id) === String(managerId)
+  }
+
+  return false
+}
+
 /** Same rule for sidebar links and RouteGuard page access */
 export function canAccessPath(
   user: AuthUserWithPermissions | null,
@@ -16,6 +42,10 @@ export function canAccessPath(
   if (!user) return false
   if (isSuperAdmin(user)) return true
   if (!isRbacActive(user)) return true
+
+  if (EXECUTIVE_MANAGER_OWN_ROUTE.test(pathname)) {
+    return canAccessExecutiveManagerOwnRoute(user, pathname)
+  }
 
   const key = permissionForPath(pathname)
   if (!key) return true

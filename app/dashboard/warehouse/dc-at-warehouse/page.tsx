@@ -53,6 +53,8 @@ type DC = {
     _id: string
     school_name?: string
     school_type?: string
+    school_code?: string
+    dc_code?: string
     address?: string
     location?: string
     transport_name?: string
@@ -62,9 +64,20 @@ type DC = {
     contact_person?: string
     contact_mobile?: string
     zone?: string
+    cluster_code?: string
+    cluster?: string
+    remarks?: string
+    assigned_to?: { _id?: string; name?: string; email?: string; cluster?: string } | string
+  } | string
+  employeeId?: {
+    _id: string
+    name?: string
+    email?: string
+    cluster?: string
   } | string
   customerName?: string
   customerPhone?: string
+  customerAddress?: string
   product?: string
   status?: string
   requestedQuantity?: number
@@ -92,6 +105,16 @@ type DC = {
   boxes?: string
   transportArea?: string
   deliveryStatus?: string
+}
+
+/** Prefer first non-empty string; never overwrite saved values with blanks. */
+function pickNonEmpty(...vals: Array<string | undefined | null>): string {
+  for (const v of vals) {
+    if (v !== undefined && v !== null && String(v).trim() !== '') {
+      return String(v).trim()
+    }
+  }
+  return ''
 }
 
 export default function WarehouseDcAtWarehouse() {
@@ -157,10 +180,43 @@ export default function WarehouseDcAtWarehouse() {
       
       // Fetch full DC details to get productDetails and dcOrderId with delivery/address info
       const fullDC = await apiRequest<DC>(`/dc/${dc._id}`)
-      setSelectedDC(fullDC)
-      
-      // Extract delivery and address info from dcOrderId
-      const dcOrder = typeof fullDC.dcOrderId === 'object' ? fullDC.dcOrderId : null
+
+      // Also fetch the related Sale/DcOrder so school fields are available even if DC
+      // document does not copy them (same pattern as Pending DC).
+      let dcOrderData: NonNullable<Exclude<DC['dcOrderId'], string>> | null = null
+      if (fullDC.dcOrderId) {
+        try {
+          const dcOrderId =
+            typeof fullDC.dcOrderId === 'object' && fullDC.dcOrderId !== null && '_id' in fullDC.dcOrderId
+              ? fullDC.dcOrderId._id
+              : typeof fullDC.dcOrderId === 'string'
+                ? fullDC.dcOrderId
+                : null
+          if (dcOrderId) {
+            dcOrderData = await apiRequest<NonNullable<Exclude<DC['dcOrderId'], string>>>(
+              `/dc-orders/${dcOrderId}`
+            )
+          }
+        } catch (e) {
+          console.warn('Failed to fetch DcOrder for warehouse DC form:', e)
+        }
+      }
+
+      const populatedOrder =
+        typeof fullDC.dcOrderId === 'object' && fullDC.dcOrderId !== null ? fullDC.dcOrderId : null
+      const dcOrder = {
+        ...(populatedOrder || {}),
+        ...(dcOrderData || {}),
+      } as NonNullable<Exclude<DC['dcOrderId'], string>>
+
+      const mergedDC: DC = {
+        ...fullDC,
+        customerName: pickNonEmpty(fullDC.customerName, dcOrder.school_name),
+        customerPhone: pickNonEmpty(fullDC.customerPhone, dcOrder.contact_mobile),
+        customerAddress: pickNonEmpty(fullDC.customerAddress, dcOrder.address, dcOrder.location),
+        dcOrderId: Object.keys(dcOrder).length > 0 ? dcOrder : fullDC.dcOrderId,
+      }
+      setSelectedDC(mergedDC)
       
       // Helper function to find matching inventory item
       const findInventoryItem = (productName: string, category?: string, level?: string, specs?: string, subject?: string): WarehouseItem | null => {
@@ -396,19 +452,45 @@ export default function WarehouseDcAtWarehouse() {
         }])
       }
       
-      // Load DC details
-      setDcDate(fullDC.dcDate ? new Date(fullDC.dcDate).toISOString().split('T')[0] : '')
-      setDcRemarks(fullDC.dcRemarks || '')
-      setDcCategory(fullDC.dcCategory || '')
-      setDcNotes(fullDC.dcNotes || '')
-      setContactPerson(fullDC.contactPerson || '')
-      setContactMobile(fullDC.contactMobile || fullDC.customerPhone || '')
-      setSchoolType(dcOrder?.school_type || '')
-      setSchoolAddress(dcOrder?.address || '')
-      setZone(fullDC.zone || '')
-      // Load cluster from DC (it's stored directly in the DC, not in dcOrderId)
-      setCluster(fullDC.cluster || '')
-      setRemarks(fullDC.remarks || '')
+      // Load DC + Sale/Lead school details (prefer non-empty existing values; never force blanks)
+      const employee =
+        typeof mergedDC.employeeId === 'object' && mergedDC.employeeId !== null
+          ? mergedDC.employeeId
+          : null
+      const assignedTo =
+        dcOrder.assigned_to && typeof dcOrder.assigned_to === 'object'
+          ? dcOrder.assigned_to
+          : null
+
+      setDcDate(mergedDC.dcDate ? new Date(mergedDC.dcDate).toISOString().split('T')[0] : '')
+      setDcRemarks(pickNonEmpty(mergedDC.dcRemarks))
+      setDcCategory(pickNonEmpty(mergedDC.dcCategory))
+      setDcNotes(pickNonEmpty(mergedDC.dcNotes))
+      setContactPerson(
+        pickNonEmpty(mergedDC.contactPerson, dcOrder.contact_person)
+      )
+      setContactMobile(
+        pickNonEmpty(
+          mergedDC.contactMobile,
+          mergedDC.customerPhone,
+          dcOrder.contact_mobile
+        )
+      )
+      setSchoolType(pickNonEmpty(dcOrder.school_type))
+      setSchoolAddress(
+        pickNonEmpty(dcOrder.address, mergedDC.customerAddress, dcOrder.location)
+      )
+      setZone(pickNonEmpty(mergedDC.zone, dcOrder.zone))
+      setCluster(
+        pickNonEmpty(
+          mergedDC.cluster,
+          dcOrder.cluster_code,
+          dcOrder.cluster,
+          employee?.cluster,
+          assignedTo?.cluster
+        )
+      )
+      setRemarks(pickNonEmpty(mergedDC.remarks, dcOrder.remarks))
       setInsufficientQuantity(false)
       setOpenDialog(true)
     } catch (e: any) {
@@ -908,7 +990,19 @@ export default function WarehouseDcAtWarehouse() {
                 <div>
                       <Label className="text-sm text-neutral-600">Executive</Label>
                       <Input
-                        value={selectedDC.managerId?.name || ''}
+                        value={
+                          pickNonEmpty(
+                            typeof selectedDC.employeeId === 'object'
+                              ? selectedDC.employeeId?.name
+                              : '',
+                            typeof selectedDC.dcOrderId === 'object' &&
+                              selectedDC.dcOrderId?.assigned_to &&
+                              typeof selectedDC.dcOrderId.assigned_to === 'object'
+                              ? selectedDC.dcOrderId.assigned_to.name
+                              : '',
+                            selectedDC.managerId?.name
+                          )
+                        }
                         disabled
                         className="mt-1 bg-neutral-50"
                       />

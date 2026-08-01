@@ -173,9 +173,21 @@ export default function AdminMyDCPage() {
 
     setRaising(true)
     try {
+      // Move deal into Closed Sales (dc_requested). Status "saved" is My Clients only.
+      const orderProducts =
+        typeof selectedForRaise.dcOrderId === 'object'
+          ? selectedForRaise.dcOrderId?.products
+          : undefined
       await apiRequest(`/dc-orders/${dcOrderId}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'saved' }),
+        body: JSON.stringify({
+          status: 'dc_requested',
+          dcRequestData: {
+            requestedFrom: 'admin_raise_dc',
+            productDetails: Array.isArray(orderProducts) ? orderProducts : undefined,
+            requestedAt: new Date().toISOString(),
+          },
+        }),
       })
       toast.success('DC raised successfully. It will now appear in Closed Sales.')
       setRaiseDialogOpen(false)

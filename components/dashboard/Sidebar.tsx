@@ -51,11 +51,17 @@ import {
   ChevronDown,
 } from 'lucide-react'
 
-function isChildRouteActive(pathname: string, href: string, siblings?: { href: string }[]) {
+function isChildRouteActive(
+  pathname: string | null | undefined,
+  href: string | undefined,
+  siblings?: { href?: string }[]
+) {
+  if (!pathname || !href) return false
   if (pathname === href) return true
   if (href === '/dashboard' || !pathname.startsWith(href + '/')) return false
   const hasBetterMatch = siblings?.some(
     (other) =>
+      !!other.href &&
       other.href !== href &&
       pathname.startsWith(other.href + '/') &&
       other.href.length > href.length
@@ -63,7 +69,11 @@ function isChildRouteActive(pathname: string, href: string, siblings?: { href: s
   return !hasBetterMatch
 }
 
-function hasActiveChild(pathname: string, children: { href: string }[]) {
+function hasActiveChild(
+  pathname: string | null | undefined,
+  children?: { href?: string }[] | null
+) {
+  if (!pathname || !Array.isArray(children) || children.length === 0) return false
   return children.some((c) => isChildRouteActive(pathname, c.href, children))
 }
 
@@ -74,7 +84,7 @@ type NavItem = {
   children?: { label: string; href: string; icon?: any; adminOnly?: boolean }[]
 }
 
-function HoverTooltip({ item, pathname, onClose }: { item: NavItem; pathname: string; onClose: () => void }) {
+function HoverTooltip({ item, pathname, onClose }: { item: NavItem; pathname: string | null; onClose: () => void }) {
   const tooltipRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ top: 0, left: 64 })
 
@@ -116,25 +126,11 @@ function HoverTooltip({ item, pathname, onClose }: { item: NavItem; pathname: st
         </div>
         <ul className="py-1">
           {item.children.map((c) => {
-            // More precise active check: exact match only, or check if this is the longest matching route
-            let isActive = pathname === c.href
-            
-            // If not exact match, check if pathname starts with this href
-            // But only mark as active if no other child route is a better match (longer prefix)
-            if (!isActive && c.href !== '/dashboard' && pathname.startsWith(c.href + '/')) {
-              // Check if any other child has a longer matching prefix
-              const hasBetterMatch = item.children.some(otherChild => 
-                otherChild.href !== c.href && 
-                pathname.startsWith(otherChild.href + '/') &&
-                otherChild.href.length > c.href.length
-              )
-              // Only mark as active if no better match exists
-              isActive = !hasBetterMatch
-            }
+            const isActive = isChildRouteActive(pathname, c.href, item.children)
             return (
               <li key={c.label}>
                 <Link 
-                  href={c.href}
+                  href={c.href || '#'}
                   onClick={onClose}
                   className={`flex items-center gap-2.5 text-sm px-3 py-2.5 font-medium transition-all duration-200 rounded-lg relative ${
                     isActive 
@@ -173,9 +169,6 @@ const NAV: NavItem[] = [
       { label: 'Saved DC', href: '/dashboard/dc/saved', icon: Save },
       { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
       { label: 'EMP DC', href: '/dashboard/dc/emp', icon: UserCircle2 },
-      { label: 'Term-Wise DC', href: '/dashboard/dc/term-wise', icon: FileText },
-      { label: 'My Clients', href: '/dashboard/dc/client-dc', icon: Users },
-      { label: 'Term-Wise My Clients', href: '/dashboard/dc/client-dc/term-wise', icon: FileText },
     ],
   },
   {
@@ -385,6 +378,35 @@ function extractExtraNavItems(
   return extras
 }
 
+/** Merge extras into same-label sections so React keys stay unique and toggles work. */
+function mergeNavExtras(base: NavItem[], extras: NavItem[]): NavItem[] {
+  const result = base.map((item) => ({
+    ...item,
+    children: item.children ? [...item.children] : undefined,
+  }))
+
+  for (const extra of extras) {
+    const idx = result.findIndex((item) => item.label === extra.label)
+    if (idx >= 0) {
+      const existing = result[idx]
+      if (extra.children?.length) {
+        const seen = new Set((existing.children || []).map((c) => c.href).filter(Boolean))
+        const mergedChildren = [
+          ...(existing.children || []),
+          ...extra.children.filter((c) => c.href && !seen.has(c.href)),
+        ]
+        result[idx] = { ...existing, children: mergedChildren, icon: existing.icon || extra.icon }
+      } else if (extra.href && !existing.href && !existing.children?.length) {
+        result[idx] = { ...existing, href: extra.href, icon: existing.icon || extra.icon }
+      }
+      continue
+    }
+    result.push(extra)
+  }
+
+  return result
+}
+
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
@@ -401,14 +423,8 @@ export function Sidebar() {
       try {
         const raw = localStorage.getItem('authUser')
         if (raw) setUser(JSON.parse(raw))
-
-        const savedOpenState = localStorage.getItem('sidebarOpenState')
-        if (savedOpenState) {
-          try {
-            const parsed = JSON.parse(savedOpenState)
-            setOpen(parsed)
-          } catch {}
-        }
+        // Do not restore every previously expanded section — that left many sections
+        // stuck open and made others hard to reach. Route auto-expand handles the active one.
       } catch {}
       setMounted(true)
     }
@@ -609,13 +625,6 @@ export function Sidebar() {
         href: '/dashboard/executive-managers/executives',
       },
       {
-        label: 'Clients',
-        icon: Truck,
-        children: [
-          { label: 'PO Edit Request', href: '/dashboard/clients/closed-sales', icon: CheckCircle2 },
-        ],
-      },
-      {
         label: 'Expenses',
         icon: Calculator,
         children: [
@@ -765,15 +774,14 @@ export function Sidebar() {
     const fromPermissions = rbacBuiltToNavItems(buildRbacSidebarNav(permUser))
     const extras = extractExtraNavItems(baseNav, permUser, catalogHrefs)
     finalNav = [
-      ...fromPermissions,
-      ...extras,
+      ...mergeNavExtras(fromPermissions, extras),
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
   }
 
   const navReady = mounted && (!rbacActive || permissionsReady)
 
-  // Auto-expand menu sections based on current route
+  // Auto-expand the section for the current route (do not close manually opened sections here)
   useEffect(() => {
     if (!pathname || !navReady) return
 
@@ -781,30 +789,23 @@ export function Sidebar() {
       const newOpenState = { ...currentOpen }
       let shouldUpdate = false
 
-      // Check which menu section contains the current path (use finalNav to handle employee vs admin menus)
       finalNav.forEach((item) => {
-        if (item.children) {
-          const hasActiveChild = item.children.some((child) => {
-            if (pathname === child.href) return true
-            // Also check if pathname starts with child.href (for nested routes)
-            if (child.href !== '/dashboard' && pathname.startsWith(child.href)) return true
-            return false
-          })
-          
-          if (hasActiveChild && !newOpenState[item.label]) {
+        if (item.children?.length && hasActiveChild(pathname, item.children)) {
+          if (!newOpenState[item.label]) {
             newOpenState[item.label] = true
             shouldUpdate = true
           }
         }
       })
 
-      if (shouldUpdate && typeof window !== 'undefined') {
+      if (!shouldUpdate) return currentOpen
+
+      if (typeof window !== 'undefined') {
         localStorage.setItem('sidebarOpenState', JSON.stringify(newOpenState))
       }
-
-      return shouldUpdate ? newOpenState : currentOpen
+      return newOpenState
     })
-  }, [pathname, isEmployee, isManager, isCoordinator, isSeniorCoordinator])
+  }, [pathname, navReady, isEmployee, isManager, isCoordinator, isSeniorCoordinator])
 
   const signOut = () => {
     try {
@@ -824,7 +825,11 @@ export function Sidebar() {
 
   const toggle = (label: string) => {
     setOpen((o) => {
-      const newState = { ...o, [label]: !o[label] }
+      const willOpen = !o[label]
+      // Accordion: opening one section closes the others so sections stay reachable
+      const newState = willOpen
+        ? { [label]: true }
+        : { ...o, [label]: false }
       // Persist to localStorage
       if (typeof window !== 'undefined') {
         localStorage.setItem('sidebarOpenState', JSON.stringify(newState))
@@ -899,13 +904,13 @@ export function Sidebar() {
               ))
             : null}
           {navReady &&
-            finalNav.map((item) => (
+            finalNav.map((item, index) => (
             <li
-              key={item.label}
+              key={`${item.label}-${item.href || 'group'}-${index}`}
               className={`w-full ${item.label === 'Sign out' ? 'mt-3 pt-3 border-t border-white/15' : ''}`}
               data-item={item.label}
             >
-              {item.children ? (
+              {item.children && item.children.length > 0 ? (
                 <div 
                   className="relative"
                   onMouseEnter={() => !sidebarOpen && setHoveredItem(item.label)}
@@ -982,7 +987,7 @@ export function Sidebar() {
                           return (
                             <li key={c.label}>
                               <Link
-                                href={c.href}
+                                href={c.href || '#'}
                                 className={`flex items-center gap-2 text-[12.5px] px-2.5 py-2 rounded-md font-medium transition-all duration-150 ${
                                   isActive
                                     ? 'bg-[#16A34A]/25 text-white border-l-2 border-[#16A34A]'

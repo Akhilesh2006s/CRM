@@ -141,6 +141,14 @@ export default function PendingDCPage() {
   const [dcCategory, setDcCategory] = useState('')
   const [dcNotes, setDcNotes] = useState('')
   const [smeRemarks, setSmeRemarks] = useState('')
+  const [dcDetailsErrors, setDcDetailsErrors] = useState<{
+    dcDate?: string
+    dcCategory?: string
+    financeRemarks?: string
+    splApproval?: string
+    dcRemarks?: string
+    dcNotes?: string
+  }>({})
   
   // Product rows
   const [productRows, setProductRows] = useState<ProductRow[]>([])
@@ -249,6 +257,9 @@ export default function PendingDCPage() {
       setDcCategory(mergedDC.dcCategory || '')
       setDcNotes(mergedDC.dcNotes || '')
       setSmeRemarks(mergedDC.smeRemarks || '')
+      setDcDetailsErrors({})
+
+      const isShortageDc = fullDC.dcType === 'shortage'
       
       // Populate product rows - prioritize DC.productDetails, then DcOrder.products
       // Filter out empty or invalid productDetails entries
@@ -483,8 +494,46 @@ export default function PendingDCPage() {
     }
   }
 
+  const clearDcDetailsError = (key: keyof typeof dcDetailsErrors) => {
+    setDcDetailsErrors((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  const validatePendingDcDetailsFields = (): boolean => {
+    const next: typeof dcDetailsErrors = {}
+    const dateVal = String(dcDate || '').trim()
+    if (!dateVal || Number.isNaN(new Date(dateVal).getTime())) {
+      next.dcDate = 'DC Date is required.'
+    }
+    if (!String(dcCategory || '').trim()) {
+      next.dcCategory = 'Please select a DC Category.'
+    }
+    if (!String(financeRemarks || '').trim()) {
+      next.financeRemarks = 'Finance Remarks is required.'
+    }
+    if (!String(splApproval || '').trim()) {
+      next.splApproval = 'SPL Approval is required.'
+    }
+    if (!String(dcRemarks || '').trim()) {
+      next.dcRemarks = 'DC Remarks is required.'
+    }
+    if (!String(dcNotes || '').trim()) {
+      next.dcNotes = 'DC Notes is required.'
+    }
+    setDcDetailsErrors(next)
+    return Object.keys(next).length === 0
+  }
+
   const handleSave = async () => {
     if (!selectedDC) return
+
+    if (!validatePendingDcDetailsFields()) {
+      return
+    }
     
     setSaving(true)
     try {
@@ -551,6 +600,10 @@ export default function PendingDCPage() {
 
   const handleSubmitToWarehouse = async () => {
     if (!selectedDC) return
+
+    if (!validatePendingDcDetailsFields()) {
+      return
+    }
     
     const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
     if (totalQuantity <= 0) {
@@ -872,45 +925,75 @@ export default function PendingDCPage() {
             <h3 className="font-semibold text-gray-900 text-lg">DC Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label>Finance Remarks</Label>
+                <Label>Finance Remarks *</Label>
                 <Input
                   value={financeRemarks}
-                  onChange={(e) => setFinanceRemarks(e.target.value)}
+                  onChange={(e) => {
+                    setFinanceRemarks(e.target.value)
+                    clearDcDetailsError('financeRemarks')
+                  }}
                   placeholder="Finance Remarks"
-                  className="bg-white text-gray-900"
+                  className={`bg-white text-gray-900 ${dcDetailsErrors.financeRemarks ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.financeRemarks && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.financeRemarks}</p>
+                )}
               </div>
               <div>
-                <Label>SPL Approval</Label>
+                <Label>SPL Approval *</Label>
                 <Input
                   value={splApproval}
-                  onChange={(e) => setSplApproval(e.target.value)}
+                  onChange={(e) => {
+                    setSplApproval(e.target.value)
+                    clearDcDetailsError('splApproval')
+                  }}
                   placeholder="Special Approval"
-                  className="bg-white text-gray-900"
+                  className={`bg-white text-gray-900 ${dcDetailsErrors.splApproval ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.splApproval && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.splApproval}</p>
+                )}
               </div>
               <div>
-                <Label>DC Date</Label>
+                <Label>DC Date *</Label>
                 <Input
                   type="date"
                   value={dcDate}
-                  onChange={(e) => setDcDate(e.target.value)}
-                  className="bg-white text-gray-900"
+                  onChange={(e) => {
+                    setDcDate(e.target.value)
+                    clearDcDetailsError('dcDate')
+                  }}
+                  className={`bg-white text-gray-900 ${dcDetailsErrors.dcDate ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.dcDate && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcDate}</p>
+                )}
               </div>
               <div>
-                <Label>DC Remarks</Label>
+                <Label>DC Remarks *</Label>
                 <Input
                   value={dcRemarks}
-                  onChange={(e) => setDcRemarks(e.target.value)}
+                  onChange={(e) => {
+                    setDcRemarks(e.target.value)
+                    clearDcDetailsError('dcRemarks')
+                  }}
                   placeholder="DC Remarks"
-                  className="bg-white text-gray-900"
+                  className={`bg-white text-gray-900 ${dcDetailsErrors.dcRemarks ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.dcRemarks && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcRemarks}</p>
+                )}
               </div>
               <div>
-                <Label>DC Category</Label>
-                <Select value={dcCategory} onValueChange={setDcCategory}>
-                  <SelectTrigger className="bg-white text-gray-900">
+                <Label>DC Category *</Label>
+                <Select
+                  value={dcCategory}
+                  onValueChange={(v) => {
+                    setDcCategory(v)
+                    clearDcDetailsError('dcCategory')
+                  }}
+                >
+                  <SelectTrigger className={`bg-white text-gray-900 ${dcDetailsErrors.dcCategory ? 'border-red-500' : ''}`}>
                     <SelectValue placeholder="Select DC Category" />
                   </SelectTrigger>
                   <SelectContent>
@@ -919,15 +1002,24 @@ export default function PendingDCPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {dcDetailsErrors.dcCategory && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcCategory}</p>
+                )}
               </div>
               <div>
-                <Label>DC Notes</Label>
+                <Label>DC Notes *</Label>
                 <Input
                   value={dcNotes}
-                  onChange={(e) => setDcNotes(e.target.value)}
+                  onChange={(e) => {
+                    setDcNotes(e.target.value)
+                    clearDcDetailsError('dcNotes')
+                  }}
                   placeholder="Notes"
-                  className="bg-white text-gray-900"
+                  className={`bg-white text-gray-900 ${dcDetailsErrors.dcNotes ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.dcNotes && (
+                  <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcNotes}</p>
+                )}
               </div>
             </div>
           </div>

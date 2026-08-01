@@ -41,6 +41,68 @@ const STAT_CONFIG = [
   { label: 'Completed Services', icon: TrendingUp, accent: 'teal' },
 ]
 
+/** Role-aware KPI card destinations (index matches STAT_CONFIG). */
+const DEFAULT_STAT_HREFS: (string | null)[] = [
+  '/dashboard/leads',
+  '/dashboard/dc/closed',
+  '/dashboard/leads/renewal',
+  '/dashboard/training/list',
+  '/dashboard/training/list',
+  '/dashboard/training/services',
+  '/dashboard/training/services',
+]
+
+const ROLES_WITHOUT_CLIENTS = new Set([
+  'Manager',
+  'Warehouse Executive',
+  'Warehouse Manager',
+  'Trainer',
+])
+
+const ROLES_WITHOUT_TRAINING = new Set([
+  'Manager',
+  'Executive',
+  'Executive Manager',
+  'Warehouse Executive',
+  'Warehouse Manager',
+  'Trainer',
+])
+
+function getStatHref(role: string | undefined, index: number): string | null {
+  if (index < 0 || index >= DEFAULT_STAT_HREFS.length) return null
+  const r = role || ''
+
+  if (index === 0) {
+    if (r === 'Executive') return '/dashboard/leads/followup'
+    if (ROLES_WITHOUT_CLIENTS.has(r) && r !== 'Coordinator' && r !== 'Senior Coordinator') {
+      if (r === 'Manager') return '/dashboard/reports/leads'
+      return null
+    }
+    return DEFAULT_STAT_HREFS[0]
+  }
+
+  if (index === 1) {
+    if (r === 'Executive') return '/dashboard/dc/client-dc'
+    if (r === 'Trainer') return '/dashboard/training/trainer/my'
+    if (r === 'Warehouse Executive' || r === 'Warehouse Manager') {
+      return '/dashboard/returns/warehouse-executive'
+    }
+    return DEFAULT_STAT_HREFS[1]
+  }
+
+  if (index === 2) {
+    if (ROLES_WITHOUT_CLIENTS.has(r)) return null
+    return DEFAULT_STAT_HREFS[2]
+  }
+
+  if (index >= 3 && index <= 6) {
+    if (ROLES_WITHOUT_TRAINING.has(r)) return null
+    return DEFAULT_STAT_HREFS[index]
+  }
+
+  return DEFAULT_STAT_HREFS[index]
+}
+
 const accentToClasses: Record<string, { chip: string; icon: string }> = {
   sky: { chip: 'bg-sky-100', icon: 'text-sky-50' },
   rose: { chip: 'bg-rose-100', icon: 'text-rose-50' },
@@ -428,16 +490,28 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {STAT_CONFIG.map((stat, i) => {
           const colors = cardColorMap[stat.accent]
-          return (
-            <Card key={stat.label} className={`p-5 bg-gradient-to-br ${colors.bg} border-2 ${colors.border} shadow-lg`}>
+          const href = getStatHref(currentUser?.role as string | undefined, i)
+          const cardInner = (
+            <Card
+              className={`p-5 bg-gradient-to-br ${colors.bg} border-2 ${colors.border} shadow-lg ${
+                href ? 'hover:shadow-xl cursor-pointer transition-all' : ''
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <div className={`text-xs font-semibold ${colors.text} mb-1 uppercase`}>{stat.label}</div>
                   <div className={`text-2xl font-bold ${colors.text.replace('700', '900')}`}>{stats[i]?.value ?? '0'}</div>
                 </div>
                 <stat.icon className={`w-8 h-8 ${colors.icon}`} />
-                </div>
+              </div>
             </Card>
+          )
+          return href ? (
+            <Link key={stat.label} href={href} className="block">
+              {cardInner}
+            </Link>
+          ) : (
+            <div key={stat.label}>{cardInner}</div>
           )
         })}
       </div>
@@ -1062,7 +1136,9 @@ export default function DashboardPage() {
                       <div>
                         <div className="text-sm font-semibold text-red-700 mb-2 uppercase tracking-wide">Hot Leads</div>
                         <div className="text-3xl font-bold text-red-900">
-                          {executiveAnalytics.leads?.byPriority?.find((p: any) => p._id === 'Hot')?.count || 0}
+                          {(Array.isArray(executiveAnalytics.leads?.byPriority)
+                            ? executiveAnalytics.leads.byPriority.find((p: any) => p._id === 'Hot')
+                            : undefined)?.count || 0}
                         </div>
                         <div className="text-xs text-red-600 mt-1">High Priority</div>
                       </div>
@@ -1076,7 +1152,9 @@ export default function DashboardPage() {
                       <div>
                         <div className="text-sm font-semibold text-amber-700 mb-2 uppercase tracking-wide">Warm Leads</div>
                         <div className="text-3xl font-bold text-amber-900">
-                          {executiveAnalytics.leads?.byPriority?.find((p: any) => p._id === 'Warm')?.count || 0}
+                          {(Array.isArray(executiveAnalytics.leads?.byPriority)
+                            ? executiveAnalytics.leads.byPriority.find((p: any) => p._id === 'Warm')
+                            : undefined)?.count || 0}
                         </div>
                         <div className="text-xs text-amber-600 mt-1">Medium Priority</div>
                       </div>
@@ -1090,7 +1168,9 @@ export default function DashboardPage() {
                       <div>
                         <div className="text-sm font-semibold text-indigo-700 mb-2 uppercase tracking-wide">Cold Leads</div>
                         <div className="text-3xl font-bold text-indigo-900">
-                          {executiveAnalytics.leads?.byPriority?.find((p: any) => p._id === 'Cold')?.count || 0}
+                          {(Array.isArray(executiveAnalytics.leads?.byPriority)
+                            ? executiveAnalytics.leads.byPriority.find((p: any) => p._id === 'Cold')
+                            : undefined)?.count || 0}
                         </div>
                         <div className="text-xs text-indigo-600 mt-1">Low Priority</div>
                       </div>

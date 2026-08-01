@@ -505,6 +505,18 @@ export default function ClientDCPage() {
     }
   }, [editProductRows, currentEditingDCId, originalProductNames])
 
+  // Keep Edit PO Total Amount in sync with sum of product row totals (qty × unit price)
+  useEffect(() => {
+    if (!editPODialogOpen) return
+    const total = editProductRows.reduce(
+      (sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0),
+      0
+    )
+    setEditFormData((prev) =>
+      prev.total_amount === total ? prev : { ...prev, total_amount: total }
+    )
+  }, [editProductRows, editPODialogOpen])
+
   const getProgramInvoiceGate = async (
     dcOrderId?: string | null,
     productName?: string | null
@@ -915,72 +927,74 @@ export default function ClientDCPage() {
     }
     
     // Get dcOrderId to fetch delivery address and all DcOrder data
-    let dcOrderId = null
-    if (dc.dcOrderId) {
-      if (typeof dc.dcOrderId === 'object' && dc.dcOrderId !== null && dc.dcOrderId._id) {
-        dcOrderId = dc.dcOrderId._id
-      } else if (typeof dc.dcOrderId === 'string') {
-        dcOrderId = dc.dcOrderId
+    let dcOrderId: string | null = null
+    const listOrder =
+      dc.dcOrderId && typeof dc.dcOrderId === 'object' && dc.dcOrderId !== null
+        ? (dc.dcOrderId as Record<string, any>)
+        : null
+    if (listOrder?._id) {
+      dcOrderId = String(listOrder._id)
+    } else if (typeof dc.dcOrderId === 'string') {
+      dcOrderId = dc.dcOrderId
+    }
+
+    const buildTransportDisplay = (order: Record<string, any> | null | undefined) => {
+      if (!order) {
+        return {
+          transport_name: '',
+          transport_location: '',
+          transportation_landmark: '',
+          pincode: '',
+        }
+      }
+      // Same source/priority as Edit PO: pending snapshot, then saved DcOrder fields
+      const pe = order.pendingEdit?.status === 'pending' ? order.pendingEdit : null
+      return {
+        transport_name: String(pe?.transport_name ?? order.transport_name ?? '').trim(),
+        transport_location: String(pe?.transport_location ?? order.transport_location ?? '').trim(),
+        transportation_landmark: String(
+          pe?.transportation_landmark ?? order.transportation_landmark ?? ''
+        ).trim(),
+        pincode: String(pe?.pincode ?? order.pincode ?? '').trim(),
       }
     }
+
     if (dcOrderId) {
       try {
         const dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
+        const pe = dcOrder.pendingEdit?.status === 'pending' ? dcOrder.pendingEdit : null
+        const transport = buildTransportDisplay(dcOrder)
+        // If API returned empty transport, fall back to already-loaded client/DC order data
+        const listTransport = buildTransportDisplay(listOrder)
         
         // Store full DcOrder data for display (prioritize pendingEdit if exists, else use main fields)
-        let displayData: any = {}
-        if (dcOrder.pendingEdit && dcOrder.pendingEdit.status === 'pending') {
-          // Show from pendingEdit if there's a pending edit request
-          displayData = {
-            school_name: dcOrder.pendingEdit.school_name || dcOrder.school_name || '',
-            contact_person: dcOrder.pendingEdit.contact_person || dcOrder.contact_person || '',
-            contact_mobile: dcOrder.pendingEdit.contact_mobile || dcOrder.contact_mobile || '',
-            contact_person2: dcOrder.pendingEdit.contact_person2 || dcOrder.contact_person2 || '',
-            contact_mobile2: dcOrder.pendingEdit.contact_mobile2 || dcOrder.contact_mobile2 || '',
-            email: dcOrder.pendingEdit.email || dcOrder.email || '',
-            address: dcOrder.pendingEdit.address || dcOrder.address || '',
-            zone: dcOrder.pendingEdit.zone || dcOrder.zone || '',
-            location: dcOrder.pendingEdit.location || dcOrder.location || '',
-            remarks: dcOrder.pendingEdit.remarks || dcOrder.remarks || '',
-            // Transport details from pendingEdit (fallback to main fields)
-            transport_name: dcOrder.pendingEdit.transport_name || dcOrder.transport_name || '',
-            transport_location: dcOrder.pendingEdit.transport_location || dcOrder.transport_location || '',
-            transportation_landmark: dcOrder.pendingEdit.transportation_landmark || dcOrder.transportation_landmark || '',
-            pincode: dcOrder.pendingEdit.pincode || dcOrder.pincode || '',
-            // Delivery address
-            property_number: dcOrder.pendingEdit.property_number || '',
-            floor: dcOrder.pendingEdit.floor || '',
-            tower_block: dcOrder.pendingEdit.tower_block || '',
-            nearby_landmark: dcOrder.pendingEdit.nearby_landmark || '',
-            area: dcOrder.pendingEdit.area || '',
-            city: dcOrder.pendingEdit.city || '',
-          }
-        } else {
-          // If no pending edit, show from approved/main fields
-          displayData = {
-            school_name: dcOrder.school_name || '',
-            contact_person: dcOrder.contact_person || '',
-            contact_mobile: dcOrder.contact_mobile || '',
-            contact_person2: dcOrder.contact_person2 || '',
-            contact_mobile2: dcOrder.contact_mobile2 || '',
-            email: dcOrder.email || '',
-            address: dcOrder.address || '',
-            zone: dcOrder.zone || '',
-            location: dcOrder.location || '',
-            remarks: dcOrder.remarks || '',
-            // Transport details from main DcOrder fields
-            transport_name: dcOrder.transport_name || '',
-            transport_location: dcOrder.transport_location || '',
-            transportation_landmark: dcOrder.transportation_landmark || '',
-            pincode: dcOrder.pincode || '',
-            // Delivery address
-            property_number: dcOrder.property_number || '',
-            floor: dcOrder.floor || '',
-            tower_block: dcOrder.tower_block || '',
-            nearby_landmark: dcOrder.nearby_landmark || '',
-            area: dcOrder.area || '',
-            city: dcOrder.city || '',
-          }
+        const displayData: any = {
+          school_name: pe?.school_name || dcOrder.school_name || listOrder?.school_name || '',
+          contact_person: pe?.contact_person || dcOrder.contact_person || listOrder?.contact_person || '',
+          contact_mobile: pe?.contact_mobile || dcOrder.contact_mobile || listOrder?.contact_mobile || '',
+          contact_person2: pe?.contact_person2 || dcOrder.contact_person2 || '',
+          contact_mobile2: pe?.contact_mobile2 || dcOrder.contact_mobile2 || '',
+          email: pe?.email || dcOrder.email || listOrder?.email || '',
+          address: pe?.address || dcOrder.address || listOrder?.address || '',
+          zone: pe?.zone || dcOrder.zone || listOrder?.zone || '',
+          location: pe?.location || dcOrder.location || listOrder?.location || '',
+          remarks: pe?.remarks || dcOrder.remarks || '',
+          school_type: pe?.school_type || dcOrder.school_type || listOrder?.school_type || '',
+          // Transport details — restored from DcOrder / pendingEdit (same as Edit PO)
+          transport_name: transport.transport_name || listTransport.transport_name || '',
+          transport_location: transport.transport_location || listTransport.transport_location || '',
+          transportation_landmark:
+            transport.transportation_landmark || listTransport.transportation_landmark || '',
+          pincode: transport.pincode || listTransport.pincode || '',
+          // Keep pendingEdit for any UI that still reads nested transport paths
+          pendingEdit: pe || undefined,
+          // Delivery address
+          property_number: pe?.property_number || dcOrder.property_number || '',
+          floor: pe?.floor || dcOrder.floor || '',
+          tower_block: pe?.tower_block || dcOrder.tower_block || '',
+          nearby_landmark: pe?.nearby_landmark || dcOrder.nearby_landmark || '',
+          area: pe?.area || dcOrder.area || '',
+          city: pe?.city || dcOrder.city || '',
         }
         setDcOrderData(displayData)
         
@@ -996,7 +1010,27 @@ export default function ClientDCPage() {
         }
       } catch (e) {
         console.error('Failed to load delivery address:', e)
-        setDcOrderData(null)
+        // Still populate transport/school from the selected client row when fetch fails
+        if (listOrder) {
+          const listTransport = buildTransportDisplay(listOrder)
+          setDcOrderData({
+            school_name: listOrder.school_name || '',
+            contact_person: listOrder.contact_person || '',
+            contact_mobile: listOrder.contact_mobile || '',
+            email: listOrder.email || '',
+            address: listOrder.address || '',
+            zone: listOrder.zone || '',
+            location: listOrder.location || '',
+            school_type: listOrder.school_type || '',
+            transport_name: listTransport.transport_name,
+            transport_location: listTransport.transport_location,
+            transportation_landmark: listTransport.transportation_landmark,
+            pincode: listTransport.pincode,
+          })
+          deliveryData = { ...deliveryData, pincode: listTransport.pincode || '' }
+        } else {
+          setDcOrderData(null)
+        }
       }
     } else {
       setDcOrderData(null)
@@ -1268,16 +1302,16 @@ export default function ClientDCPage() {
 
     // Validate transport details (must be filled via Edit PO first)
     const transportName =
-      (dcOrderData?.pendingEdit?.transport_name as string) ??
-      (dcOrderData?.transport_name as string) ??
+      (dcOrderData?.transport_name as string) ||
+      (dcOrderData?.pendingEdit?.transport_name as string) ||
       ''
     const transportLocation =
-      (dcOrderData?.pendingEdit?.transport_location as string) ??
-      (dcOrderData?.transport_location as string) ??
+      (dcOrderData?.transport_location as string) ||
+      (dcOrderData?.pendingEdit?.transport_location as string) ||
       ''
     const transportPincode =
-      (dcOrderData?.pendingEdit?.pincode as string) ??
-      (dcOrderData?.pincode as string) ??
+      (dcOrderData?.pincode as string) ||
+      (dcOrderData?.pendingEdit?.pincode as string) ||
       ''
 
     if (!transportName.trim() || !transportLocation.trim() || !transportPincode.trim()) {
@@ -3288,8 +3322,8 @@ export default function ClientDCPage() {
                   <Label>Transport Name</Label>
                   <Input
                     value={
-                      (dcOrderData?.pendingEdit?.transport_name as string) ??
-                      (dcOrderData?.transport_name as string) ??
+                      dcOrderData?.transport_name ||
+                      (dcOrderData?.pendingEdit?.transport_name as string) ||
                       ''
                     }
                     readOnly
@@ -3301,8 +3335,8 @@ export default function ClientDCPage() {
                   <Label>Transport Location</Label>
                   <Input
                     value={
-                      (dcOrderData?.pendingEdit?.transport_location as string) ??
-                      (dcOrderData?.transport_location as string) ??
+                      dcOrderData?.transport_location ||
+                      (dcOrderData?.pendingEdit?.transport_location as string) ||
                       ''
                     }
                     readOnly
@@ -3314,8 +3348,8 @@ export default function ClientDCPage() {
                   <Label>Transportation Landmark</Label>
                   <Input
                     value={
-                      (dcOrderData?.pendingEdit?.transportation_landmark as string) ??
-                      (dcOrderData?.transportation_landmark as string) ??
+                      dcOrderData?.transportation_landmark ||
+                      (dcOrderData?.pendingEdit?.transportation_landmark as string) ||
                       ''
                     }
                     readOnly
@@ -3327,8 +3361,8 @@ export default function ClientDCPage() {
                   <Label>Pincode</Label>
                   <Input
                     value={
-                      (dcOrderData?.pendingEdit?.pincode as string) ??
-                      (dcOrderData?.pincode as string) ??
+                      dcOrderData?.pincode ||
+                      (dcOrderData?.pendingEdit?.pincode as string) ||
                       ''
                     }
                     readOnly

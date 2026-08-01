@@ -180,9 +180,55 @@ const getLeads = async (req, res) => {
     
     const leads = await query;
 
+    // Closed Sales merges GET /leads?status=Closed. After Raise DC the lead stays "Closed"
+    // forever, so exclude any lead whose school already has a raised pipeline DC / past Closed Sales sale.
+    let leadRows = leads;
+    const statusParam = String(status || '');
+    if (statusParam === 'Closed' || statusParam.split(',').map((s) => s.trim()).includes('Closed')) {
+      const DC = require('../models/DC');
+      const raisedDcs = await DC.find({
+        status: { $in: ['pending_dc', 'sent_to_manager', 'warehouse_processing', 'completed', 'hold'] },
+      })
+        .select('customerName customerPhone dcOrderId')
+        .populate('dcOrderId', 'school_name contact_mobile')
+        .lean()
+        .maxTimeMS(20000);
+
+      const pastOrders = await DcOrder.find({
+        $or: [
+          { workflowStage: { $in: ['PendingDC', 'EmpDC', 'CompletedDC'] } },
+          { status: 'dc_sent_to_senior' },
+        ],
+      })
+        .select('school_name contact_mobile')
+        .lean()
+        .maxTimeMS(20000);
+
+      const blockedNames = new Set();
+      const blockedNameMobile = new Set();
+      const mark = (name, mobile) => {
+        const n = String(name || '').toLowerCase().trim();
+        const m = String(mobile || '').trim();
+        if (n) blockedNames.add(n);
+        if (n && m) blockedNameMobile.add(`${n}|${m}`);
+      };
+      raisedDcs.forEach((d) => {
+        mark(d.dcOrderId?.school_name || d.customerName, d.dcOrderId?.contact_mobile || d.customerPhone);
+      });
+      pastOrders.forEach((o) => mark(o.school_name, o.contact_mobile));
+
+      leadRows = leads.filter((lead) => {
+        const n = String(lead.school_name || '').toLowerCase().trim();
+        const m = String(lead.contact_mobile || '').trim();
+        if (n && m && blockedNameMobile.has(`${n}|${m}`)) return false;
+        if (n && blockedNames.has(n)) return false;
+        return true;
+      });
+    }
+
     // Return paginated response
     res.json({
-      data: leads,
+      data: leadRows,
       pagination: {
         page,
         limit,
@@ -231,6 +277,24 @@ const createLead = async (req, res) => {
   try {
     if (req.body && req.body.lead_type === 'renewal') {
       return createRenewalLead(req, res);
+    }
+
+    // Require email for normal new-school lead creation (Add Lead).
+    // Skip for internal Closed reporting records created during Turn Lead to Client.
+    const isClosedReportingLead =
+      String(req.body?.status || '').toLowerCase() === 'closed';
+    if (!isClosedReportingLead) {
+      const email = (req.body.email || '').trim();
+      if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+      req.body.email = email;
+    } else if (req.body.email) {
+      req.body.email = String(req.body.email).trim();
     }
 
     const leadData = {
@@ -405,7 +469,6 @@ const updateLead = async (req, res) => {
     const normalizedProductsInterested = hasProductsInterested
       ? normalizeProductsInterested(req.body.productsInterested)
       : [];
-    const isFollowUpSubmission = hasFollowUpDate && hasRemarks;
     const validateFollowUpProducts = (rows) => {
       if (rows.length === 0) {
         return 'At least one product with Strength and Chance % is required';
@@ -424,7 +487,7 @@ const updateLead = async (req, res) => {
       return null;
     };
 
-    if (isFollowUpSubmission || hasProductsInterested) {
+    if (hasProductsInterested) {
       const productErr = validateFollowUpProducts(normalizedProductsInterested);
       if (productErr) {
         return res.status(400).json({ message: productErr });
