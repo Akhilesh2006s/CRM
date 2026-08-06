@@ -351,6 +351,20 @@ const ROLE_TEMPLATE_KEYS = {
     moduleKey('settings'),
     pageKey('settings', 'password'),
   ],
+  // Executive Manager workspace — own executives, PO edits, pending expenses, leaves
+  'executive-manager': [
+    moduleKey('dashboard'),
+    pageKey('dashboard', 'home'),
+    moduleKey('executive_managers'),
+    pageKey('executive_managers', 'executives'),
+    moduleKey('clients'),
+    pageKey('clients', 'po_edit_request'),
+    moduleKey('expenses'),
+    pageKey('expenses', 'executive_manager_pending'),
+    moduleKey('leaves'),
+    moduleKey('settings'),
+    pageKey('settings', 'password'),
+  ],
 };
 
 const LEGACY_ROLE_TO_SLUG = {

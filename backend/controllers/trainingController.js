@@ -90,21 +90,43 @@ const createTraining = async (req, res) => {
 // @access  Private
 const updateTraining = async (req, res) => {
   try {
+    const existing = await Training.findById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Training not found' });
+    }
+
+    const nextStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'status')
+      ? req.body.status
+      : existing.status;
+
+    if (String(nextStatus).trim() === 'Completed') {
+      const feedbackPdfUrl = req.body.feedbackPdfUrl || existing.feedbackPdfUrl;
+      if (!feedbackPdfUrl || String(feedbackPdfUrl).trim() === '') {
+        return res.status(400).json({
+          message: 'Please upload the feedback form (PDF) for completed training.',
+        });
+      }
+    }
+
     const training = await Training.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      {
+        ...req.body,
+        ...(String(nextStatus).trim() === 'Completed' && !existing.completionDate
+          ? { completionDate: new Date() }
+          : {}),
+      },
       { new: true, runValidators: true }
     )
       .populate('trainerId', 'name mobile')
       .populate('employeeId', 'name email')
       .populate('createdBy', 'name email');
 
-    if (!training) {
-      return res.status(404).json({ message: 'Training not found' });
-    }
-
     res.json(training);
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ message: error.message });
+    }
     res.status(500).json({ message: error.message });
   }
 };
@@ -216,9 +238,7 @@ const getTrainingStats = async (req, res) => {
 const getMyTrainings = async (req, res) => {
   try {
     const trainerId = req.user._id;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
+
     // Get trainings that are scheduled and not completed/cancelled
     const trainings = await Training.find({
       trainerId,
@@ -229,32 +249,9 @@ const getMyTrainings = async (req, res) => {
       .populate('createdBy', 'name email')
       .sort({ trainingDate: 1 }); // Sort by date ascending (upcoming first)
 
-    // Auto-complete trainings where date has passed
-    const updatePromises = trainings
-      .filter(training => {
-        const trainingDate = new Date(training.trainingDate);
-        trainingDate.setHours(0, 0, 0, 0);
-        return trainingDate < today;
-      })
-      .map(training => {
-        training.status = 'Completed';
-        training.completionDate = new Date();
-        return training.save();
-      });
-
-    await Promise.all(updatePromises);
-
-    // Fetch updated trainings
-    const updatedTrainings = await Training.find({
-      trainerId,
-      status: { $in: ['Scheduled'] },
-    })
-      .populate('trainerId', 'name mobile')
-      .populate('employeeId', 'name email')
-      .populate('createdBy', 'name email')
-      .sort({ trainingDate: 1 });
-
-    res.json(updatedTrainings);
+    // Do not auto-complete past-dated trainings without feedback PDF.
+    // Keep them Scheduled so trainers/coordinators must upload proof first.
+    res.json(trainings);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -327,6 +324,12 @@ const completeTraining = async (req, res) => {
     // Verify trainer owns this training
     if (training.trainerId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized to complete this training' });
+    }
+
+    if (!training.feedbackPdfUrl || String(training.feedbackPdfUrl).trim() === '') {
+      return res.status(400).json({
+        message: 'Please upload the feedback form (PDF) for completed training.',
+      });
     }
     
     // Mark as completed

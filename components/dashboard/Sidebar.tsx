@@ -625,6 +625,13 @@ export function Sidebar() {
         href: '/dashboard/executive-managers/executives',
       },
       {
+        label: 'Clients',
+        icon: Truck,
+        children: [
+          { label: 'PO Edit Request', href: '/dashboard/clients/closed-sales', icon: CheckCircle2 },
+        ],
+      },
+      {
         label: 'Expenses',
         icon: Calculator,
         children: [
@@ -768,7 +775,8 @@ export function Sidebar() {
     })
   }
 
-  if (rbacActive && permissionsReady) {
+  // Keep role-specific Executive Manager nav intact (do not replace with RBAC catalog).
+  if (rbacActive && permissionsReady && !isExecutiveManager) {
     const baseNav = finalNav.length > 0 ? finalNav : NAV
     const catalogHrefs = rbacCatalogHrefs()
     const fromPermissions = rbacBuiltToNavItems(buildRbacSidebarNav(permUser))

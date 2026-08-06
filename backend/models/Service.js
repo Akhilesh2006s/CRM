@@ -9,9 +9,14 @@ const serviceSchema = new mongoose.Schema({
   trainerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Assigned executive
   serviceDate: { type: Date, required: true },
-  term: { type: String }, // Term field (e.g., Term 1, Term 2, etc.)
+  term: { type: String, required: true, trim: true }, // Term field (e.g., Term 1, Term 2, etc.)
   remarks: { type: String }, // Remarks field
-  status: { type: String, enum: ['Scheduled', 'Completed', 'Cancelled'], default: 'Scheduled' },
+  status: {
+    type: String,
+    enum: ['Scheduled', 'Completed', 'Cancelled'],
+    default: 'Scheduled',
+    required: true,
+  },
   poImageUrl: { type: String }, // Purchase Order image
   attendanceDate: { type: Date }, // Date when attendance was marked
   feedbackPdfUrl: { type: String }, // URL to uploaded feedback PDF

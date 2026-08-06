@@ -55,59 +55,167 @@ const getService = async (req, res) => {
   }
 };
 
+const ALLOWED_SERVICE_SUBJECTS = [
+  'Abacus',
+  'Vedic Maths',
+  'EEL',
+  'IIT',
+  'Financial literacy',
+  'Brain bytes',
+  'Spelling bee',
+  'Skill pro',
+  'Maths lab',
+  'Codechamp',
+]
+const ALLOWED_SERVICE_STATUSES = ['Scheduled', 'Completed', 'Cancelled']
+
+function isBlank(value) {
+  return value == null || (typeof value === 'string' && value.trim() === '')
+}
+
+function validateCreateServiceBody(body) {
+  const errors = []
+
+  if (isBlank(body.schoolName)) errors.push('School Name is required.')
+  if (isBlank(body.subject)) {
+    errors.push('Product is required.')
+  } else if (!ALLOWED_SERVICE_SUBJECTS.includes(String(body.subject).trim())) {
+    errors.push('Product is invalid.')
+  }
+  if (isBlank(body.trainerId)) errors.push('Trainer is required.')
+  if (isBlank(body.serviceDate)) errors.push('Service Date is required.')
+  if (isBlank(body.term)) errors.push('Term is required.')
+
+  if (
+    body.status != null &&
+    String(body.status).trim() !== '' &&
+    !ALLOWED_SERVICE_STATUSES.includes(String(body.status).trim())
+  ) {
+    errors.push('Service Status is invalid.')
+  }
+
+  return errors
+}
+
+function validateUpdateServiceBody(body, existing) {
+  const errors = []
+
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    if (isBlank(body.status)) {
+      errors.push('Service Status is required.')
+    } else if (!ALLOWED_SERVICE_STATUSES.includes(String(body.status).trim())) {
+      errors.push('Service Status is invalid.')
+    } else if (String(body.status).trim() === 'Completed') {
+      const feedbackPdfUrl = body.feedbackPdfUrl || existing?.feedbackPdfUrl
+      if (isBlank(feedbackPdfUrl)) {
+        errors.push('Please upload the feedback form (PDF) for completed service visit.')
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'subject') && !isBlank(body.subject)) {
+    if (!ALLOWED_SERVICE_SUBJECTS.includes(String(body.subject).trim())) {
+      errors.push('Product is invalid.')
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'serviceDate') && isBlank(body.serviceDate)) {
+    errors.push('Service Date is required.')
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'trainerId') && isBlank(body.trainerId)) {
+    errors.push('Trainer is required.')
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'schoolName') && isBlank(body.schoolName)) {
+    errors.push('School Name is required.')
+  }
+
+  return errors
+}
+
 // @desc    Create service
 // @route   POST /api/services/create
 // @access  Private
 const createService = async (req, res) => {
   try {
+    const validationErrors = validateCreateServiceBody(req.body || {})
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ message: validationErrors[0], errors: validationErrors })
+    }
+
     // Prepare service data - only include schoolCode if it's provided and not empty
     const serviceData = {
       ...req.body,
+      schoolName: String(req.body.schoolName).trim(),
+      subject: String(req.body.subject).trim(),
+      term: String(req.body.term).trim(),
+      status: isBlank(req.body.status) ? 'Scheduled' : String(req.body.status).trim(),
       createdBy: req.user._id,
-    };
-    
+    }
+
     // Remove schoolCode if it's an empty string
     if (serviceData.schoolCode === '' || serviceData.schoolCode === null || serviceData.schoolCode === undefined) {
-      delete serviceData.schoolCode;
+      delete serviceData.schoolCode
     }
-    
-    const service = await Service.create(serviceData);
+
+    const service = await Service.create(serviceData)
 
     const populatedService = await Service.findById(service._id)
       .populate('trainerId', 'name mobile')
       .populate('employeeId', 'name email')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email')
 
-    res.status(201).json(populatedService);
+    res.status(201).json(populatedService)
   } catch (error) {
-    console.error('Error creating service:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Error creating service:', error)
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ message: error.message })
+    }
+    res.status(500).json({ message: error.message })
   }
-};
+}
 
 // @desc    Update service
 // @route   PUT /api/services/:id
 // @access  Private
 const updateService = async (req, res) => {
   try {
+    const existing = await Service.findById(req.params.id)
+    if (!existing) {
+      return res.status(404).json({ message: 'Service not found' })
+    }
+
+    const validationErrors = validateUpdateServiceBody(req.body || {}, existing)
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ message: validationErrors[0], errors: validationErrors })
+    }
+
+    const updates = { ...req.body }
+    if (Object.prototype.hasOwnProperty.call(updates, 'status') && !isBlank(updates.status)) {
+      updates.status = String(updates.status).trim()
+      if (updates.status === 'Completed' && !existing.completionDate) {
+        updates.completionDate = new Date()
+      }
+    }
+
     const service = await Service.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updates,
       { new: true, runValidators: true }
     )
       .populate('trainerId', 'name mobile')
       .populate('employeeId', 'name email')
-      .populate('createdBy', 'name email');
+      .populate('createdBy', 'name email')
 
-    if (!service) {
-      return res.status(404).json({ message: 'Service not found' });
-    }
-
-    res.json(service);
+    res.json(service)
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ message: error.message })
+    }
+    res.status(500).json({ message: error.message })
   }
-};
+}
 
 // @desc    Cancel service
 // @route   PUT /api/services/:id/cancel
@@ -216,9 +324,7 @@ const getServiceStats = async (req, res) => {
 const getMyServices = async (req, res) => {
   try {
     const trainerId = req.user._id;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
+
     // Get services that are scheduled and not completed/cancelled
     const services = await Service.find({
       trainerId,
@@ -229,32 +335,8 @@ const getMyServices = async (req, res) => {
       .populate('createdBy', 'name email')
       .sort({ serviceDate: 1 }); // Sort by date ascending (upcoming first)
 
-    // Auto-complete services where date has passed
-    const updatePromises = services
-      .filter(service => {
-        const serviceDate = new Date(service.serviceDate);
-        serviceDate.setHours(0, 0, 0, 0);
-        return serviceDate < today;
-      })
-      .map(service => {
-        service.status = 'Completed';
-        service.completionDate = new Date();
-        return service.save();
-      });
-
-    await Promise.all(updatePromises);
-
-    // Fetch updated services
-    const updatedServices = await Service.find({
-      trainerId,
-      status: { $in: ['Scheduled'] },
-    })
-      .populate('trainerId', 'name mobile')
-      .populate('employeeId', 'name email')
-      .populate('createdBy', 'name email')
-      .sort({ serviceDate: 1 });
-
-    res.json(updatedServices);
+    // Do not auto-complete past-dated services without feedback PDF.
+    res.json(services);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -327,6 +409,12 @@ const completeService = async (req, res) => {
     // Verify trainer owns this service
     if (service.trainerId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized to complete this service' });
+    }
+
+    if (!service.feedbackPdfUrl || String(service.feedbackPdfUrl).trim() === '') {
+      return res.status(400).json({
+        message: 'Please upload the feedback form (PDF) for completed service visit.',
+      });
     }
     
     // Mark as completed

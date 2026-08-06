@@ -100,6 +100,8 @@ export function permissionForPath(pathname: string): string | null {
     return null
   }
 
+  // EM Executives list is role-scoped (my/executives API); do not treat as admin All Managers.
+  // Still mapped below to executives.page.view for Admin RBAC; EM access is via role check in access.ts.
   if (HREF_PERMISSION_MAP[pathname]) return HREF_PERMISSION_MAP[pathname]
   const sorted = Object.keys(HREF_PERMISSION_MAP).sort((a, b) => b.length - a.length)
   for (const href of sorted) {

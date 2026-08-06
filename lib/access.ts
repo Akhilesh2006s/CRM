@@ -10,6 +10,16 @@ import {
 const EXECUTIVE_MANAGER_OWN_ROUTE =
   /^\/dashboard\/executive-managers\/([^/]+)\/(dashboard|leaves)(?:\/|$)/
 
+/**
+ * Executive Manager workspace routes (sidebar role menu).
+ * These are intentionally granted by role, not via the admin All Managers permission.
+ */
+const EXECUTIVE_MANAGER_WORKSPACE_ROUTES = [
+  '/dashboard/executive-managers/executives',
+  '/dashboard/expenses/executive-manager-pending',
+  '/dashboard/clients/closed-sales',
+]
+
 function canAccessExecutiveManagerOwnRoute(
   user: AuthUserWithPermissions,
   pathname: string
@@ -32,6 +42,16 @@ function canAccessExecutiveManagerOwnRoute(
   return false
 }
 
+function canAccessExecutiveManagerWorkspace(
+  user: AuthUserWithPermissions,
+  pathname: string
+): boolean {
+  if (user.role !== 'Executive Manager') return false
+  return EXECUTIVE_MANAGER_WORKSPACE_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(route + '/')
+  )
+}
+
 /** Same rule for sidebar links and RouteGuard page access */
 export function canAccessPath(
   user: AuthUserWithPermissions | null,
@@ -45,6 +65,11 @@ export function canAccessPath(
 
   if (EXECUTIVE_MANAGER_OWN_ROUTE.test(pathname)) {
     return canAccessExecutiveManagerOwnRoute(user, pathname)
+  }
+
+  // Role-based workspace for Executive Managers (Executives list, pending expenses, PO edits)
+  if (canAccessExecutiveManagerWorkspace(user, pathname)) {
+    return true
   }
 
   const key = permissionForPath(pathname)

@@ -109,17 +109,6 @@ export default function TrainingsListPage() {
     }
   }
 
-  const markCompleted = async (id: string) => {
-    if (!confirm('Mark this training as completed?')) return
-    try {
-      await apiRequest(`/training/${id}`, { method: 'PUT', body: JSON.stringify({ status: 'Completed' }) })
-      toast.success('Training marked as completed')
-      load()
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to update')
-    }
-  }
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Trainings List</h1>

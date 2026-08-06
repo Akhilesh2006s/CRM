@@ -256,6 +256,10 @@ const createExecutiveReturn = async (req, res) => {
     const isDraft = status === 'Draft';
     if (!returnDate) return res.status(400).json({ message: 'returnDate is required' });
 
+    const incomingProducts = Array.isArray(products) ? products : [];
+    // Only products with Return Qty > 0 are returned; ignore 0 / empty qty rows.
+    const returningProducts = incomingProducts.filter((p) => Number(p.returnQty) > 0);
+
     if (!isDraft) {
       if (!lrNumber || !String(lrNumber).trim()) {
         return res.status(400).json({ message: 'LR No is required to submit' });
@@ -263,24 +267,29 @@ const createExecutiveReturn = async (req, res) => {
       if (!finYear || !String(finYear).trim()) {
         return res.status(400).json({ message: 'Fin Year is required to submit' });
       }
-      if (!products || !Array.isArray(products) || products.length === 0) {
-        return res.status(400).json({ message: 'At least one product is required to submit' });
+      if (returningProducts.length === 0) {
+        return res.status(400).json({
+          message: 'Please enter a return quantity for at least one product.',
+        });
       }
-      for (const product of products) {
-        if (!product.product || product.product.trim() === '') {
-          return res.status(400).json({ message: 'Product name is required for all products' });
+      for (const product of returningProducts) {
+        const name = String(product.product || '').trim();
+        const soldQty = Number(product.soldQty);
+        const returnQty = Number(product.returnQty);
+        if (!name) {
+          return res.status(400).json({ message: 'Product name is required for returned products' });
         }
-        if (typeof product.soldQty !== 'number' || product.soldQty < 0) {
-          return res.status(400).json({ message: 'Valid soldQty is required for all products' });
+        if (!Number.isFinite(soldQty) || soldQty < 0) {
+          return res.status(400).json({ message: `Valid soldQty is required for ${name}` });
         }
-        if (typeof product.returnQty !== 'number' || product.returnQty < 0) {
-          return res.status(400).json({ message: 'Valid returnQty is required for all products' });
+        if (!Number.isFinite(returnQty) || returnQty <= 0) {
+          return res.status(400).json({ message: `Return quantity must be greater than 0 for ${name}` });
         }
-        if (product.returnQty > product.soldQty) {
-          return res.status(400).json({ message: `Return Qty cannot exceed Sold Qty for ${product.product}` });
+        if (returnQty > soldQty) {
+          return res.status(400).json({ message: `Return Qty cannot exceed Sold Qty for ${name}` });
         }
-        if (!product.reason || product.reason.trim() === '') {
-          return res.status(400).json({ message: 'Reason is required for all products' });
+        if (!product.reason || String(product.reason).trim() === '') {
+          return res.status(400).json({ message: `Reason is required for ${name}` });
         }
       }
     }
@@ -288,7 +297,10 @@ const createExecutiveReturn = async (req, res) => {
     const returnNumber = await getNextReturnNumber(req.user._id);
     const generatedReturnId = returnId || `RET-${req.user._id}-${returnNumber}-${Date.now()}`;
 
-    const productList = Array.isArray(products) ? products : [];
+    // Persist only lines being returned (or all for draft if none selected yet).
+    const productList = isDraft
+      ? (returningProducts.length > 0 ? returningProducts : incomingProducts)
+      : returningProducts;
     const billed = await applyReturnBilling(productList);
     const doc = await StockReturn.create({
       returnId: generatedReturnId,
@@ -390,25 +402,32 @@ const updateExecutiveReturn = async (req, res) => {
 
     const isSubmit = newStatus === 'Submitted';
     if (isSubmit) {
-      if (!doc.products || doc.products.length === 0) {
-        const productsInBody = req.body.products;
-        if (!productsInBody || !Array.isArray(productsInBody) || productsInBody.length === 0) {
-          return res.status(400).json({ message: 'At least one product is required to submit' });
-        }
+      const toValidate =
+        Array.isArray(req.body.products) && req.body.products.length > 0
+          ? req.body.products
+          : doc.products;
+      const returningProducts = (toValidate || []).filter((p) => Number(p.returnQty) > 0);
+      if (returningProducts.length === 0) {
+        return res.status(400).json({
+          message: 'Please enter a return quantity for at least one product.',
+        });
       }
-      const toValidate = Array.isArray(req.body.products) && req.body.products.length > 0 ? req.body.products : doc.products;
-      for (const p of toValidate) {
+      for (const p of returningProducts) {
         const product = p.product || p.productName;
+        const name = String(product || '').trim();
         const soldQty = Number(p.soldQty);
         const returnQty = Number(p.returnQty);
-        if (!product || String(product).trim() === '') {
-          return res.status(400).json({ message: 'Product name is required for all products' });
+        if (!name) {
+          return res.status(400).json({ message: 'Product name is required for returned products' });
+        }
+        if (!Number.isFinite(returnQty) || returnQty <= 0) {
+          return res.status(400).json({ message: `Return quantity must be greater than 0 for ${name}` });
         }
         if (returnQty > soldQty) {
-          return res.status(400).json({ message: `Return Qty cannot exceed Sold Qty for ${product}` });
+          return res.status(400).json({ message: `Return Qty cannot exceed Sold Qty for ${name}` });
         }
         if (!p.reason || String(p.reason).trim() === '') {
-          return res.status(400).json({ message: 'Reason is required for all products' });
+          return res.status(400).json({ message: `Reason is required for ${name}` });
         }
       }
     }
@@ -422,7 +441,10 @@ const updateExecutiveReturn = async (req, res) => {
     if (executiveRemarks != null) doc.executiveRemarks = executiveRemarks;
     if (evidencePhotos && Array.isArray(evidencePhotos)) doc.evidencePhotos = evidencePhotos;
     if (products && Array.isArray(products)) {
-      const billed = await applyReturnBilling(products);
+      const productsToPersist = isSubmit
+        ? products.filter((p) => Number(p.returnQty) > 0)
+        : products;
+      const billed = await applyReturnBilling(productsToPersist);
       doc.products = billed.products.map((p) => ({
         product: p.product || p.productName || '',
         class: p.class || '',

@@ -25,6 +25,7 @@ const SYSTEM_ROLES = [
   { name: 'Warehouse Manager', slug: 'warehouse-manager', isSystem: true },
   { name: 'Trainer', slug: 'trainer', isSystem: true },
   { name: 'Vendor', slug: 'vendor', isSystem: true },
+  { name: 'Executive Manager', slug: 'executive-manager', isSystem: true },
 ];
 
 async function seed() {

@@ -568,17 +568,19 @@ export default function ExecutiveStockReturnsPage() {
       toast.error('Please add at least one product')
       return false
     }
-    for (const row of productRows) {
+    // Only products with Return Qty > 0 are being returned; ignore 0 / empty.
+    const returningRows = productRows.filter((row) => Number(row.returnQty) > 0)
+    if (forSubmit && returningRows.length === 0) {
+      toast.error('Please enter a return quantity for at least one product.')
+      return false
+    }
+    for (const row of returningRows) {
       if (!row.product) {
-        toast.error('Please select product for all rows')
-        return false
-      }
-      if (row.returnQty <= 0) {
-        toast.error('Return quantity must be greater than 0')
+        toast.error('Please select product for returned rows')
         return false
       }
       if (!row.reason) {
-        toast.error('Please provide reason for all products')
+        toast.error(`Please provide a reason for ${row.product}`)
         return false
       }
       if (row.returnQty > row.soldQty) {
@@ -603,8 +605,9 @@ export default function ExecutiveStockReturnsPage() {
     return true
   }
 
-  const mapProductsForApi = (rows: ProductRow[]) =>
-    rows.map((row) => ({
+  const mapProductsForApi = (rows: ProductRow[], onlyReturning = true) => {
+    const source = onlyReturning ? rows.filter((row) => Number(row.returnQty) > 0) : rows
+    return source.map((row) => ({
       product: row.product,
       class: row.class,
       level: row.level,
@@ -615,10 +618,13 @@ export default function ExecutiveStockReturnsPage() {
       reason: row.reason,
       remarks: row.remarks,
     }))
+  }
 
   const buildReturnPayload = (status: 'Draft' | 'Submitted') => {
-    const totalItems = productRows.length
-    const totalQuantity = productRows.reduce((sum, r) => sum + r.returnQty, 0)
+    const onlyReturning = status === 'Submitted'
+    const mapped = mapProductsForApi(productRows, onlyReturning)
+    const totalItems = mapped.length
+    const totalQuantity = mapped.reduce((sum, r) => sum + r.returnQty, 0)
     return {
       returnId,
       executiveId: user?._id,
@@ -642,7 +648,7 @@ export default function ExecutiveStockReturnsPage() {
       contactPerson: contactPerson.trim(),
       contactMobile: contactMobile.trim(),
       remarks: returnRemarks.trim(),
-      products: mapProductsForApi(productRows),
+      products: mapped,
       evidencePhotos: evidencePhotoUrls,
       executiveRemarks,
       totalItems,

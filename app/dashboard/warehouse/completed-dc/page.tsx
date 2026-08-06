@@ -20,6 +20,7 @@ import { shortageParentRowKey } from '@/lib/shortageDcRowKey'
 import { useProducts } from '@/hooks/useProducts'
 import { fetchDcInvoiceData, type DcInvoiceData } from '@/lib/dcInvoiceData'
 import DcInvoiceViewDialog from '@/components/dc/DcInvoiceViewDialog'
+import StockReturnFromCompletedDcDialog from '@/components/warehouse/StockReturnFromCompletedDcDialog'
 import { toast } from 'sonner'
 import { Pencil, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
@@ -124,6 +125,8 @@ export default function CompletedDCPage() {
   }>>([])
   const [shortageRemarks, setShortageRemarks] = useState('')
   const [savingShortage, setSavingShortage] = useState(false)
+  const [stockReturnDialogOpen, setStockReturnDialogOpen] = useState(false)
+  const [stockReturnRow, setStockReturnRow] = useState<Row | null>(null)
   const [followUpStudentTypeByDcId, setFollowUpStudentTypeByDcId] = useState<Record<string, string>>({})
   const [filters, setFilters] = useState({
     zone: '',
@@ -487,8 +490,13 @@ export default function CompletedDCPage() {
 
   useEffect(() => { load() }, [])
 
-  function actionPlaceholder(msg: string) {
-    toast.message(msg)
+  const openStockReturnDialog = (row: Row) => {
+    if (!row.dcId && !row.isDcOrder) {
+      toast.error('DC details are missing for this row')
+      return
+    }
+    setStockReturnRow(row)
+    setStockReturnDialogOpen(true)
   }
 
   const openRecordShortageDialog = async (row: Row) => {
@@ -1576,7 +1584,15 @@ export default function CompletedDCPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={(e) => { e.stopPropagation(); actionPlaceholder('Stock Return') }}>Stock Return</Button>
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openStockReturnDialog(r)
+                      }}
+                    >
+                      Stock Return
+                    </Button>
                   </TableCell>
                   <TableCell className="truncate max-w-[240px]">{r.remarks || '-'}</TableCell>
                   <TableCell className="whitespace-nowrap">{r.deliveryStatus || '-'}</TableCell>
@@ -1877,6 +1893,15 @@ export default function CompletedDCPage() {
       />
 
       {/* PDF Viewer Dialog */}
+      <StockReturnFromCompletedDcDialog
+        open={stockReturnDialogOpen}
+        onOpenChange={(open) => {
+          setStockReturnDialogOpen(open)
+          if (!open) setStockReturnRow(null)
+        }}
+        row={stockReturnRow}
+      />
+
       <Dialog
         open={!!pdfViewerSrc || pdfLoading}
         onOpenChange={(open) => {

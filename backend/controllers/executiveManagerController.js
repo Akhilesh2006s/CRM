@@ -330,6 +330,39 @@ const getManagerDashboard = async (req, res) => {
       if (toDate) dateFilter.createdAt.$lte = new Date(toDate + 'T23:59:59.999Z');
     }
 
+    // Match leads created by, managed by, or assigned to team executives
+    const leadMatch = {
+      $or: [
+        { createdBy: { $in: employeeIds } },
+        { managed_by: { $in: employeeIds } },
+        { assigned_by: { $in: employeeIds } },
+      ],
+      ...dateFilter,
+    };
+
+    // Match DCs owned or created by team executives
+    const dcMatch = {
+      $or: [
+        { employeeId: { $in: employeeIds } },
+        { createdBy: { $in: employeeIds } },
+      ],
+      ...dateFilter,
+    };
+
+    // Sale model uses assignedTo (not employeeId)
+    const saleMatch = {
+      $or: [
+        { assignedTo: { $in: employeeIds } },
+        { createdBy: { $in: employeeIds } },
+      ],
+      ...dateFilter,
+    };
+
+    const leaveMatch = {
+      employeeId: { $in: employeeIds },
+      ...dateFilter,
+    };
+
     // Calculate employee distribution by zones (cities)
     const employeesByZone = {};
     const employeesByArea = {};
@@ -346,93 +379,80 @@ const getManagerDashboard = async (req, res) => {
     // Use aggregation for better performance - run queries in parallel with timeouts
     const [leads, dcs, sales, leaves, leadStatusCounts, dcStatusCounts, leaveStatusCounts, employeeStats] = await Promise.all([
       // Get leads count
-      Lead.countDocuments({
-        $or: [
-          { createdBy: { $in: employeeIds } },
-          { managed_by: { $in: employeeIds } },
-        ],
-        ...dateFilter,
-      }).maxTimeMS(15000).catch(() => 0),
+      Lead.countDocuments(leadMatch).maxTimeMS(15000).catch((err) => {
+        console.error('EM dashboard leads count error:', err.message);
+        return 0;
+      }),
 
       // Get DCs count
-      DC.countDocuments({
-        $or: [
-          { employeeId: { $in: employeeIds } },
-          { createdBy: { $in: employeeIds } },
-        ],
-        ...dateFilter,
-      }).maxTimeMS(15000).catch(() => 0),
+      DC.countDocuments(dcMatch).maxTimeMS(15000).catch((err) => {
+        console.error('EM dashboard DCs count error:', err.message);
+        return 0;
+      }),
 
-      // Get sales count
-      Sale.countDocuments({
-        $or: [
-          { employeeId: { $in: employeeIds } },
-          { createdBy: { $in: employeeIds } },
-        ],
-        ...dateFilter,
-      }).maxTimeMS(15000).catch(() => 0),
+      // Get sales count (Sale uses assignedTo, not employeeId)
+      Sale.countDocuments(saleMatch).maxTimeMS(15000).catch((err) => {
+        console.error('EM dashboard sales count error:', err.message);
+        return 0;
+      }),
 
       // Get leaves count
-      Leave.countDocuments({
-        employeeId: { $in: employeeIds },
-        ...dateFilter,
-      }).maxTimeMS(15000).catch(() => 0),
+      Leave.countDocuments(leaveMatch).maxTimeMS(15000).catch((err) => {
+        console.error('EM dashboard leaves count error:', err.message);
+        return 0;
+      }),
 
       // Get lead status counts using aggregation
       Lead.aggregate([
-        {
-          $match: {
-            $or: [
-              { createdBy: { $in: employeeIds } },
-              { managed_by: { $in: employeeIds } },
-            ],
-            ...dateFilter,
-          }
-        },
+        { $match: leadMatch },
         { $group: { _id: '$status', count: { $sum: 1 } } }
-      ], { maxTimeMS: 15000, allowDiskUse: true }).catch(() => []),
+      ], { maxTimeMS: 15000, allowDiskUse: true }).catch((err) => {
+        console.error('EM dashboard lead status error:', err.message);
+        return [];
+      }),
 
       // Get DC status counts using aggregation
       DC.aggregate([
-        {
-          $match: {
-            $or: [
-              { employeeId: { $in: employeeIds } },
-              { createdBy: { $in: employeeIds } },
-            ],
-            ...dateFilter,
-          }
-        },
+        { $match: dcMatch },
         { $group: { _id: '$status', count: { $sum: 1 } } }
-      ], { maxTimeMS: 15000, allowDiskUse: true }).catch(() => []),
+      ], { maxTimeMS: 15000, allowDiskUse: true }).catch((err) => {
+        console.error('EM dashboard DC status error:', err.message);
+        return [];
+      }),
 
       // Get leave status counts using aggregation
       Leave.aggregate([
-        {
-          $match: {
-            employeeId: { $in: employeeIds },
-            ...dateFilter,
-          }
-        },
+        { $match: leaveMatch },
         { $group: { _id: '$status', count: { $sum: 1 } } }
-      ], { maxTimeMS: 15000, allowDiskUse: true }).catch(() => []),
+      ], { maxTimeMS: 15000, allowDiskUse: true }).catch((err) => {
+        console.error('EM dashboard leave status error:', err.message);
+        return [];
+      }),
 
       // Get employee stats using aggregation (more efficient than individual queries)
       Promise.all(employeeIds.map(async (empId) => {
         try {
+          const empLeadMatch = {
+            $or: [
+              { createdBy: empId },
+              { managed_by: empId },
+              { assigned_by: empId },
+            ],
+            ...dateFilter,
+          };
+          const empDcMatch = {
+            $or: [{ employeeId: empId }, { createdBy: empId }],
+            ...dateFilter,
+          };
+          const empSaleMatch = {
+            $or: [{ assignedTo: empId }, { createdBy: empId }],
+            ...dateFilter,
+          };
+
           const [leads, dcs, sales, leaves, pendingLeaves] = await Promise.all([
-            Lead.countDocuments({
-              $or: [{ createdBy: empId }, { managed_by: empId }],
-              ...dateFilter,
-            }).maxTimeMS(10000).catch(() => 0),
-            DC.countDocuments({
-              $or: [{ employeeId: empId }, { createdBy: empId }],
-              ...dateFilter,
-            }).maxTimeMS(10000).catch(() => 0),
-            Sale.countDocuments({
-              $or: [{ employeeId: empId }, { createdBy: empId }],
-              ...dateFilter,
-            }).maxTimeMS(10000).catch(() => 0),
+            Lead.countDocuments(empLeadMatch).maxTimeMS(10000).catch(() => 0),
+            DC.countDocuments(empDcMatch).maxTimeMS(10000).catch(() => 0),
+            Sale.countDocuments(empSaleMatch).maxTimeMS(10000).catch(() => 0),
             Leave.countDocuments({
               employeeId: empId,
               ...dateFilter,
