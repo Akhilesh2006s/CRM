@@ -595,10 +595,13 @@ const raiseDC = async (req, res) => {
     }
 
     // Closed Sales Raise/Accept/Send defaults to pending_dc — require DC Date + Category.
+    // Saved DC Submit may send requireDcRemarks: true to also require Remarks.
     // Other raise callers (lead convert → created, term split → scheduled_for_later) skip this.
     const statusForDetailsValidation = req.body.status || 'pending_dc';
     if (statusForDetailsValidation === 'pending_dc') {
-      const detailsCheck = validateRaiseDcDetails(req.body, { requireRemarks: false });
+      const detailsCheck = validateRaiseDcDetails(req.body, {
+        requireRemarks: Boolean(req.body.requireDcRemarks),
+      });
       if (!detailsCheck.ok) {
         return res.status(400).json({ message: detailsCheck.message });
       }
@@ -1020,15 +1023,33 @@ const raiseDC = async (req, res) => {
         productDetails: productDetailsFromBody ? normalizeProductDetails(productDetailsFromBody) : undefined,
         dcType: 'normal',
         fulfillmentStatus: 'full',
+        ...(req.body.dcDate && { dcDate: new Date(req.body.dcDate), deliveryDate: new Date(req.body.dcDate) }),
+        ...(req.body.dcRemarks && { dcRemarks: req.body.dcRemarks, deliveryNotes: req.body.dcRemarks }),
+        ...(req.body.dcCategory && { dcCategory: req.body.dcCategory }),
+        ...(req.body.dcNotes && { dcNotes: req.body.dcNotes }),
       });
       if (!dcOrder.assigned_to && employeeId) await DcOrder.findByIdAndUpdate(dcOrder._id, { assigned_to: employeeId });
       if (dcOrder.pod_proof_url) { dc.poPhotoUrl = dcOrder.pod_proof_url; dc.poDocument = dcOrder.pod_proof_url; }
       if (req.body.poPhotoUrl) { dc.poPhotoUrl = req.body.poPhotoUrl; dc.poDocument = req.body.poPhotoUrl; }
     }
 
-    if (req.body.dcDate) dc.deliveryDate = new Date(req.body.dcDate);
-    if (req.body.dcRemarks) dc.deliveryNotes = req.body.dcRemarks;
-    if (req.body.dcNotes) dc.deliveryNotes = dc.deliveryNotes ? `${dc.deliveryNotes}\n${req.body.dcNotes}` : req.body.dcNotes;
+    if (req.body.dcDate) {
+      dc.dcDate = new Date(req.body.dcDate);
+      dc.deliveryDate = new Date(req.body.dcDate);
+    }
+    if (req.body.dcRemarks !== undefined) {
+      dc.dcRemarks = req.body.dcRemarks;
+      if (req.body.dcRemarks) dc.deliveryNotes = req.body.dcRemarks;
+    }
+    if (req.body.dcCategory !== undefined) dc.dcCategory = req.body.dcCategory;
+    if (req.body.dcNotes !== undefined) {
+      dc.dcNotes = req.body.dcNotes;
+      if (req.body.dcNotes) {
+        dc.deliveryNotes = dc.deliveryNotes
+          ? `${dc.deliveryNotes}\n${req.body.dcNotes}`
+          : req.body.dcNotes;
+      }
+    }
     if (productDetailsFromBody && Array.isArray(productDetailsFromBody)) {
       dc.productDetails = normalizeProductDetails(productDetailsFromBody);
       if (req.body.requestedQuantity == null && productDetailsFromBody.length > 0) {
@@ -2307,7 +2328,9 @@ const updateDC = async (req, res) => {
         dcRemarks:
           req.body.dcRemarks !== undefined ? req.body.dcRemarks : dc.dcRemarks || '',
       };
-      const detailsCheck = validateRaiseDcDetails(mergedDetails, { requireRemarks: false });
+      const detailsCheck = validateRaiseDcDetails(mergedDetails, {
+        requireRemarks: Boolean(req.body.requireDcRemarks),
+      });
       if (!detailsCheck.ok) {
         return res.status(400).json({ message: detailsCheck.message });
       }

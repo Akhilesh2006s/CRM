@@ -1285,7 +1285,9 @@ export default function ClosedSalesPage() {
         ? finalProductDetails.reduce((sum: number, p: any) => sum + (Number(p.quantity) || 0), 0)
         : 1
       
-      // Prepare payload to create/update DC
+      // Prepare payload to create/update DC.
+      // Accept must keep the sale on Closed Sales for later Update / Send to Senior.
+      // Do NOT default to pending_dc (that is only for Send to Senior / Submit to Manager).
       const raisePayload: any = {
         dcOrderId: selectedDeal._id,
         dcDate: finalDcDate,
@@ -1293,6 +1295,7 @@ export default function ClosedSalesPage() {
         dcCategory: finalDcCategory,
         requestedQuantity: finalRequestedQuantity,
         productDetails: finalProductDetails,
+        status: 'created',
       }
 
       // Include employeeId from request data or deal
@@ -1325,12 +1328,12 @@ export default function ClosedSalesPage() {
         })
       }
 
-      // Update DcOrder status to 'dc_accepted' (keeps it in closed sales for later updates)
-      // Also update dcRequestData with current form data for future reference
+      // Update DcOrder status to 'saved' so it appears on Saved DC
+      // (Saved DC page loads GET /dc-orders?status=saved). Keep DC document as 'created'.
       await apiRequest(`/dc-orders/${selectedDeal._id}`, {
           method: 'PUT',
           body: JSON.stringify({
-          status: 'dc_accepted',
+          status: 'saved',
           dcRequestData: {
             dcDate: finalDcDate,
             dcRemarks: finalDcRemarks,
@@ -1343,7 +1346,7 @@ export default function ClosedSalesPage() {
         }),
       })
 
-      alert('DC request accepted! DC has been created/updated. You can update it later or submit to Senior Coordinator.')
+      alert('DC request accepted! DC has been created/updated. It will appear in Saved DC. You can update it later or submit to Senior Coordinator.')
       setOpenRaiseDCDialog(false)
       load()
     } catch (e: any) {

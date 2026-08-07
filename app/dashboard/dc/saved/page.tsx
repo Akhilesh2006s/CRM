@@ -90,6 +90,11 @@ export default function SavedDCPage() {
   const [dcRemarks, setDcRemarks] = useState('')
   const [dcCategory, setDcCategory] = useState('')
   const [dcNotes, setDcNotes] = useState('')
+  const [dcDetailsErrors, setDcDetailsErrors] = useState<{
+    dcDate?: string
+    dcCategory?: string
+    dcRemarks?: string
+  }>({})
   
   // Product rows for DC (like in the Raise DC form)
   type ProductRow = {
@@ -112,9 +117,9 @@ export default function SavedDCPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await apiRequest<DcOrder[]>(`/dc-orders?status=saved`)
-      // Ensure data is an array before using array methods
-      const dataArray = Array.isArray(data) ? data : []
+      const response = await apiRequest<any>(`/dc-orders?status=saved`)
+      // API returns paginated { data, pagination } — unwrap like Closed Sales
+      const dataArray = Array.isArray(response) ? response : (response?.data || [])
 
       // Load existing DCs for all deals with poPhotoUrl
       const dcMap: Record<string, DC> = {}
@@ -221,6 +226,7 @@ export default function SavedDCPage() {
           setDcRemarks(fullDC.dcRemarks || '')
           setDcCategory(fullDC.dcCategory || '')
           setDcNotes(fullDC.dcNotes || '')
+          setDcDetailsErrors({})
           
           // Load product rows from DC productDetails or DcOrder products
           if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
@@ -253,6 +259,7 @@ export default function SavedDCPage() {
           setDcRemarks('')
           setDcCategory('')
           setDcNotes('')
+          setDcDetailsErrors({})
           if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
             setProductRows(normalizedDeal.products.map((p: any, idx: number) => ({
               id: String(idx + 1),
@@ -273,6 +280,7 @@ export default function SavedDCPage() {
         setDcRemarks('')
         setDcCategory('')
         setDcNotes('')
+        setDcDetailsErrors({})
         // Initialize product rows from existing products in deal, or start with one empty row
         if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
           setProductRows(normalizedDeal.products.map((p: any, idx: number) => ({
@@ -303,8 +311,37 @@ export default function SavedDCPage() {
     setOpenLocationDialog(true)
   }
 
+  /** DC Date, Category, and Remarks are mandatory before Submit to Senior Coordinator. Notes optional. */
+  const validateDcDetailsFields = (): boolean => {
+    const next: { dcDate?: string; dcCategory?: string; dcRemarks?: string } = {}
+    if (!dcDate || !String(dcDate).trim()) {
+      next.dcDate = 'DC Date is required.'
+    }
+    if (!dcCategory || !String(dcCategory).trim()) {
+      next.dcCategory = 'DC Category is required.'
+    }
+    if (!dcRemarks || !String(dcRemarks).trim()) {
+      next.dcRemarks = 'DC Remarks is required.'
+    }
+    setDcDetailsErrors(next)
+    return Object.keys(next).length === 0
+  }
+
+  const clearDcDetailsError = (field: 'dcDate' | 'dcCategory' | 'dcRemarks') => {
+    setDcDetailsErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   const handleSubmitToSeniorCoordinator = async () => {
     if (!selectedDeal) return
+
+    if (!validateDcDetailsFields()) {
+      return
+    }
 
     // Check if employee is assigned - prioritize deal's assigned employee
     let employeeId = null
@@ -334,9 +371,11 @@ export default function SavedDCPage() {
       // First, raise DC (creates or gets existing DC)
       const raisePayload: any = {
         dcOrderId: selectedDeal._id,
-        dcDate: dcDate || undefined,
-        dcRemarks: dcRemarks || undefined,
-        dcNotes: dcNotes || undefined,
+        dcDate: String(dcDate).trim(),
+        dcCategory: String(dcCategory).trim(),
+        dcRemarks: String(dcRemarks).trim(),
+        dcNotes: dcNotes.trim() || undefined,
+        requireDcRemarks: true,
       }
       
       // Only include employeeId if deal doesn't already have one assigned (backend will use deal's assigned_to if available)
@@ -437,6 +476,7 @@ export default function SavedDCPage() {
       const raisePayload: any = {
         dcOrderId: selectedDeal._id,
         dcDate: dcDate || undefined,
+        dcCategory: dcCategory || undefined,
         dcRemarks: dcRemarks || undefined,
         dcNotes: dcNotes || undefined,
       }
@@ -949,18 +989,31 @@ export default function SavedDCPage() {
                 <h3 className="font-semibold text-slate-900 text-base border-b border-slate-200 pb-2 mb-4">DC Details</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label>DC Date</Label>
+                    <Label>DC Date *</Label>
                     <Input
                       type="date"
                       value={dcDate}
-                      onChange={(e) => setDcDate(e.target.value)}
+                      onChange={(e) => {
+                        setDcDate(e.target.value)
+                        clearDcDetailsError('dcDate')
+                      }}
                       placeholder="mm/dd/yyyy"
+                      className={dcDetailsErrors.dcDate ? 'border-red-500' : ''}
                     />
+                    {dcDetailsErrors.dcDate && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcDate}</p>
+                    )}
                   </div>
                   <div>
-                    <Label>DC Category</Label>
-                    <Select value={dcCategory} onValueChange={setDcCategory}>
-                      <SelectTrigger>
+                    <Label>DC Category *</Label>
+                    <Select
+                      value={dcCategory || undefined}
+                      onValueChange={(v) => {
+                        setDcCategory(v)
+                        clearDcDetailsError('dcCategory')
+                      }}
+                    >
+                      <SelectTrigger className={dcDetailsErrors.dcCategory ? 'border-red-500' : ''}>
                         <SelectValue placeholder="Select DC Category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -969,21 +1022,31 @@ export default function SavedDCPage() {
                         <SelectItem value="Both">Both</SelectItem>
                       </SelectContent>
                     </Select>
+                    {dcDetailsErrors.dcCategory && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcCategory}</p>
+                    )}
                   </div>
                   <div>
-                    <Label>DC Remarks</Label>
+                    <Label>DC Remarks *</Label>
                     <Input
                       value={dcRemarks}
-                      onChange={(e) => setDcRemarks(e.target.value)}
+                      onChange={(e) => {
+                        setDcRemarks(e.target.value)
+                        clearDcDetailsError('dcRemarks')
+                      }}
                       placeholder="Remarks"
+                      className={dcDetailsErrors.dcRemarks ? 'border-red-500' : ''}
                     />
+                    {dcDetailsErrors.dcRemarks && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.dcRemarks}</p>
+                    )}
                   </div>
                   <div className="md:col-span-2">
                     <Label>DC Notes</Label>
                     <Textarea
                       value={dcNotes}
                       onChange={(e) => setDcNotes(e.target.value)}
-                      placeholder="Notes"
+                      placeholder="Notes (optional)"
                       rows={3}
                     />
                   </div>

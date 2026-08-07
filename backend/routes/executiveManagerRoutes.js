@@ -16,6 +16,13 @@ const {
 const { listPoChangeRequests } = require('../controllers/dcOrderController');
 const { authMiddleware, roleMiddleware } = require('../middleware/authMiddleware');
 const { checkDbHealth } = require('../middleware/dbHealthMiddleware');
+const { isSuperAdminUser } = require('../utils/permissions');
+
+/** Executive, or Super Admin (role or allowlisted email). */
+const allowAssignArea = (req, res, next) => {
+  if (isSuperAdminUser(req.user)) return next();
+  return roleMiddleware('Executive')(req, res, next);
+};
 
 // Executive Manager: PO change requests list (static path before /:managerId)
 router.get('/po-change-requests', authMiddleware, listPoChangeRequests);
@@ -33,8 +40,8 @@ router.get('/:managerId/leaves', authMiddleware, checkDbHealth, getManagerEmploy
 router.put('/assign-zone', authMiddleware, roleMiddleware('Executive Manager', 'Admin', 'Super Admin'), assignZoneToEmployee);
 router.put('/leaves/:leaveId/approve', authMiddleware, roleMiddleware('Executive Manager'), approveManagerEmployeeLeave);
 
-// Executive routes
-router.put('/assign-area', authMiddleware, roleMiddleware('Executive'), assignAreaToEmployee);
+// Executive + Super Admin (role or SUPER_ADMIN_EMAILS allowlist)
+router.put('/assign-area', authMiddleware, allowAssignArea, assignAreaToEmployee);
 
 // General routes
 router.get('/', authMiddleware, getExecutiveManagers);

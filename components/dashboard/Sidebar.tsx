@@ -178,6 +178,7 @@ const NAV: NavItem[] = [
       { label: 'New Employee', href: '/dashboard/employees/new' },
       { label: 'Active Employees', href: '/dashboard/employees/active' },
       { label: 'Inactive Employees', href: '/dashboard/employees/inactive' },
+      { label: 'Assign Areas', href: '/dashboard/executives/assign-areas' },
       { label: 'Zones', href: '/dashboard/employees/zones', icon: Database },
       { label: 'Clusters', href: '/dashboard/employees/clusters', icon: Database },
     ],

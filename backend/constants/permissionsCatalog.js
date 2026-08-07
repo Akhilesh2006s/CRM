@@ -209,6 +209,8 @@ const ROLE_TEMPLATE_KEYS = {
     pageKey('samples', 'request'),
     moduleKey('returns'),
     pageKey('returns', 'executive'),
+    moduleKey('employees'),
+    pageKey('employees', 'assign_areas'),
     moduleKey('leaves'),
     pageKey('leaves', 'request'),
     pageKey('leaves', 'approved'),
