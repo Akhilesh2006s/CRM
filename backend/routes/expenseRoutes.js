@@ -68,7 +68,11 @@ router.post('/create', authMiddleware, (req, res, next) => {
 router.post(
   '/approve-multiple',
   authMiddleware,
-  requirePermission('expenses.pending.page.view', 'expenses.finance_pending.page.view'),
+  requirePermission(
+    'expenses.pending.page.view',
+    'expenses.finance_pending.page.view',
+    'expenses.executive_manager_pending.page.view'
+  ),
   approveMultipleExpenses
 );
 router.put('/:id/resubmit', authMiddleware, (req, res, next) => {
@@ -85,7 +89,11 @@ router.put('/:id/resubmit', authMiddleware, (req, res, next) => {
 router.put(
   '/:id/approve',
   authMiddleware,
-  requirePermission('expenses.pending.page.view', 'expenses.finance_pending.page.view'),
+  requirePermission(
+    'expenses.pending.page.view',
+    'expenses.finance_pending.page.view',
+    'expenses.executive_manager_pending.page.view'
+  ),
   approveExpense
 );
 // Parameterized routes must come last

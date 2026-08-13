@@ -645,6 +645,15 @@ const approveExpense = async (req, res) => {
   try {
     const { status, rejectionReason, approvedAmount } = req.body;
 
+    // Executive Managers may only perform their own approval step (not Manager/Finance final approval).
+    if (req.user.role === 'Executive Manager') {
+      if (status !== 'Executive Manager Approved' && status !== 'Rejected') {
+        return res.status(403).json({
+          message: 'Executive Managers can only approve or reject at the Executive Manager stage.',
+        });
+      }
+    }
+
     const updateData = {
       status,
     };

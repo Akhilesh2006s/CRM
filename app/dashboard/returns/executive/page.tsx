@@ -597,6 +597,10 @@ export default function ExecutiveStockReturnsPage() {
         toast.error('Please enter LR No from the delivery partner')
         return false
       }
+      if (!lrDate || !String(lrDate).trim()) {
+        toast.error('Please select LR Date')
+        return false
+      }
       if (!finYear.trim()) {
         toast.error('Please enter Fin Year')
         return false
@@ -925,7 +929,7 @@ export default function ExecutiveStockReturnsPage() {
                   />
                 </div>
                 <div>
-                  <Label>LR Date</Label>
+                  <Label>LR Date *</Label>
                   <Input type="date" value={lrDate} onChange={(e) => setLrDate(e.target.value)} />
                 </div>
                 <div>

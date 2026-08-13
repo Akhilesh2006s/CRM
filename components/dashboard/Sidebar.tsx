@@ -165,6 +165,7 @@ const NAV: NavItem[] = [
     icon: Truck,
     children: [
       { label: 'Create Sale', href: '/dashboard/dc/create', icon: PlusCircle },
+      { label: 'All Created DCs', href: '/dashboard/dc/admin/my', icon: FileText },
       { label: 'Closed Sales', href: '/dashboard/dc/closed', icon: CheckCircle2 },
       { label: 'Saved DC', href: '/dashboard/dc/saved', icon: Save },
       { label: 'Pending DC', href: '/dashboard/dc/pending', icon: Clock },
@@ -512,12 +513,14 @@ export function Sidebar() {
     const allowedMenuItems = ['Dashboard', 'Clients', 'Warehouse', 'Expenses', 'Reports', 'Settings', 'Sign out']
     finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
       .map(item => {
-        // Filter Clients menu items to exclude "Create Sale"
+        // Filter Clients menu items to exclude "Create Sale" and "All Created DCs" for Manager
         if (item.label === 'Clients' && item.children) {
           return {
             ...item,
             children: item.children.filter(child => 
-              child.label !== 'Create Sale'
+              child.label !== 'Create Sale' &&
+              child.label !== 'All Created DCs' &&
+              !child.adminOnly
             )
           }
         }
@@ -557,6 +560,12 @@ export function Sidebar() {
     const allowedMenuItems = ['Dashboard', 'Clients', 'Users / Employees', 'Trainings & Services', 'Warehouse', 'Payments', 'Reports', 'Settings', 'Sign out']
     finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
       .map(item => {
+        if (item.label === 'Clients' && item.children) {
+          return {
+            ...item,
+            children: item.children.filter(child => !child.adminOnly),
+          }
+        }
         // Filter Users / Employees menu items to only show "Active Employees" for Coordinator
         if (item.label === 'Users / Employees' && item.children) {
           return {
@@ -607,10 +616,18 @@ export function Sidebar() {
         return item
       })
   } else if (isSeniorCoordinator) {
-    // Senior Coordinator: only Dashboard, Clients (all pages), Warehouse (all pages), Settings, Sign out.
+    // Senior Coordinator: only Dashboard, Clients (non-admin pages), Warehouse (all pages), Settings, Sign out.
     // Reports, Payments, Training & Services, Users/Employees are removed.
     const allowedMenuItems = ['Dashboard', 'Clients', 'Warehouse', 'Settings', 'Sign out']
-    finalNav = NAV.filter(item => allowedMenuItems.includes(item.label))
+    finalNav = NAV.filter(item => allowedMenuItems.includes(item.label)).map(item => {
+      if (item.label === 'Clients' && item.children) {
+        return {
+          ...item,
+          children: item.children.filter(child => !child.adminOnly),
+        }
+      }
+      return item
+    })
   } else if (isExecutiveManager) {
     // For Executive Manager role, show My Dashboard and Executive Manager menu
     // Get the manager's own ID from user data (we'll need to store it in auth)

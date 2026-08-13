@@ -23,8 +23,10 @@ import { Package, PlusCircle, X, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   SELECTABLE_CLOSE_CLASSES,
-  groupProductDetailsByProductAndClass,
   getLineClassSelections,
+  computeLineDisplayTotal,
+  computeSectionsDisplayTotal,
+  computeSectionsDisplayQuantity,
   lineHasValidClassSelections,
   type ProductDetailRow,
   type CloseProductSection,
@@ -76,11 +78,9 @@ function CloseLeadProductConfigView({
     expandedLineBySection,
     setExpandedLineBySection,
     childProductRows,
-    groupedChildProductRows,
     showSpecsColumn,
     showSubjectsColumn,
     filteredProducts,
-    groupProductOpts,
     getProductLevels,
     getProductSpecs,
     getProductSubjects,
@@ -244,17 +244,9 @@ function CloseLeadProductConfigView({
                         const selectedSpecs = line.selectedSpecs || []
                         const productLevels = getProductLevels(line.product)
                         const selectedLevels = line.selectedLevels || []
-                        const childRows = productDetails.filter(
-                          (row) => !row.isParentRow && row.id.startsWith(`${line.parentRowId}_`)
-                        )
-                        const groupedChildRows = groupProductDetailsByProductAndClass(
-                          childRows,
-                          groupProductOpts
-                        )
-                        const lineTotalAmount = groupedChildRows.reduce(
-                          (sum, row) => sum + (Number(row.total) || 0),
-                          0
-                        )
+                        // Display total = this line's class strengths × this line's unit price.
+                        // Do NOT use payment-divisor grouping (that produced wrong totals like 10×10÷4=25).
+                        const lineTotalAmount = computeLineDisplayTotal(line, section)
 
                         return (
                           <Collapsible
@@ -760,23 +752,14 @@ function CloseLeadProductConfigView({
                           <span className="text-neutral-700">Total:</span>
                         </td>
                         <td className="px-3 py-3 text-right">
-                          {groupedChildProductRows.reduce(
-                            (sum, pd) => sum + (Number(pd.strength) || 0),
-                            0
-                          )}
+                          {computeSectionsDisplayQuantity(productSections)}
                         </td>
                         <td className="px-3 py-3 text-right">
                           ₹
-                          {groupedChildProductRows
-                            .reduce(
-                              (sum, pd) =>
-                                sum + (Number(pd.strength) || 0) * (Number(pd.price) || 0),
-                              0
-                            )
-                            .toLocaleString('en-IN', {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
+                          {computeSectionsDisplayTotal(productSections).toLocaleString('en-IN', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td className="px-3 py-3"></td>
                       </tr>

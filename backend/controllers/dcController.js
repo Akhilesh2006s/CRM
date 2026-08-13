@@ -374,6 +374,9 @@ const getDCs = async (req, res) => {
     if (dcOrderId) filter.dcOrderId = dcOrderId;
     if (visitCategory) filter.dcCategory = visitCategory;
 
+    // All Created DCs (status=created): same complete list for Super Admin / Admin / Coordinator.
+    // Page access is enforced by frontend route/RBAC; do not partial-filter Coordinators here.
+
     // Mutually exclusive stage filter (preferred over legacy status alone)
     const stageParam = workflowStage || workflowStageFromDcStatus(status);
     if (stageParam) {
@@ -409,7 +412,7 @@ const getDCs = async (req, res) => {
 
     // Optimize query - fetch without populate first, then populate if needed
     let dcs = await DC.find(filter)
-      .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdAt updatedAt')
+      .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdBy dc_code createdAt updatedAt')
       .sort({ createdAt: -1 })
       .lean()
       .maxTimeMS(20000); // 20 second timeout
@@ -419,9 +422,9 @@ const getDCs = async (req, res) => {
       try {
         const populatedPromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code')
-          .populate('employeeId', 'name email')
-          .populate('createdBy', 'name email')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+          .populate('employeeId', 'name email role')
+          .populate('createdBy', 'name email role')
           .populate('submittedBy', 'name email')
           .populate('warehouseProcessedBy', 'name email')
           .populate('deliverySubmittedBy', 'name email')

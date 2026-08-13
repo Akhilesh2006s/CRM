@@ -21,6 +21,7 @@ const PAGE_ENTRIES = [
   { href: '/dashboard', module: 'dashboard', resource: 'home', label: 'Dashboard' },
   // Clients / DC
   { href: '/dashboard/dc/create', module: 'clients', resource: 'create_sale', label: 'Create Sale' },
+  { href: '/dashboard/dc/admin/my', module: 'clients', resource: 'admin_created_dcs', label: 'All Created DCs' },
   { href: '/dashboard/dc/closed', module: 'clients', resource: 'closed_sales', label: 'Closed Sales' },
   { href: '/dashboard/dc/saved', module: 'clients', resource: 'saved_dc', label: 'Saved DC' },
   { href: '/dashboard/dc/pending', module: 'clients', resource: 'pending_dc', label: 'Pending DC' },
@@ -246,6 +247,7 @@ const ROLE_TEMPLATE_KEYS = {
     pageKey('dashboard', 'home'),
     moduleKey('clients'),
     pageKey('clients', 'create_sale'),
+    pageKey('clients', 'admin_created_dcs'),
     pageKey('clients', 'closed_sales'),
     pageKey('clients', 'saved_dc'),
     pageKey('clients', 'pending_dc'),
@@ -289,6 +291,7 @@ const ROLE_TEMPLATE_KEYS = {
     pageKey('dashboard', 'home'),
     moduleKey('clients'),
     pageKey('clients', 'create_sale'),
+    pageKey('clients', 'admin_created_dcs'),
     pageKey('clients', 'closed_sales'),
     pageKey('clients', 'saved_dc'),
     pageKey('clients', 'pending_dc'),

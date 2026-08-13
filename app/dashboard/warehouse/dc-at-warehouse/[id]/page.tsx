@@ -7,6 +7,76 @@ import { apiRequest } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 
+/**
+ * Map a DC model document (GET /dc/:id) into the warehouse View DC form shape.
+ * Used when the route id is a DC._id (e.g. from Search DC) rather than a DcOrder._id.
+ */
+function mapDcModelToWarehouseView(doc: any) {
+  const order =
+    doc?.dcOrderId && typeof doc.dcOrderId === 'object' ? doc.dcOrderId : null
+  const employee =
+    doc?.employeeId && typeof doc.employeeId === 'object' ? doc.employeeId : null
+  const assigned =
+    order?.assigned_to && typeof order.assigned_to === 'object'
+      ? order.assigned_to
+      : null
+
+  const productRows = Array.isArray(doc?.productDetails)
+    ? doc.productDetails
+    : Array.isArray(doc?.products)
+      ? doc.products
+      : []
+
+  const items = productRows.map((p: any) => ({
+    product: p.product || p.product_name || p.productName || '',
+    class: p.class ?? '',
+    category: p.category || '',
+    productName: p.productName || p.product_name || p.product || '',
+    qty: Number(p.quantity ?? p.qty ?? p.strength ?? 0) || 0,
+    whQty: Number(p.whQty ?? p.deliverableQuantity ?? 0) || 0,
+  }))
+
+  return {
+    _id: doc._id,
+    dcNo:
+      order?.dc_code ||
+      doc.dc_code ||
+      doc.dcNo ||
+      (doc._id ? `DC-${String(doc._id).slice(-6)}` : ''),
+    dcDate: doc.dcDate || doc.createdAt || '',
+    dcCategory: doc.dcCategory || '',
+    schoolName: order?.school_name || doc.customerName || doc.schoolName || '',
+    schoolCode: order?.school_code || doc.schoolCode || '',
+    schoolType: order?.school_type || doc.schoolType || '',
+    contactPersonName:
+      order?.contact_person || doc.contactPersonName || doc.contact_person || '',
+    contactMobile:
+      order?.contact_mobile ||
+      doc.customerPhone ||
+      doc.contactMobile ||
+      doc.contact_mobile ||
+      '',
+    town: order?.location || doc.town || '',
+    address:
+      order?.address ||
+      order?.location ||
+      doc.customerAddress ||
+      doc.address ||
+      '',
+    zone: order?.zone || doc.zone || '',
+    cluster: order?.cluster_code || order?.cluster || doc.cluster || '',
+    executive:
+      employee?.name ||
+      assigned?.name ||
+      (typeof doc.executive === 'string' ? doc.executive : '') ||
+      '',
+    dcRemarks: doc.dcRemarks || doc.deliveryNotes || '',
+    remarks: order?.remarks || doc.remarks || '',
+    dcNotes: doc.dcNotes || '',
+    items,
+  }
+}
+
 export default function DcFormUpdatePage() {
   const params = useParams<{ id: string }>()
   const id = (params?.id || '').toString()
@@ -27,19 +97,33 @@ export default function DcFormUpdatePage() {
   ]
 
   useEffect(() => {
+    if (!id) return
+    let cancelled = false
     ;(async () => {
       try {
+        // Prefer warehouse DcOrder-shaped payload (DC @ Warehouse list uses DcOrder ids)
         const data = await apiRequest<any>(`/warehouse/dc/${id}`)
-        setDc(data)
-        if (isEdit) {
-          try {
-            const opts = await apiRequest<any>(`/metadata/inventory-options`)
-            if (Array.isArray(opts?.products)) setProductOptions(opts.products)
-          } catch (_) {}
+        if (!cancelled) setDc(data)
+      } catch {
+        // Search DC navigates with DC model _id — fall back to GET /dc/:id and map fields
+        try {
+          const raw = await apiRequest<any>(`/dc/${id}`)
+          if (!cancelled) setDc(mapDcModelToWarehouseView(raw))
+        } catch {
+          if (!cancelled) setDc(null)
         }
-      } catch (_) {}
+      }
+      if (isEdit && !cancelled) {
+        try {
+          const opts = await apiRequest<any>(`/metadata/inventory-options`)
+          if (Array.isArray(opts?.products)) setProductOptions(opts.products)
+        } catch (_) {}
+      }
     })()
-  }, [id])
+    return () => {
+      cancelled = true
+    }
+  }, [id, isEdit])
 
   return (
     <div className="container mx-auto px-4 md:px-6 lg:px-8 py-6">
@@ -247,5 +331,3 @@ export default function DcFormUpdatePage() {
     </div>
   )
 }
-
-

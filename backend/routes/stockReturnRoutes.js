@@ -18,6 +18,7 @@ const {
   getReturnForAdmin,
   createWarehouseReturn,
   listWarehouseReturns,
+  submitWarehouseListedReturn,
   saveWarehouseReturnUpdate,
   warehouseVerifyReturn,
   managerAction,
@@ -61,6 +62,7 @@ router.post('/upload-photo', authMiddleware, (req, res, next) => {
 
 // Warehouse Executive save / verify
 router.put('/:id/warehouse-save', authMiddleware, saveWarehouseReturnUpdate);
+router.put('/:id/warehouse-submit', authMiddleware, submitWarehouseListedReturn);
 router.put(
   '/:id/warehouse-verify',
   authMiddleware,

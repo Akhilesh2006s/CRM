@@ -213,6 +213,42 @@ export function getLineClassSelections(
   return []
 }
 
+/** UI line total: sum(class strength) × this line's unit price (no payment divisor). */
+export function computeLineDisplayTotal(
+  line: CloseProductSectionLine,
+  sec?: CloseProductSection
+): number {
+  const qty = getLineClassSelections(line, sec).reduce(
+    (sum, s) => sum + (Number(s.strength) || 0),
+    0
+  )
+  return qty * (Number(line.price) || 0)
+}
+
+/** Sum of per-line display totals across all product sections. */
+export function computeSectionsDisplayTotal(sections: CloseProductSection[]): number {
+  return sections.reduce(
+    (sum, sec) =>
+      sum + sec.lines.reduce((lineSum, line) => lineSum + computeLineDisplayTotal(line, sec), 0),
+    0
+  )
+}
+
+/** Sum of entered class strengths across all lines (not multiplied by level count). */
+export function computeSectionsDisplayQuantity(sections: CloseProductSection[]): number {
+  return sections.reduce(
+    (sum, sec) =>
+      sum +
+      sec.lines.reduce(
+        (lineSum, line) =>
+          lineSum +
+          getLineClassSelections(line, sec).reduce((q, s) => q + (Number(s.strength) || 0), 0),
+        0
+      ),
+    0
+  )
+}
+
 export function lineHasValidClassSelections(
   line: CloseProductSectionLine,
   sec?: CloseProductSection

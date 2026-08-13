@@ -63,6 +63,16 @@ export function canAccessPath(
   if (isSuperAdmin(user)) return true
   if (!isRbacActive(user)) return true
 
+  // All Created DCs — same complete page for Admin + Coordinators
+  if (
+    (user.role === 'Admin' ||
+      user.role === 'Coordinator' ||
+      user.role === 'Senior Coordinator') &&
+    (pathname === '/dashboard/dc/admin/my' || pathname.startsWith('/dashboard/dc/admin/my/'))
+  ) {
+    return true
+  }
+
   if (EXECUTIVE_MANAGER_OWN_ROUTE.test(pathname)) {
     return canAccessExecutiveManagerOwnRoute(user, pathname)
   }

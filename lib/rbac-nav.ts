@@ -49,6 +49,7 @@ export const RBAC_NAV_MODULES: RbacNavModule[] = [
     label: MODULE_LABELS.clients,
     pages: [
       { label: 'Create Sale', href: '/dashboard/dc/create' },
+      { label: 'All Created DCs', href: '/dashboard/dc/admin/my' },
       { label: 'Closed Sales', href: '/dashboard/dc/closed' },
       { label: 'Saved DC', href: '/dashboard/dc/saved' },
       { label: 'Pending DC', href: '/dashboard/dc/pending' },

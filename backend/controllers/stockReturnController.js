@@ -264,6 +264,9 @@ const createExecutiveReturn = async (req, res) => {
       if (!lrNumber || !String(lrNumber).trim()) {
         return res.status(400).json({ message: 'LR No is required to submit' });
       }
+      if (!lrDate || !String(lrDate).trim()) {
+        return res.status(400).json({ message: 'LR Date is required to submit' });
+      }
       if (!finYear || !String(finYear).trim()) {
         return res.status(400).json({ message: 'Fin Year is required to submit' });
       }
@@ -689,7 +692,18 @@ const createWarehouseReturn = async (req, res) => {
 
 const listWarehouseReturns = async (req, res) => {
   try {
-    const items = await StockReturn.find({ sourceType: 'Warehouse' })
+    // Warehouse-created returns (all statuses) + Executive returns that have completed
+    // Warehouse Manager approval (Stock Updated / Approved). Pending executive returns
+    // stay on Manager/Executive queues and must not appear here.
+    const items = await StockReturn.find({
+      $or: [
+        { sourceType: 'Warehouse' },
+        {
+          sourceType: 'Executive',
+          status: { $in: ['Stock Updated', 'Approved', 'Partially Approved', 'Closed'] },
+        },
+      ],
+    })
       .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
     res.json(items);
@@ -1057,6 +1071,49 @@ const managerAction = async (req, res) => {
   }
 };
 
+// Warehouse Returns List — final submit for one already-approved/listed return (status → Closed)
+const submitWarehouseListedReturn = async (req, res) => {
+  try {
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    const returnDoc = await StockReturn.findById(req.params.id);
+    if (!returnDoc) {
+      return res.status(404).json({ message: 'Return not found' });
+    }
+
+    if (returnDoc.status === 'Closed') {
+      return res.status(400).json({ message: 'Return is already submitted' });
+    }
+
+    // Executive returns appear on this list only after manager approval / stock update.
+    // Warehouse-created returns may still be Submitted and can be closed from this list.
+    const executableStatuses =
+      returnDoc.sourceType === 'Executive'
+        ? ['Stock Updated', 'Approved', 'Partially Approved']
+        : ['Submitted', 'Stock Updated', 'Approved', 'Partially Approved'];
+
+    if (!executableStatuses.includes(returnDoc.status)) {
+      return res.status(400).json({
+        message: `Return cannot be submitted from Warehouse Returns List in status "${returnDoc.status}"`,
+      });
+    }
+
+    returnDoc.status = 'Closed';
+    await returnDoc.save();
+
+    const populated = await StockReturn.findById(returnDoc._id)
+      .populate('createdBy', 'name email')
+      .populate('approvedBy', 'name email');
+
+    res.json(populated);
+  } catch (error) {
+    console.error('Error submitting warehouse listed return:', error);
+    res.status(500).json({ message: error.message || 'Failed to submit return' });
+  }
+};
+
 // Upload photo for stock returns
 const uploadReturnPhoto = async (req, res) => {
   try {
@@ -1098,6 +1155,7 @@ module.exports = {
   getReturnForAdmin,
   createWarehouseReturn,
   listWarehouseReturns,
+  submitWarehouseListedReturn,
   saveWarehouseReturnUpdate,
   warehouseVerifyReturn,
   managerAction,

@@ -405,16 +405,35 @@ export default function CreateDealPage() {
         assigned_to: form.assigned_to,
       }
       
-      await apiRequest('/dc-orders/create', { method: 'POST', body: JSON.stringify(payload) })
-      alert('Deal created successfully! DC entry has been automatically created. You can now submit PO in the DCs page.')
-      
-      // After creating a sale:
-      // - Admins should see it in the Admin "All Created DCs" view
-      // - Executives should see it in their own "My DCs" list
+      const created = await apiRequest<{
+        _id?: string
+        dc?: { _id?: string }
+        dcCreated?: boolean
+        message?: string
+      }>('/dc-orders/create', { method: 'POST', body: JSON.stringify(payload) })
+
+      if (!created?.dc && !created?.dcCreated) {
+        throw new Error(
+          created?.message ||
+            'Deal was not fully created: DC entry is missing. Please try again or contact support.'
+        )
+      }
+
+      alert(
+        'Deal created successfully! DC entry has been automatically created. You can view it under Clients → All Created DCs.'
+      )
+
+      // Same All Created DCs page for Coordinator / Admin / Super Admin (role-scoped on API).
       const redirectPath =
-        currentUser?.role === 'Admin' || currentUser?.role === 'Super Admin'
+        currentUser?.role === 'Admin' ||
+        currentUser?.role === 'Super Admin' ||
+        currentUser?.role === 'Coordinator' ||
+        currentUser?.role === 'Senior Coordinator' ||
+        Boolean((currentUser as any)?.isSuperAdmin)
           ? '/dashboard/dc/admin/my'
-          : '/dashboard/dc/my'
+          : currentUser?.role === 'Executive'
+            ? '/dashboard/dc/my'
+            : '/dashboard/dc/create'
 
       router.push(redirectPath)
     } catch (err: any) {
@@ -678,7 +697,7 @@ export default function CreateDealPage() {
           </div>
 
           <div>
-            <Label>Lead Status</Label>
+            <Label>Deal Status</Label>
             <Select value={form.lead_status} onValueChange={(v) => setForm((f) => ({ ...f, lead_status: v }))}>
               <SelectTrigger className="bg-white text-neutral-900">
                 <SelectValue placeholder="Select status" />

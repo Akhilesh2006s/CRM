@@ -419,17 +419,43 @@ const create = async (req, res) => {
       }
     }
     
-    if (payload.lead_status) {
-      payload.priority = payload.lead_status;
+    // Create Sale UI sends deal pipeline status as `status` (pending|saved|completed).
+    // If a caller mistakenly puts that value in `lead_status`, remap it — lead_status is Hot/Warm/Cold only.
+    const dealStatusValues = new Set([
+      'saved',
+      'pending',
+      'in_transit',
+      'completed',
+      'hold',
+      'dc_requested',
+      'dc_accepted',
+      'dc_approved',
+      'dc_sent_to_senior',
+    ]);
+    if (payload.lead_status && dealStatusValues.has(String(payload.lead_status).trim())) {
+      if (!payload.status) payload.status = String(payload.lead_status).trim();
+      delete payload.lead_status;
+    }
+
+    const schoolLeadStatus = resolveSchoolLeadStatus(payload.lead_status, payload.priority);
+    if (schoolLeadStatus) {
+      payload.lead_status = schoolLeadStatus;
+      payload.priority = schoolLeadStatus;
+    } else {
+      // Do not persist invalid lead_status/priority from the deal-status dropdown
+      delete payload.lead_status;
+      if (payload.priority && !resolveSchoolLeadStatus(payload.priority)) {
+        delete payload.priority;
+      }
     }
 
     const creationProductSnapshot = dealProductsToFollowUpSnapshot(payload.products || []);
-    const creationLeadStatus = payload.lead_status || payload.priority || 'Warm';
+    const creationLeadStatus = schoolLeadStatus || resolveSchoolLeadStatus(payload.priority) || 'Warm';
     // Initialize history with creation entry (includes per-product lead status from create form)
     if (
       payload.follow_up_date ||
       payload.remarks ||
-      payload.lead_status ||
+      schoolLeadStatus ||
       payload.priority ||
       creationProductSnapshot.length > 0
     ) {
@@ -445,52 +471,84 @@ const create = async (req, res) => {
     
     const item = await DcOrder.create(payload);
     
-    // Auto-create DC entry when DcOrder (Lead/Deal) is created
-    // Get products - if it's an array, take first product, otherwise use string
+    // Auto-create DC entry when DcOrder (Lead/Deal) is created and assigned to an executive.
+    // Admin "All Created DCs" lists DC docs with status "created" — not bare DcOrders.
     let productName = 'Abacus'; // default
     if (item.products && Array.isArray(item.products) && item.products.length > 0) {
       productName = item.products[0].product_name || item.products[0].product || 'Abacus';
     } else if (typeof item.products === 'string') {
-      // If products is a comma-separated string
       const products = item.products.split(',').map(p => p.trim()).filter(Boolean);
       productName = products.length > 0 ? products[0] : 'Abacus';
     }
     
-    // Calculate quantity from products array or default to 1
     let quantity = 1;
     if (item.products && Array.isArray(item.products) && item.products.length > 0) {
       quantity = item.products.reduce((sum, p) => sum + (p.quantity || 1), 0);
     }
-    
-    // Only create DC if assigned_to exists
-    if (item.assigned_to) {
-      try {
-        const dc = await DC.create({
+
+    if (!item.assigned_to) {
+      await DcOrder.findByIdAndDelete(item._id);
+      return res.status(400).json({
+        message: 'Please assign the deal to an executive. DC will not be created without assignment.',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(String(item.assigned_to))) {
+      await DcOrder.findByIdAndDelete(item._id);
+      return res.status(400).json({ message: 'Invalid assigned executive id.' });
+    }
+
+    const User = require('../models/User');
+    const assignedExecutive = await User.findById(item.assigned_to).select('_id name role isActive');
+    if (!assignedExecutive) {
+      await DcOrder.findByIdAndDelete(item._id);
+      return res.status(400).json({ message: 'Assigned executive not found.' });
+    }
+
+    // One sale → one DC. Reuse if a created DC already exists for this order (no duplicates).
+    let createdDc = await DC.findOne({ dcOrderId: item._id, status: 'created' });
+    try {
+      if (!createdDc) {
+        createdDc = await DC.create({
           dcOrderId: item._id,
           employeeId: item.assigned_to,
           customerName: item.school_name,
           customerEmail: item.email || undefined,
           customerAddress: item.address || item.location || 'N/A',
-          customerPhone: item.contact_mobile || item.contact_person || 'N/A',
+          customerPhone: item.contact_mobile || 'N/A',
           product: productName,
           requestedQuantity: quantity,
           deliverableQuantity: 0,
           status: 'created',
           createdBy: req.user._id,
         });
-        console.log(`DC created successfully for DcOrder ${item._id}, assigned to employee ${item.assigned_to}`);
-      } catch (dcError) {
-        console.error('Error creating DC for DcOrder:', dcError);
-        // Don't fail the DcOrder creation if DC creation fails, but log it
+        console.log(
+          `DC created successfully for DcOrder ${item._id}, assigned to employee ${item.assigned_to}`
+        );
+      } else {
+        console.log(`Reusing existing created DC ${createdDc._id} for DcOrder ${item._id}`);
       }
-    } else {
-      console.warn(`DcOrder ${item._id} created without assigned_to, so no DC was created`);
+    } catch (dcError) {
+      console.error('Error creating DC for DcOrder:', dcError);
+      await DcOrder.findByIdAndDelete(item._id);
+      return res.status(500).json({
+        message: dcError.message || 'Deal saved but DC entry failed to create. Please try again.',
+      });
     }
     
     const populated = await DcOrder.findById(item._id)
       .populate('created_by', 'name email')
       .populate('assigned_to', 'name email');
-    res.status(201).json(populated);
+    const populatedDc = await DC.findById(createdDc._id)
+      .populate('employeeId', 'name email')
+      .populate('createdBy', 'name email')
+      .populate('dcOrderId', 'school_name contact_mobile school_code');
+
+    res.status(201).json({
+      ...populated.toObject(),
+      dc: populatedDc,
+      dcCreated: true,
+    });
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
