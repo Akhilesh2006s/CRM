@@ -17,6 +17,7 @@ const Attendance = require('../models/Attendance');
 const getDashboardStats = async (req, res) => {
   try {
     const isExecutive = req.user.role === 'Executive';
+    const isSuperAdmin = req.user.role === 'Super Admin';
     const executiveId = req.user._id;
     
     if (isExecutive) {
@@ -82,6 +83,10 @@ const getDashboardStats = async (req, res) => {
     } else {
       // For other roles, use mock data or aggregate all data
       const stats = await mockDataService.getDashboardStats();
+      // Super Admin dashboard does not show Active Leads — omit Lead-derived count
+      if (isSuperAdmin) {
+        stats.activeLeads = 0;
+      }
       res.json(stats);
     }
   } catch (error) {
@@ -246,7 +251,12 @@ const getRecentActivities = async (req, res) => {
           user: 'Pavan Simhadri'
         }
       ];
-      res.json(activities);
+      // Super Admin dashboard should not surface lead activity items
+      if (req.user.role === 'Super Admin') {
+        res.json(activities.filter((a) => a.type !== 'lead_created'));
+      } else {
+        res.json(activities);
+      }
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -264,6 +274,7 @@ const getRevenueTrends = async (req, res) => {
     
     // Filter by executive if user is an Executive
     const isExecutive = req.user.role === 'Executive';
+    const isSuperAdmin = req.user.role === 'Super Admin';
     const executiveId = req.user._id;
     
     for (let i = 6; i >= 0; i--) {
@@ -274,17 +285,20 @@ const getRevenueTrends = async (req, res) => {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
       
-      // Get leads created on this day
-      const leadsFilter = {
-        createdAt: { $gte: startOfDay, $lte: endOfDay }
-      };
-      if (isExecutive) {
-        leadsFilter.$or = [
-          { createdBy: executiveId },
-          { managed_by: executiveId }
-        ];
+      // Skip Lead queries for Super Admin (Revenue Trend UI only uses revenue/sales)
+      let leadsCount = 0;
+      if (!isSuperAdmin) {
+        const leadsFilter = {
+          createdAt: { $gte: startOfDay, $lte: endOfDay }
+        };
+        if (isExecutive) {
+          leadsFilter.$or = [
+            { createdBy: executiveId },
+            { managed_by: executiveId }
+          ];
+        }
+        leadsCount = await Lead.countDocuments(leadsFilter);
       }
-      const leadsCount = await Lead.countDocuments(leadsFilter);
       
       // Get sales (DCs) created on this day
       const dcFilter = {
@@ -393,27 +407,30 @@ const getAlerts = async (req, res) => {
     
     // Filter by executive if user is an Executive
     const isExecutive = req.user.role === 'Executive';
+    const isSuperAdmin = req.user.role === 'Super Admin';
     const executiveId = req.user._id;
     
-    // Check for hot leads that need follow-up today
-    const hotLeadsFilter = {
-      priority: 'Hot',
-      follow_up_date: { $lte: today },
-      status: { $in: ['Pending', 'Processing'] }
-    };
-    if (isExecutive) {
-      hotLeadsFilter.$or = [
-        { createdBy: executiveId },
-        { managed_by: executiveId }
-      ];
-    }
-    const hotLeadsPending = await Lead.countDocuments(hotLeadsFilter);
-    
-    if (hotLeadsPending > 0) {
-      alerts.push({
-        level: 'warning',
-        text: `Follow-up pending for ${hotLeadsPending} hot lead${hotLeadsPending > 1 ? 's' : ''} today`
-      });
+    // Check for hot leads that need follow-up today (not used on Super Admin dashboard)
+    if (!isSuperAdmin) {
+      const hotLeadsFilter = {
+        priority: 'Hot',
+        follow_up_date: { $lte: today },
+        status: { $in: ['Pending', 'Processing'] }
+      };
+      if (isExecutive) {
+        hotLeadsFilter.$or = [
+          { createdBy: executiveId },
+          { managed_by: executiveId }
+        ];
+      }
+      const hotLeadsPending = await Lead.countDocuments(hotLeadsFilter);
+      
+      if (hotLeadsPending > 0) {
+        alerts.push({
+          level: 'warning',
+          text: `Follow-up pending for ${hotLeadsPending} hot lead${hotLeadsPending > 1 ? 's' : ''} today`
+        });
+      }
     }
     
     // Check for trainings scheduled this week
@@ -612,13 +629,19 @@ const getExecutiveWiseClosedLeads = async (req, res) => {
 // @access  Private
 const getComprehensiveAnalytics = async (req, res) => {
   try {
-    // Leads Analytics
-    const leadsByStatus = await Lead.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } }
-    ]);
-    const leadsByPriority = await Lead.aggregate([
-      { $group: { _id: '$priority', count: { $sum: 1 } } }
-    ]);
+    const isSuperAdmin = req.user.role === 'Super Admin';
+
+    // Leads Analytics (skipped for Super Admin — not shown on their dashboard)
+    let leadsByStatus = [];
+    let leadsByPriority = [];
+    if (!isSuperAdmin) {
+      leadsByStatus = await Lead.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]);
+      leadsByPriority = await Lead.aggregate([
+        { $group: { _id: '$priority', count: { $sum: 1 } } }
+      ]);
+    }
 
     // Payments Analytics
     const paymentsByStatus = await Payment.aggregate([

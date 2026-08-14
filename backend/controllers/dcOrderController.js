@@ -358,8 +358,12 @@ const create = async (req, res) => {
     }
 
     const productsCheck = validateSaleProducts(payload.products);
-    if (!productsCheck.ok) {
+    // Create Sale may omit products when the Products UI block is not shown.
+    if (!productsCheck.ok && Array.isArray(payload.products) && payload.products.length > 0) {
       return res.status(400).json({ message: productsCheck.message });
+    }
+    if (!Array.isArray(payload.products)) {
+      payload.products = [];
     }
 
     const followUpRaw =

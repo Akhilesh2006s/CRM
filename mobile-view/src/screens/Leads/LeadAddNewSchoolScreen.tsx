@@ -42,6 +42,7 @@ type ProductSelection = {
   term: string;
   status: 'Hot' | 'Warm' | 'Not Interested' | 'Management Not Met' | 'Visit Again';
   strength: number;
+  unit_price: number;
   chance: number;
 };
 
@@ -132,6 +133,7 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
             term: 'Term 1',
             status: 'Warm' as const,
             strength: 0,
+            unit_price: 0,
             chance: 0,
           })),
         );
@@ -267,6 +269,10 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
     }
 
     for (const p of selectedProducts) {
+      if (!Number.isFinite(p.unit_price) || p.unit_price <= 0) {
+        setErrorMessage(`Enter a Unit Price greater than 0 for "${p.name}".`);
+        return;
+      }
       if ((p.status === 'Hot' || p.status === 'Warm') && (!p.strength || p.strength <= 0)) {
         setErrorMessage(`Enter strength for "${p.name}" when status is ${p.status}.`);
         return;
@@ -285,8 +291,8 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
     try {
       const productsPayload = selectedProducts.map((p) => ({
         product_name: p.name,
-        quantity: 1,
-        unit_price: 0,
+        quantity: p.strength > 0 ? p.strength : 1,
+        unit_price: Number(p.unit_price) || 0,
         term: p.term || 'Term 1',
         status: p.status,
         strength: p.strength || 0,
@@ -561,6 +567,16 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
                         editable={hotOrWarm}
                       />
                       <FormField
+                        label="Unit Price *"
+                        value={product.unit_price ? String(product.unit_price) : ''}
+                        onChangeText={(text) => {
+                          const cleaned = text.replace(/[^\d.]/g, '');
+                          updateProduct(index, { unit_price: Number(cleaned) || 0 });
+                        }}
+                        placeholder="₹"
+                        keyboardType="decimal-pad"
+                      />
+                      <FormField
                         label="Chance %"
                         value={hotOrWarm ? String(product.chance ?? '') : '0'}
                         onChangeText={(text) =>
@@ -579,7 +595,7 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
             })
           )}
           <Text style={styles.hint}>
-            Select products and set Status, Strength, and Chance % (required for Hot/Warm). Term is set after the lead is closed.
+            Select products and set Status, Strength, Unit Price, and Chance % (Unit Price required for every selected product; Strength/Chance required for Hot/Warm). Term is set after the lead is closed.
           </Text>
         </View>
 

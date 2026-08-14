@@ -231,9 +231,28 @@ export function buildRbacSidebarNav(
   user: AuthUserWithPermissions | null
 ): BuiltRbacNavItem[] {
   const items: BuiltRbacNavItem[] = []
+  const isSa = user?.role === 'Super Admin'
 
   for (const mod of RBAC_NAV_MODULES) {
-    const allowed = pagesForUser(user, mod.pages)
+    // Operational Leads (Add/Renewal/Followup) is for Executive/Coordinator workflows —
+    // Super Admin dashboard/nav should not surface that module.
+    if (isSa && mod.module === 'leads') continue
+
+    // Super Admin: no separate Executive Managers section — Assign Managers lives under Users / Employees.
+    if (isSa && mod.module === 'executive_managers') continue
+
+    // Super Admin: Samples is not shown in sidebar.
+    if (isSa && mod.module === 'samples') continue
+
+    let pages = mod.pages
+    if (isSa && mod.module === 'employees') {
+      pages = [
+        { label: 'Assign Managers', href: '/dashboard/executive-managers' },
+        ...mod.pages,
+      ]
+    }
+
+    const allowed = pagesForUser(user, pages)
     if (allowed.length === 0) continue
 
     if (mod.module === 'dashboard' && allowed.length === 1) {

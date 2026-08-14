@@ -19,8 +19,17 @@ import {
   validateSchoolCode,
   validateSchoolName,
 } from '@/lib/saleFormValidation'
-import { useCloseLeadProductConfig } from '@/hooks/useCloseLeadProductConfig'
-import { CloseLeadProductConfig } from '@/components/leads/CloseLeadProductConfig'
+
+/** Create Sale School Type options (Super Admin / Coordinator). */
+const CREATE_SALE_SCHOOL_TYPES = ['New', 'Existing'] as const
+type CreateSaleSchoolType = (typeof CREATE_SALE_SCHOOL_TYPES)[number]
+
+function normalizeCreateSaleSchoolType(value: unknown): CreateSaleSchoolType | '' {
+  if (typeof value !== 'string') return ''
+  return (CREATE_SALE_SCHOOL_TYPES as readonly string[]).includes(value)
+    ? (value as CreateSaleSchoolType)
+    : ''
+}
 
 export default function CreateDealPage() {
   const router = useRouter()
@@ -43,10 +52,6 @@ export default function CreateDealPage() {
     city: '',
     region: '',
     area: '',
-    transport_name: '',
-    transport_location: '',
-    transportation_landmark: '',
-    transport_pincode: '',
     lead_status: 'pending',
     zone: '',
     branches: '',
@@ -55,9 +60,6 @@ export default function CreateDealPage() {
     follow_up_date: '',
     assigned_to: '',
   })
-
-  const productConfig = useCloseLeadProductConfig({ schoolType: form.school_type })
-  const { validateProducts, buildDcOrderProducts, childProductRows } = productConfig
 
   const [areas, setAreas] = useState<PostOfficeArea[]>([])
   const [loadingPincode, setLoadingPincode] = useState(false)
@@ -172,9 +174,6 @@ export default function CreateDealPage() {
     setForm((f) => ({
       ...f,
       pincode,
-      // Keep transport pincode in sync when user hasn't set a different one yet
-      transport_pincode:
-        !f.transport_pincode || f.transport_pincode === f.pincode ? pincode : f.transport_pincode,
     }))
     setPincodeError(null)
 
@@ -221,7 +220,10 @@ export default function CreateDealPage() {
     // Update form fields
     if (formData.school_name) setForm(prev => ({ ...prev, school_name: formData.school_name }))
     if (formData.school_code) setForm(prev => ({ ...prev, school_code: formData.school_code }))
-    if (formData.school_type) setForm(prev => ({ ...prev, school_type: formData.school_type }))
+    if (formData.school_type) {
+      const schoolType = normalizeCreateSaleSchoolType(formData.school_type)
+      if (schoolType) setForm(prev => ({ ...prev, school_type: schoolType }))
+    }
     if (formData.contact_person) setForm(prev => ({ ...prev, contact_person: formData.contact_person }))
     if (formData.contact_mobile) setForm(prev => ({ ...prev, contact_mobile: formData.contact_mobile }))
     if (formData.email) setForm(prev => ({ ...prev, email: formData.email }))
@@ -241,10 +243,6 @@ export default function CreateDealPage() {
     if (formData.remarks) setForm(prev => ({ ...prev, remarks: formData.remarks }))
     if (formData.follow_up_date) setForm(prev => ({ ...prev, follow_up_date: formData.follow_up_date }))
     if (formData.assigned_to) setForm(prev => ({ ...prev, assigned_to: formData.assigned_to }))
-    if (formData.transport_name) setForm(prev => ({ ...prev, transport_name: formData.transport_name }))
-    if (formData.transport_location) setForm(prev => ({ ...prev, transport_location: formData.transport_location }))
-    if (formData.transportation_landmark) setForm(prev => ({ ...prev, transportation_landmark: formData.transportation_landmark }))
-    // Product class/strength configuration is handled via CloseLeadProductConfig (not chatbot checkboxes).
   }
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -267,17 +265,6 @@ export default function CreateDealPage() {
         return iso
       }
       
-      const productValidation = validateProducts()
-      if (!productValidation.ok) {
-        throw new Error(productValidation.message)
-      }
-      if (childProductRows.length === 0) {
-        throw new Error('Please add at least one product with classes and strength per product')
-      }
-
-      // Same class-wise DcOrder products shape as Close Lead Turn to Client
-      const selectedProducts = buildDcOrderProducts()
-
       const nextFieldErrors: typeof fieldErrors = {}
       const schoolNameCheck = validateSchoolName(form.school_name)
       if (!schoolNameCheck.ok) nextFieldErrors.school_name = schoolNameCheck.message
@@ -326,10 +313,6 @@ export default function CreateDealPage() {
         throw new Error('Please fix the highlighted fields.')
       }
 
-      if (selectedProducts.length === 0) {
-        throw new Error('Please add at least one product with classes and strength per product')
-      }
-
       const schoolCode = schoolCodeCheck.value
 
       if (!form.email.trim()) {
@@ -368,13 +351,8 @@ export default function CreateDealPage() {
         throw new Error('Follow-up Date is required.')
       }
 
-      const transportName = form.transport_name.trim()
-      const transportLocation = form.transport_location.trim()
-      const transportPincode = (form.transport_pincode || form.pincode).replace(/\D/g, '').slice(0, 6)
-      if (!transportName || !transportLocation || transportPincode.length !== 6) {
-        throw new Error('Please fill Transport Name, Transport Location, and Transport Pincode (6 digits).')
-      }
-      
+      const schoolPincode = form.pincode.replace(/\D/g, '').slice(0, 6)
+
       const payload: any = {
         school_name: schoolNameCheck.value,
         school_code: schoolCode,
@@ -385,21 +363,18 @@ export default function CreateDealPage() {
         contact_mobile2: contactMobile2Check.value || undefined,
         location: form.location,
         address: form.address.trim(),
-        pincode: transportPincode,
+        pincode: schoolPincode || undefined,
         state: form.state || undefined,
         city: form.city || undefined,
         region: form.region || undefined,
         area: form.area || undefined,
-        transport_name: transportName,
-        transport_location: transportLocation,
-        transportation_landmark: form.transportation_landmark.trim() || undefined,
         zone: form.zone,
         status: form.lead_status || 'pending',
         branches: Number(form.branches),
         strength: Number(form.strength),
         remarks: form.remarks.trim(),
         email: form.email.trim(),
-        products: selectedProducts,
+        products: [],
         estimated_delivery_date: followUpIso,
         follow_up_date: followUpIso,
         assigned_to: form.assigned_to,
@@ -486,17 +461,22 @@ export default function CreateDealPage() {
           </div>
           <div>
             <Label>School Type</Label>
-            <Select value={form.school_type} onValueChange={(v) => setForm((f) => ({ ...f, school_type: v }))}>
+            <Select
+              value={form.school_type}
+              onValueChange={(v) => {
+                const schoolType = normalizeCreateSaleSchoolType(v)
+                if (schoolType) setForm((f) => ({ ...f, school_type: schoolType }))
+              }}
+            >
               <SelectTrigger className="bg-white text-neutral-900">
                 <SelectValue placeholder="Select Type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Private">Private</SelectItem>
-                <SelectItem value="Public">Public</SelectItem>
-                <SelectItem value="Trust">Trust</SelectItem>
-                <SelectItem value="New">New</SelectItem>
-                <SelectItem value="Existing">Existing</SelectItem>
-                <SelectItem value="Other">Other</SelectItem>
+                {CREATE_SALE_SCHOOL_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -625,75 +605,6 @@ export default function CreateDealPage() {
           <div className="md:col-span-2">
             <Label>Address *</Label>
             <Textarea className="bg-white text-neutral-900" name="address" value={form.address} onChange={onChange} required />
-          </div>
-
-          {/* Transport Details — required for Raise DC */}
-          <div className="md:col-span-2 border-t pt-4 mt-2">
-            <Label className="text-base font-semibold">Transport Details</Label>
-            <p className="text-xs text-neutral-500 mt-1 mb-3">
-              Required before Raise DC. These details are saved with the sale.
-            </p>
-          </div>
-          <div>
-            <Label>Transport Name *</Label>
-            <Input
-              className="bg-white text-neutral-900"
-              name="transport_name"
-              value={form.transport_name}
-              onChange={onChange}
-              placeholder="Enter transport name"
-              required
-            />
-          </div>
-          <div>
-            <Label>Transport Location *</Label>
-            <Input
-              className="bg-white text-neutral-900"
-              name="transport_location"
-              value={form.transport_location}
-              onChange={onChange}
-              placeholder="Enter transport location"
-              required
-            />
-          </div>
-          <div>
-            <Label>Transportation Landmark</Label>
-            <Input
-              className="bg-white text-neutral-900"
-              name="transportation_landmark"
-              value={form.transportation_landmark}
-              onChange={onChange}
-              placeholder="Enter landmark (optional)"
-            />
-          </div>
-          <div>
-            <Label>Transport Pincode *</Label>
-            <Input
-              className="bg-white text-neutral-900"
-              name="transport_pincode"
-              value={form.transport_pincode}
-              onChange={(e) => {
-                const transport_pincode = e.target.value.replace(/\D/g, '').slice(0, 6)
-                setForm((f) => ({ ...f, transport_pincode }))
-              }}
-              placeholder="Enter 6-digit pincode"
-              maxLength={6}
-              required
-            />
-          </div>
-          
-          {/* Products — same class-wise config as Close Lead (Turn to Client) */}
-          <div className="md:col-span-2">
-            <Label>Products *</Label>
-            <div className="mt-2">
-              <CloseLeadProductConfig
-                config={productConfig}
-                schoolType={form.school_type}
-              />
-            </div>
-            <p className="text-xs text-neutral-500 mt-2">
-              Add products with class selection and strength (same configuration as Close Lead).
-            </p>
           </div>
 
           <div>

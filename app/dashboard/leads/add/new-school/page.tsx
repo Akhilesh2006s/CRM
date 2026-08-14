@@ -28,6 +28,8 @@ type ProductSelection = {
   status: 'Hot' | 'Warm' | 'Not Interested' | 'Management Not Met' | 'Visit Again'
   /** Stored as string so empty fields do not show a stuck "0". */
   strength: string
+  /** Manual unit price (same as Create Sale Add Products) — product master has no default price. */
+  unit_price: string
   chance: string
 }
 
@@ -74,6 +76,7 @@ export default function NewSchoolPage() {
           term: 'Term 1',
           status: 'Warm',
           strength: '',
+          unit_price: '',
           chance: '',
         })),
       )
@@ -215,6 +218,19 @@ export default function NewSchoolPage() {
     setProducts(updated)
   }
 
+  const handleProductUnitPriceChange = (index: number, raw: string) => {
+    // Allow decimals for unit price (Create Sale style), strip invalid chars
+    let value = String(raw || '').replace(/[^\d.]/g, '')
+    const parts = value.split('.')
+    if (parts.length > 2) {
+      value = `${parts[0]}.${parts.slice(1).join('')}`
+    }
+    if (value.startsWith('.')) value = `0${value}`
+    const updated = [...products]
+    updated[index].unit_price = value
+    setProducts(updated)
+  }
+
   const handleProductChanceChange = (index: number, raw: string) => {
     const updated = [...products]
     updated[index].chance = normalizeIntegerInput(raw, 100)
@@ -323,6 +339,18 @@ export default function NewSchoolPage() {
       for (const p of selectedProducts) {
         const strengthNum = Number(p.strength)
         const chanceNum = p.chance === '' ? 0 : Number(p.chance)
+        const unitPriceNum = Number(p.unit_price)
+
+        // Unit price required for every selected product (same rule as Create Sale / dc-orders create)
+        if (
+          !String(p.unit_price || '').trim() ||
+          !Number.isFinite(unitPriceNum) ||
+          unitPriceNum <= 0
+        ) {
+          throw new Error(
+            `Please enter a Unit Price greater than 0 for product "${p.name}".`,
+          )
+        }
 
         // Strength is required for Hot/Warm
         if ((p.status === 'Hot' || p.status === 'Warm') && (!p.strength.trim() || strengthNum <= 0)) {
@@ -351,10 +379,11 @@ export default function NewSchoolPage() {
         const strengthNum = Number(p.strength) || 0
         const chanceNum =
           p.status === 'Hot' || p.status === 'Warm' ? Number(p.chance) || 0 : 0
+        const unitPriceNum = Number(p.unit_price)
         return {
           product_name: p.name,
-          quantity: 1,
-          unit_price: 0,
+          quantity: strengthNum > 0 ? strengthNum : 1,
+          unit_price: unitPriceNum,
           term: p.term || 'Term 1',
           status: p.status,
           strength: strengthNum,
@@ -608,10 +637,11 @@ export default function NewSchoolPage() {
                 <p className="text-sm text-neutral-500">No products available.</p>
               ) : (
                 <>
-                  <div className="hidden md:grid md:grid-cols-[minmax(140px,1fr)_140px_88px_88px] gap-2 px-2 pb-2 border-b border-neutral-200 text-xs font-semibold text-neutral-600">
+                  <div className="hidden md:grid md:grid-cols-[minmax(120px,1fr)_130px_80px_88px_80px] gap-2 px-2 pb-2 border-b border-neutral-200 text-xs font-semibold text-neutral-600">
                     <span>Product</span>
                     <span>Status</span>
                     <span className="text-center">Strength</span>
+                    <span className="text-center">Unit Price</span>
                     <span className="text-center">Chance %</span>
                   </div>
                   <div className="space-y-2">
@@ -620,7 +650,7 @@ export default function NewSchoolPage() {
                       return (
                         <div
                           key={product.name}
-                          className="grid grid-cols-1 md:grid-cols-[minmax(140px,1fr)_140px_88px_88px] gap-2 items-center p-2 rounded hover:bg-neutral-50 border border-transparent hover:border-neutral-100"
+                          className="grid grid-cols-1 md:grid-cols-[minmax(120px,1fr)_130px_80px_88px_80px] gap-2 items-center p-2 rounded hover:bg-neutral-50 border border-transparent hover:border-neutral-100"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <Checkbox
@@ -677,6 +707,18 @@ export default function NewSchoolPage() {
                             />
                           </div>
                           <div className="flex flex-col gap-0.5 md:contents">
+                            <span className="text-xs text-neutral-500 md:hidden">Unit Price</span>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              disabled={!product.checked}
+                              className="h-9 text-xs bg-white text-neutral-900 border-neutral-300 text-center"
+                              placeholder="₹"
+                              value={product.unit_price}
+                              onChange={(e) => handleProductUnitPriceChange(index, e.target.value)}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-0.5 md:contents">
                             <span className="text-xs text-neutral-500 md:hidden">Chance %</span>
                             <div className="flex items-center gap-1">
                               <Input
@@ -699,8 +741,8 @@ export default function NewSchoolPage() {
               )}
             </div>
             <p className="text-xs text-neutral-500 mt-2">
-              Select products, then set Status, Strength, and Chance % for each. Term is set after the lead is closed.
-              Strength is required when status is Hot or Warm; other statuses will always
+              Select products, then set Status, Strength, Unit Price, and Chance % for each. Term is set after the lead is closed.
+              Unit Price is required for every selected product. Strength is required when status is Hot or Warm; other statuses will always
               have 0 strength and 0% chance.
             </p>
           </div>

@@ -213,16 +213,61 @@ export function getLineClassSelections(
   return []
 }
 
-/** UI line total: sum(class strength) × this line's unit price (no payment divisor). */
+/** Count of checked subjects on a product line (unselected subjects do not count). */
+export function getLineSelectedSubjectCount(line: CloseProductSectionLine): number {
+  const subjects = (line.selectedSubjects || [])
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+  return subjects.length
+}
+
+/**
+ * Subject multiplier for list-price totals.
+ * Products with no subject selection behave as multiplier 1 (strength × price).
+ */
+export function getLineSubjectPriceMultiplier(line: CloseProductSectionLine): number {
+  const count = getLineSelectedSubjectCount(line)
+  return count > 0 ? count : 1
+}
+
+/**
+ * Per-class list price: classStrength × selectedSubjectCount × unitPrice
+ * (subject count is 1 when no subjects are selected).
+ */
+export function computeClassSubjectUnitTotal(
+  classStrength: number,
+  selectedSubjectCount: number,
+  unitPrice: number
+): number {
+  const strength = Number(classStrength) || 0
+  const subjects = Math.max(1, Number(selectedSubjectCount) || 0)
+  const price = Number(unitPrice) || 0
+  return strength * subjects * price
+}
+
+/** UI line total: Σ (class strength × selected subjects × unit price). No payment divisor. */
 export function computeLineDisplayTotal(
   line: CloseProductSectionLine,
   sec?: CloseProductSection
 ): number {
-  const qty = getLineClassSelections(line, sec).reduce(
-    (sum, s) => sum + (Number(s.strength) || 0),
+  const price = Number(line.price) || 0
+  const subjectMult = getLineSubjectPriceMultiplier(line)
+  return getLineClassSelections(line, sec).reduce(
+    (sum, s) => sum + (Number(s.strength) || 0) * subjectMult * price,
     0
   )
-  return qty * (Number(line.price) || 0)
+}
+
+/** Per-line quantity: Σ (class strength × selected subjects). */
+export function computeLineDisplayQuantity(
+  line: CloseProductSectionLine,
+  sec?: CloseProductSection
+): number {
+  const subjectMult = getLineSubjectPriceMultiplier(line)
+  return getLineClassSelections(line, sec).reduce(
+    (sum, s) => sum + (Number(s.strength) || 0) * subjectMult,
+    0
+  )
 }
 
 /** Sum of per-line display totals across all product sections. */
@@ -234,19 +279,38 @@ export function computeSectionsDisplayTotal(sections: CloseProductSection[]): nu
   )
 }
 
-/** Sum of entered class strengths across all lines (not multiplied by level count). */
+/**
+ * Sum of per-line quantities across sections:
+ * strength × selected subject count (not just raw class strength).
+ */
 export function computeSectionsDisplayQuantity(sections: CloseProductSection[]): number {
   return sections.reduce(
     (sum, sec) =>
       sum +
       sec.lines.reduce(
-        (lineSum, line) =>
-          lineSum +
-          getLineClassSelections(line, sec).reduce((q, s) => q + (Number(s.strength) || 0), 0),
+        (lineSum, line) => lineSum + computeLineDisplayQuantity(line, sec),
         0
       ),
     0
   )
+}
+
+/** Prefer Product Details rows as source of truth: sum each row quantity/strength. */
+export function computeProductDetailsDisplayQuantity(rows: ProductDetailRow[]): number {
+  return rows
+    .filter((r) => !r.isParentRow)
+    .reduce((sum, r) => sum + (Number(r.quantity) || Number(r.strength) || 0), 0)
+}
+
+/** Sum of Product Details row totals (quantity × unit price per row). */
+export function computeProductDetailsDisplayTotal(rows: ProductDetailRow[]): number {
+  return rows
+    .filter((r) => !r.isParentRow)
+    .reduce((sum, r) => {
+      const qty = Number(r.quantity) || Number(r.strength) || 0
+      const price = Number(r.price) || 0
+      return sum + qty * price
+    }, 0)
 }
 
 export function lineHasValidClassSelections(
@@ -365,12 +429,13 @@ export function expandSectionsToProductDetails(
       const defaultSpec = specsToUse[0]
       const subjectsToUse =
         hasSubjects && selectedSubjects.length > 0 ? selectedSubjects : [undefined]
+      const subjectPriceMult = hasSubjects ? selectedSubjects.length : 1
 
       let rowIdx = 0
       const parentId = line.parentRowId
       if (levelsToUse.length === 0) continue
 
-      // One row per (selected class × selected level).
+      // One row per (selected class × selected level × selected subject).
       for (const classSel of classSelections) {
         const strengthToUse = Number(classSel.strength) || 0
         const classNum = parseInt(classSel.class, 10)
@@ -378,6 +443,7 @@ export function expandSectionsToProductDetails(
 
         for (const level of levelsToUse) {
           for (const subject of subjectsToUse) {
+            // Per-subject row stores strength×price; class list-price uses subject count via computeLineDisplayTotal.
             out.push({
               id: `${parentId}_${classNum}_${rowIdx++}`,
               product: line.product,
@@ -399,6 +465,13 @@ export function expandSectionsToProductDetails(
           }
         }
       }
+      // Keep parent.total as full line list-price (strength × subjects × price across classes).
+      parentRow.total = classSelections.reduce(
+        (sum, s) =>
+          sum +
+          computeClassSubjectUnitTotal(Number(s.strength) || 0, subjectPriceMult, priceToUse),
+        0
+      )
     }
   }
   return out
@@ -507,15 +580,29 @@ export function buildDcOrderProductsFromDetails(
       parentRow?.selectedSubjects?.length && parentRow.selectedSubjects.length > 0
         ? [...parentRow.selectedSubjects]
         : Array.from(subjectSet)
-    // quantity mirrors class strength (Close Lead convention).
-    // strength is also persisted so Create Sale backend validation and Raise DC
-    // can read the same class-wise strength without inventing a new schema.
-    const strengthQty = Number(p.strength) || 0
+    // Class strength (per class, not multiplied) for strength field / Raise DC.
+    const classStrength = Number(sampleChild?.strength) || 0
+    // Quantity = sum of Product Details row quantities for this product+class
+    // (one row per subject/level → strength × subjects × levels).
+    const quantityFromRows = bucketRows.reduce(
+      (sum, r) => sum + (Number(r.quantity) || Number(r.strength) || 0),
+      0
+    )
+    const subjectCountForPrice =
+      selectedSubjects.length > 0 ? selectedSubjects.length : 1
+    const strengthQty = classStrength > 0 ? classStrength : Number(p.strength) || 0
+    const unitPrice = Number(p.price) || 0
+    const quantity =
+      quantityFromRows > 0
+        ? quantityFromRows
+        : strengthQty * Math.max(1, subjectCountForPrice)
+    const lineTotal = quantity * unitPrice
     return {
       product_name: p.product,
-      quantity: strengthQty,
+      quantity,
       strength: strengthQty,
-      unit_price: p.price,
+      unit_price: unitPrice,
+      total: lineTotal,
       class: String(p.class ?? '1'),
       specs: (p as any).specs || undefined,
       deliverables,

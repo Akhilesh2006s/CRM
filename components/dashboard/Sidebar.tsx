@@ -348,6 +348,43 @@ function rbacBuiltToNavItems(built: BuiltRbacNavItem[]): NavItem[] {
   })
 }
 
+const ASSIGN_MANAGERS_HREF = '/dashboard/executive-managers'
+const ASSIGN_MANAGERS_NAV = { label: 'Assign Managers', href: ASSIGN_MANAGERS_HREF }
+
+/** Super Admin: drop Executive Managers section; surface Assign Managers under Users / Employees. */
+function applySuperAdminExecutiveManagersNav(nav: NavItem[]): NavItem[] {
+  const withoutEmSection = nav.filter((item) => item.label !== 'Executive Managers')
+
+  return withoutEmSection.map((item) => {
+    if (item.label !== 'Users / Employees' || !item.children) return item
+
+    const cleaned = item.children.filter((c) => {
+      const href = c.href || ''
+      if (href === ASSIGN_MANAGERS_HREF) return false
+      if (href === '/dashboard/executive-managers/new') return false
+      if (href === '/dashboard/executive-managers/executives') return false
+      if (c.label === 'All Managers' || c.label === 'Assign Managers') return false
+      if (c.label === 'Create Manager' || c.label === 'Executives') return false
+      return true
+    })
+
+    return {
+      ...item,
+      children: [ASSIGN_MANAGERS_NAV, ...cleaned],
+    }
+  })
+}
+
+/** Super Admin: Settings must be last nav section, immediately before Sign out. */
+function applySuperAdminNavOrder(nav: NavItem[]): NavItem[] {
+  const isSignOut = (item: NavItem) =>
+    item.label === 'Sign out' || item.href === '/auth/login'
+  const settings = nav.filter((item) => item.label === 'Settings')
+  const signOut = nav.filter(isSignOut)
+  const rest = nav.filter((item) => item.label !== 'Settings' && !isSignOut(item))
+  return [...rest, ...settings, ...signOut]
+}
+
 /** Role-specific links (e.g. executive-manager dashboard) not in the RBAC catalog. */
 function extractExtraNavItems(
   nav: NavItem[],
@@ -803,6 +840,25 @@ export function Sidebar() {
       ...mergeNavExtras(fromPermissions, extras),
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
+  }
+
+  // Super Admin: hide operational Leads menu (Add/Renewal/Followup). Keep Reports → Leads.
+  // Also remove Executive Managers section and place Assign Managers under Users / Employees.
+  // Remove Samples. Bottom order: Reports → Products → Vendor → Settings → Sign out.
+  const isSuperAdminNav = user?.role === 'Super Admin' || permUser?.role === 'Super Admin'
+  if (isSuperAdminNav) {
+    finalNav = finalNav.filter((item) => {
+      if (item.label === 'Samples' || item.label === 'Employee Sample') return false
+      if (item.label !== 'Leads') return true
+      // Only hide the operational Leads group (children under /dashboard/leads/*)
+      const children = item.children || []
+      const isOperationalLeads =
+        children.length > 0 &&
+        children.every((c) => (c.href || '').startsWith('/dashboard/leads'))
+      return !isOperationalLeads
+    })
+    finalNav = applySuperAdminExecutiveManagersNav(finalNav)
+    finalNav = applySuperAdminNavOrder(finalNav)
   }
 
   const navReady = mounted && (!rbacActive || permissionsReady)

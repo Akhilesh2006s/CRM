@@ -25,8 +25,8 @@ import {
   SELECTABLE_CLOSE_CLASSES,
   getLineClassSelections,
   computeLineDisplayTotal,
-  computeSectionsDisplayTotal,
-  computeSectionsDisplayQuantity,
+  computeProductDetailsDisplayQuantity,
+  computeProductDetailsDisplayTotal,
   lineHasValidClassSelections,
   type ProductDetailRow,
   type CloseProductSection,
@@ -244,8 +244,7 @@ function CloseLeadProductConfigView({
                         const selectedSpecs = line.selectedSpecs || []
                         const productLevels = getProductLevels(line.product)
                         const selectedLevels = line.selectedLevels || []
-                        // Display total = this line's class strengths × this line's unit price.
-                        // Do NOT use payment-divisor grouping (that produced wrong totals like 10×10÷4=25).
+                        // Display total = Σ (class strength × selected subjects × unit price).
                         const lineTotalAmount = computeLineDisplayTotal(line, section)
 
                         return (
@@ -752,14 +751,17 @@ function CloseLeadProductConfigView({
                           <span className="text-neutral-700">Total:</span>
                         </td>
                         <td className="px-3 py-3 text-right">
-                          {computeSectionsDisplayQuantity(productSections)}
+                          {computeProductDetailsDisplayQuantity(childProductRows)}
                         </td>
                         <td className="px-3 py-3 text-right">
                           ₹
-                          {computeSectionsDisplayTotal(productSections).toLocaleString('en-IN', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
+                          {computeProductDetailsDisplayTotal(childProductRows).toLocaleString(
+                            'en-IN',
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            }
+                          )}
                         </td>
                         <td className="px-3 py-3"></td>
                       </tr>

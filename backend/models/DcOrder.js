@@ -5,6 +5,8 @@ const productSchema = new mongoose.Schema(
     product_name: { type: String, required: true },
     quantity: { type: Number, default: 1, min: 0 },
     unit_price: { type: Number, default: 0, min: 0 },
+    // List price: classStrength × selectedSubjectCount × unit_price (from Add Products)
+    total: { type: Number, default: 0, min: 0 },
     // SKU category for the product (e.g. EduApt, Risers+, etc.)
     // Needed so "Raise DC" can prefill productCategory based on Close Lead selections.
     productCategory: { type: String },

@@ -315,6 +315,20 @@ export default function DashboardPage() {
     setCurrentUser(user)
   }, [])
 
+  // Super Admin dashboard has no Leads section; other roles keep Leads UI/fetches.
+  const hideLeadsOnDashboard = currentUser?.role === 'Super Admin'
+
+  useEffect(() => {
+    if (hideLeadsOnDashboard && activeTab === 'leads') {
+      setActiveTab('dashboard')
+    }
+  }, [hideLeadsOnDashboard, activeTab])
+
+  // Stat cards for Super Admin exclude Active Leads (index 0) so the grid has no gaps.
+  const visibleStatEntries = STAT_CONFIG
+    .map((stat, index) => ({ stat, index }))
+    .filter(({ index }) => !(hideLeadsOnDashboard && index === 0))
+
   const fetchExecutiveAnalytics = async () => {
     setExecutiveLoading(true)
     try {
@@ -374,15 +388,18 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    if (!currentUser) return
+
     const fetchDashboardData = async () => {
       setLoading(true)
       try {
-        // Fetch all dashboard data in parallel
+        const isSuperAdmin = currentUser.role === 'Super Admin'
+        // Skip Leads-only endpoints for Super Admin (widgets are hidden).
         const [statsData, trendsData, volumeData, zonesData, alertsData, activitiesData] = await Promise.all([
           apiRequest<DashboardStats>('/dashboard/stats').catch(() => null),
           apiRequest<TrendData[]>('/dashboard/revenue-trends').catch(() => null),
-          apiRequest<VolumeData[]>('/dashboard/leads-volume').catch(() => null),
-          apiRequest<ZoneData[]>('/dashboard/leads-by-zone').catch(() => null),
+          isSuperAdmin ? Promise.resolve(null) : apiRequest<VolumeData[]>('/dashboard/leads-volume').catch(() => null),
+          isSuperAdmin ? Promise.resolve(null) : apiRequest<ZoneData[]>('/dashboard/leads-by-zone').catch(() => null),
           apiRequest<AlertData[]>('/dashboard/alerts').catch(() => null),
           apiRequest<ActivityData[]>('/dashboard/recent-activities').catch(() => null),
         ])
@@ -437,8 +454,10 @@ export default function DashboardPage() {
     }
 
     fetchDashboardData()
-    fetchLeadsAnalytics() // Initial load without date filter
-    if (currentUser?.role === 'Executive') {
+    if (currentUser.role !== 'Super Admin') {
+      fetchLeadsAnalytics() // Initial load without date filter
+    }
+    if (currentUser.role === 'Executive') {
       fetchExecutiveAnalytics()
     } else {
       fetchComprehensiveAnalytics()
@@ -446,7 +465,9 @@ export default function DashboardPage() {
   }, [currentUser])
 
   const handleSearch = () => {
-    fetchLeadsAnalytics()
+    if (currentUser?.role !== 'Super Admin') {
+      fetchLeadsAnalytics()
+    }
     if (currentUser?.role === 'Executive') {
       fetchExecutiveAnalytics()
     }
@@ -487,8 +508,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Premium Stat Cards - Minimal, elegant design */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {STAT_CONFIG.map((stat, i) => {
+      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${hideLeadsOnDashboard ? 'lg:grid-cols-3' : 'lg:grid-cols-4'}`}>
+        {visibleStatEntries.map(({ stat, index: i }) => {
           const colors = cardColorMap[stat.accent]
           const href = getStatHref(currentUser?.role as string | undefined, i)
           const cardInner = (
@@ -533,6 +554,7 @@ export default function DashboardPage() {
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
               )}
             </TabsTrigger>
+            {!hideLeadsOnDashboard && (
             <TabsTrigger
               value="leads"
               className={`px-5 py-3 rounded-t-lg font-medium text-sm transition-all duration-200 relative ${
@@ -546,6 +568,7 @@ export default function DashboardPage() {
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
               )}
             </TabsTrigger>
+            )}
             <TabsTrigger
               value="analytics"
               className={`px-5 py-3 rounded-t-lg font-medium text-sm transition-all duration-200 relative ${
@@ -711,8 +734,9 @@ export default function DashboardPage() {
           )}
 
           {/* Premium Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* BarChart: Premium styling */}
+      <div className={`grid grid-cols-1 gap-6 ${hideLeadsOnDashboard ? '' : 'lg:grid-cols-2'}`}>
+        {/* BarChart: Premium styling — hidden for Super Admin */}
+        {!hideLeadsOnDashboard && (
         <Card className="p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -729,6 +753,7 @@ export default function DashboardPage() {
             <BarGradient labels={volume.map(v=>v.hour)} values={volume.map(v=>v.value)} />
           </div>
         </Card>
+        )}
         {/* AreaChart with KPIs - Premium styling */}
         <Card className="min-h-[360px] p-6 flex flex-col gap-6">
           <div>
@@ -782,9 +807,9 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={`grid grid-cols-1 gap-6 ${hideLeadsOnDashboard ? '' : 'lg:grid-cols-3'}`}>
         {/* Premium Active Alerts */}
-        <Card className="p-6 lg:col-span-1">
+        <Card className={`p-6 ${hideLeadsOnDashboard ? '' : 'lg:col-span-1'}`}>
           <div className="flex items-center justify-between mb-4">
             <div className="font-semibold text-neutral-900 text-base">Active Alerts</div>
             <button className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors">View all</button>
@@ -792,8 +817,12 @@ export default function DashboardPage() {
           <div className="space-y-2">
             {loading ? (
               <div className="text-neutral-400 text-sm">Loading alerts...</div>
-            ) : alerts.length > 0 ? (
-              alerts.map((a, idx) => (
+            ) : (() => {
+              const visibleAlerts = hideLeadsOnDashboard
+                ? alerts.filter((a) => !/lead/i.test(a.text || ''))
+                : alerts
+              return visibleAlerts.length > 0 ? (
+              visibleAlerts.map((a, idx) => (
                 <div
                   key={idx}
                   className={`relative flex items-start gap-3 rounded-lg p-3 text-sm transition-all duration-200 hover:shadow-sm ${
@@ -809,10 +838,12 @@ export default function DashboardPage() {
               ))
             ) : (
               <div className="text-neutral-400 text-sm py-4 text-center">No active alerts</div>
-            )}
+            )
+            })()}
           </div>
         </Card>
-        {/* Premium Leads by Zone table */}
+        {/* Premium Leads by Zone table — hidden for Super Admin */}
+        {!hideLeadsOnDashboard && (
         <Card className="p-6 lg:col-span-2">
           <div className="font-semibold text-neutral-900 mb-4 text-base">Leads by Zone</div>
           <div className="overflow-hidden rounded-lg border border-neutral-200/60">
@@ -850,6 +881,7 @@ export default function DashboardPage() {
             </table>
           </div>
         </Card>
+        )}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Premium Recent Activity */}
@@ -858,8 +890,12 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-3 text-sm">
             {loading ? (
               <div className="text-neutral-400 py-4">Loading activities...</div>
-            ) : activities.length > 0 ? (
-              activities.slice(0, 5).map((activity) => {
+            ) : (() => {
+              const visibleActivities = hideLeadsOnDashboard
+                ? activities.filter((a) => a.type !== 'lead_created' && !/lead/i.test(a.message || ''))
+                : activities
+              return visibleActivities.length > 0 ? (
+              visibleActivities.slice(0, 5).map((activity) => {
                 const getColorClasses = () => {
                   if (activity.type === 'lead_created') return { text: 'text-orange-700', bg: 'bg-orange-500', ring: 'ring-orange-200' }
                   if (activity.type === 'sale_made') return { text: 'text-emerald-700', bg: 'bg-emerald-500', ring: 'ring-emerald-200' }
@@ -876,7 +912,8 @@ export default function DashboardPage() {
               })
             ) : (
               <div className="text-neutral-400 py-4">No recent activities</div>
-            )}
+            )
+            })()}
           </div>
         </Card>
 
@@ -1052,8 +1089,8 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* Premium Leads Dashboard Content */}
-      {activeTab === 'leads' && (
+      {/* Premium Leads Dashboard Content — not shown for Super Admin */}
+      {activeTab === 'leads' && !hideLeadsOnDashboard && (
       <div className="mt-6 space-y-6">
         {currentUser?.role === 'Executive' ? (
           /* Executive Leads Dashboard */
@@ -2201,7 +2238,8 @@ export default function DashboardPage() {
               </div>
             ) : analyticsData ? (
               <>
-                {/* Leads Analytics */}
+                {/* Leads Analytics — omitted for Super Admin */}
+                {!hideLeadsOnDashboard && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <Card className="p-6">
                     <h3 className="font-semibold text-lg text-neutral-900 mb-6">Leads by Status</h3>
@@ -2226,6 +2264,7 @@ export default function DashboardPage() {
                     />
                   </Card>
                 </div>
+                )}
 
                 {/* Payments Analytics */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
