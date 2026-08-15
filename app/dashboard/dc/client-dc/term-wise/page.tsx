@@ -178,65 +178,24 @@ export default function TermWiseDCPage() {
   const load = async () => {
     setLoading(true)
     try {
-      // Fetch ALL DCs with status 'scheduled_for_later' (Term 2 DCs)
-      // These should be visible to all users, not just the employee who created them
+      // Backend persists per-product routing on GET (repairSaleCloseLeadRouting).
+      // Term-Wise DCs only contain paired Level 2 / Term 2 rows after repair.
       console.log('🔍 Fetching Term-Wise DCs...')
       const data = await apiRequest<DC[]>(`/dc?status=scheduled_for_later`)
       const dataArray = Array.isArray(data) ? data : []
-      console.log(`✅ Loaded ${dataArray.length} DCs with status 'scheduled_for_later'`)
-      
-      // Filter to only show Term 2 DCs (all products are Term 2)
-      const term2DCs = dataArray.filter(dc => {
-        // Check productDetails first
-        if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-          const allTerm2 = dc.productDetails.every((p: any) => (p.term || 'Term 1') === 'Term 2')
-          const hasTerm1 = dc.productDetails.some((p: any) => {
-            const term = p.term || 'Term 1'
-            return term === 'Term 1' || term === 'Both'
-          })
-          // If all products are Term 2 and no Term 1, it's a Term 2 DC
-          if (allTerm2 && !hasTerm1) {
-            return true
-          }
+      const normalized = dataArray.map((dc) => {
+        const rows = Array.isArray(dc.productDetails) ? dc.productDetails : []
+        const productLabel = rows
+          .map((p: any) => p.product || p.productName || '')
+          .filter(Boolean)
+          .join(', ')
+        return {
+          ...dc,
+          ...(productLabel ? { product: productLabel } : {}),
         }
-        
-        // Check dcOrderId.products as fallback
-        if (dc.dcOrderId && typeof dc.dcOrderId === 'object' && dc.dcOrderId.products) {
-          const products = dc.dcOrderId.products
-          if (Array.isArray(products) && products.length > 0) {
-            const allTerm2 = products.every((p: any) => (p.term || 'Term 1') === 'Term 2')
-            const hasTerm1 = products.some((p: any) => {
-              const term = p.term || 'Term 1'
-              return term === 'Term 1' || term === 'Both'
-            })
-            if (allTerm2 && !hasTerm1) {
-              return true
-            }
-          }
-        }
-        
-        // If status is scheduled_for_later, include it (fallback for DCs created before term field was set)
-        return dc.status === 'scheduled_for_later'
       })
-      
-      console.log(`📊 Filtered to ${term2DCs.length} Term 2 DCs out of ${dataArray.length} total`)
-      
-      // Debug: Log DCs and their productDetails
-      if (term2DCs.length > 0) {
-        console.log('📦 Term 2 DCs found:', term2DCs.map(dc => ({
-          id: dc._id,
-          customerName: dc.customerName,
-          status: dc.status,
-          hasProductDetails: !!dc.productDetails,
-          productDetailsCount: dc.productDetails?.length || 0,
-          productDetails: dc.productDetails,
-          dcOrderProducts: dc.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId.products : null
-        })))
-      } else {
-        console.warn('⚠️ No Term 2 DCs found with status "scheduled_for_later"')
-      }
-      
-      setItems(term2DCs)
+      console.log(`✅ Loaded ${normalized.length} Term-Wise DCs`)
+      setItems(normalized)
     } catch (e: any) {
       console.error('❌ Failed to load DCs:', e)
       console.error('Error details:', {
@@ -641,56 +600,44 @@ export default function TermWiseDCPage() {
       
       setRequestDCFormData(formData)
       
-      // Load Term 2 products - prioritize DC's productDetails (has all details), then DcOrder products
-      let term2Products: any[] = []
-      
-      // First try to get from full DC's productDetails (most accurate - has all product details)
+      // Load products already on this Term-Wise DC (Close Lead classification).
+      // Do not pull Term 2 rows from the full DcOrder — that wrongly includes Term-2-only products.
+      let termWiseProducts: any[] = []
+
       if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        const dcTerm2Products = fullDC.productDetails.filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-        if (dcTerm2Products.length > 0) {
-          // Get unit prices from DcOrder products if available
-          term2Products = dcTerm2Products.map((p: any) => {
-            // Try to match with DcOrder product to get unit_price
-            const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
-              const orderProductName = (op.product_name || '').toLowerCase().trim()
-              const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
-              return orderProductName === dcProductName && (op.term || 'Term 1') === 'Term 2'
-            })
-            
-            return {
-              product_name: p.product || p.product_name || '',
-              quantity: p.quantity || p.strength || 0,
-              unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
-              term: p.term || 'Term 2',
-            }
+        const routedRows = fullDC.productDetails.some((p: any) => p.closeLeadDestination)
+          ? fullDC.productDetails.filter((p: any) => p.closeLeadDestination === 'TERM_WISE_DC')
+          : fullDC.productDetails
+        termWiseProducts = routedRows.map((p: any) => {
+          const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
+            const orderProductName = (op.product_name || '').toLowerCase().trim()
+            const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
+            return orderProductName === dcProductName
           })
-        }
+          return {
+            product_name: p.product || p.product_name || '',
+            quantity: p.quantity || p.strength || 0,
+            unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
+            term: p.term || p.level || '',
+            level: p.level,
+            closeLeadDestination: p.closeLeadDestination || 'TERM_WISE_DC',
+          }
+        })
       }
-      
-      // Fallback to DcOrder products if DC productDetails not available or no Term 2 products found
-      if (term2Products.length === 0) {
-        const dcOrderTerm2Products = (dcOrder.products || []).filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-        term2Products = dcOrderTerm2Products.map((p: any) => ({
-          product_name: p.product_name || '',
-          quantity: p.quantity || 0,
-          unit_price: p.unit_price || 0,
-          term: p.term || 'Term 2',
-        }))
-      }
-      
-      console.log('📦 Loaded Term 2 products for Request DC:', {
+
+      console.log('📦 Loaded Term-Wise products for Request DC:', {
         fromDCProductDetails: fullDC.productDetails?.length || 0,
-        term2ProductsCount: term2Products.length,
-        products: term2Products
+        termWiseProductsCount: termWiseProducts.length,
+        products: termWiseProducts
       })
-      
+
       setRequestDCProductRows(
-        term2Products.map((p: any, idx: number) => ({
+        termWiseProducts.map((p: any, idx: number) => ({
           id: String(idx + 1),
           product_name: p.product_name || '',
           quantity: p.quantity || 0,
           unit_price: p.unit_price || 0,
-          term: p.term || 'Term 2',
+          term: p.term || '',
         }))
       )
       
@@ -718,10 +665,8 @@ export default function TermWiseDCPage() {
         return
       }
 
-      // Convert product rows to productDetails format (only Term 2 products)
-      // Include unit_price so it's preserved when DC goes to Closed Sales
+      // Convert product rows already on this Term-Wise DC (do not require term === Term 2)
       const productDetails = requestDCProductRows
-        .filter(row => (row.term || 'Term 1') === 'Term 2')
         .map(row => ({
           product: row.product_name,
           class: '1',
@@ -730,9 +675,12 @@ export default function TermWiseDCPage() {
           subject: undefined,
           quantity: row.quantity,
           strength: row.quantity,
-          level: 'L2',
-          term: 'Term 2', // Ensure Term 2
-          unit_price: row.unit_price || 0, // Preserve unit price from Edit PO
+          price: row.unit_price,
+          total: (row.quantity || 0) * (row.unit_price || 0),
+          level: row.term || 'L2',
+          term: row.term || 'Term 1',
+          closeLeadDestination: 'TERM_WISE_DC',
+          unit_price: row.unit_price || 0,
         }))
 
       // Update DC - keep status as 'scheduled_for_later' so it still appears in Term-Wise DC
@@ -796,96 +744,10 @@ export default function TermWiseDCPage() {
     }
   }
 
-  // Group DCs by term - only show Term 2
+  // Term-Wise list = DCs already routed at Close Lead (status scheduled_for_later).
+  // Do not re-filter by product.term === Term 2.
   const groupedByTerm = useMemo(() => {
-    const term2DCs: DC[] = []
-    
-    console.log(`🔍 Filtering ${items.length} DCs for Term 2 products...`)
-    
-    items.forEach((dc, index) => {
-      let hasTerm2 = false
-      let termSource = 'none'
-      
-      // Check productDetails first (most reliable)
-      if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-        const terms = dc.productDetails.map((p: any) => {
-          // Check multiple possible field names for term
-          return (p.term || p.term_name || 'Term 1').toString().trim()
-        })
-        const uniqueTerms = Array.from(new Set(terms))
-        
-        // Check for Term 2 (case-insensitive, handle variations)
-        hasTerm2 = uniqueTerms.some(term => 
-          term.toLowerCase().includes('term 2') || 
-          term.toLowerCase().includes('term2') ||
-          term === '2' ||
-          term.toLowerCase() === 'term 2'
-        )
-        termSource = 'productDetails'
-        
-        if (hasTerm2) {
-          console.log(`✅ DC ${index + 1} has Term 2 in productDetails:`, {
-            dcId: dc._id,
-            customerName: dc.customerName,
-            terms: uniqueTerms,
-            productDetails: dc.productDetails
-          })
-        }
-      } else if (dc.dcOrderId && typeof dc.dcOrderId === 'object' && dc.dcOrderId.products) {
-        // Check DcOrder products (fallback)
-        const terms = dc.dcOrderId.products.map((p: any) => {
-          return (p.term || p.term_name || 'Term 1').toString().trim()
-        })
-        const uniqueTerms = Array.from(new Set(terms))
-        
-        // Check for Term 2 (case-insensitive, handle variations)
-        hasTerm2 = uniqueTerms.some(term => 
-          term.toLowerCase().includes('term 2') || 
-          term.toLowerCase().includes('term2') ||
-          term === '2' ||
-          term.toLowerCase() === 'term 2'
-        )
-        termSource = 'dcOrderProducts'
-        
-        if (hasTerm2) {
-          console.log(`✅ DC ${index + 1} has Term 2 in dcOrder products:`, {
-            dcId: dc._id,
-            customerName: dc.customerName,
-            terms: uniqueTerms
-          })
-        }
-      }
-      
-      // If status is 'scheduled_for_later', it's likely a Term 2 DC even if term field is missing
-      // This handles cases where DCs were created before term field was properly set
-      if (!hasTerm2 && dc.status === 'scheduled_for_later') {
-        console.log(`⚠️ DC ${index + 1} has status 'scheduled_for_later' but no Term 2 in products. Including anyway.`, {
-          dcId: dc._id,
-          customerName: dc.customerName,
-          productDetails: dc.productDetails,
-          dcOrderProducts: dc.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId.products : null
-        })
-        hasTerm2 = true
-        termSource = 'status_fallback'
-      }
-      
-      if (hasTerm2) {
-        term2DCs.push(dc)
-      } else {
-        console.log(`❌ DC ${index + 1} does NOT have Term 2:`, {
-          dcId: dc._id,
-          customerName: dc.customerName,
-          status: dc.status,
-          termSource,
-          productDetails: dc.productDetails,
-          dcOrderProducts: dc.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId.products : null
-        })
-      }
-    })
-    
-    console.log(`📊 Filtered results: ${term2DCs.length} Term 2 DCs out of ${items.length} total`)
-    
-    return { term1: [], term2: term2DCs }
+    return { term1: [] as DC[], term2: items }
   }, [items])
 
   // Filter items based on search query
@@ -947,25 +809,18 @@ export default function TermWiseDCPage() {
                 const customerName = d.customerName || d.saleId?.customerName || d.dcOrderId?.school_name || 'Unknown Client'
                 const phone = d.customerPhone || d.dcOrderId?.contact_mobile || '-'
                 
-                // Get products - prioritize productDetails (Term 2 only), then dcOrderId products (Term 2 only), then fallback
+                // Show product-detail rows on this Term-Wise DC only (Close Lead classification).
+                // Do not fall back to DcOrder Term 2 products — that wrongly lists Term-2-only rows.
                 let product = '-'
                 if (d.productDetails && Array.isArray(d.productDetails) && d.productDetails.length > 0) {
-                  // Filter to only Term 2 products
-                  const term2Products = d.productDetails.filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-                  if (term2Products.length > 0) {
-                    product = term2Products.map((p: any) => p.product || p.productName || '').filter(Boolean).join(', ')
-                  }
+                  const routed = d.productDetails.some((p: any) => p.closeLeadDestination)
+                    ? d.productDetails.filter((p: any) => p.closeLeadDestination === 'TERM_WISE_DC')
+                    : d.productDetails
+                  const names = routed.map((p: any) => p.product || p.productName || '').filter(Boolean)
+                  if (names.length > 0) product = names.join(', ')
                 }
                 
-                if (product === '-' && d.dcOrderId && typeof d.dcOrderId === 'object' && d.dcOrderId.products && Array.isArray(d.dcOrderId.products)) {
-                  // Filter to only Term 2 products
-                  const term2Products = d.dcOrderId.products.filter((p: any) => (p.term || 'Term 1') === 'Term 2')
-                  if (term2Products.length > 0) {
-                    product = term2Products.map((p: any) => p.product_name || p.product || '').filter(Boolean).join(', ')
-                  }
-                }
-                
-                // Fallback to other product fields if no Term 2 products found
+                // Fallback to other product fields if no productDetails
                 if (product === '-') {
                   product = d.product || d.saleId?.product || '-'
                 }
@@ -1037,7 +892,7 @@ export default function TermWiseDCPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Term-Wise DC</h1>
           <p className="text-sm text-neutral-500 mt-1">
-            View your clients with Term 2 products
+            View clients with Term-Wise DC rows (paired Level 2 / Term 2 from Close Lead)
           </p>
         </div>
       </div>

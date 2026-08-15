@@ -130,12 +130,12 @@ function validateSaleIdentityFields(body = {}) {
   if (!contactMobile.ok) return contactMobile;
 
   const contactPerson2 = validateContactPerson(body.contact_person2, {
-    required: false,
+    required: true,
     label: 'Contact Person 2',
   });
   if (!contactPerson2.ok) return contactPerson2;
 
-  const contactMobile2 = validateContactMobile(body.contact_mobile2, { required: false });
+  const contactMobile2 = validateContactMobile(body.contact_mobile2, { required: true });
   if (!contactMobile2.ok) return contactMobile2;
 
   return {
@@ -145,8 +145,8 @@ function validateSaleIdentityFields(body = {}) {
       school_code: schoolCodeRaw ? schoolCode.value : undefined,
       contact_person: contactPerson.value,
       contact_mobile: contactMobile.value,
-      contact_person2: contactPerson2.value || undefined,
-      contact_mobile2: contactMobile2.value || undefined,
+      contact_person2: contactPerson2.value,
+      contact_mobile2: contactMobile2.value,
     },
   };
 }

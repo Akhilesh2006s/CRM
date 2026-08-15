@@ -717,12 +717,6 @@ export default function PendingDCPage() {
 
   if (selectedDC) {
     const isShortageDcDetail = selectedDC.dcType === 'shortage'
-    const defaultNewRowCategory =
-      typeof selectedDC.dcOrderId === 'object' &&
-      selectedDC.dcOrderId !== null &&
-      selectedDC.dcOrderId.school_type === 'Existing'
-        ? 'Old Students'
-        : 'new Students'
 
     // Show detailed form view
     return (
@@ -1026,33 +1020,8 @@ export default function PendingDCPage() {
 
           {/* Products Table */}
           <div className="border-t pt-6 mb-6">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3">
               <Label className="text-lg font-semibold text-gray-900">Products</Label>
-              {!isShortageDcDetail && (
-              <Button
-                type="button"
-                size="sm"
-                className="bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => {
-                  setProductRows([...productRows, {
-                    id: Date.now().toString(),
-                    product: 'ABACUS',
-                    class: '1',
-                    category: defaultNewRowCategory,
-                    specs: 'Regular',
-                    level: getDefaultLevel('ABACUS'),
-                    productName: 'ABACUS',
-                    quantity: 0,
-                    strength: 0,
-                    term: 'Term 1',
-                    price: 0,
-                    total: 0,
-                  }])
-                }}
-              >
-                (+) Add
-              </Button>
-              )}
             </div>
             
             <div className="overflow-x-auto">

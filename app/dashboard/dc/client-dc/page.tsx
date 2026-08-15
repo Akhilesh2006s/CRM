@@ -254,10 +254,10 @@ export default function ClientDCPage() {
       const dataArray = Array.isArray(data) ? data : []
       
       // Filter: Show ALL closed leads (anything with dcOrderId) and clients with products
-      // The backend already filters for this employee's clients, so we show:
-      // 1. ALL items with dcOrderId (these are from closed leads) - show them all
-      // 2. Clients with products added and submitted (for backward compatibility)
+      // Exclude Term-Wise companion DCs (scheduled_for_later) — those belong on Term-Wise only.
       const filteredClients = dataArray.filter((dc: DC) => {
+        if (dc.status === 'scheduled_for_later') return false
+
         // If it has a dcOrderId (either as object or string ID), it's from a closed lead - show it
         const hasDcOrderId = dc.dcOrderId && (typeof dc.dcOrderId === 'object' || typeof dc.dcOrderId === 'string')
         
@@ -272,6 +272,12 @@ export default function ClientDCPage() {
             hasDcOrderId: true,
             dcOrderIdType: typeof dc.dcOrderId
           })
+          // Drop Term-Wise-only product rows if a mixed DC was saved incorrectly
+          if (Array.isArray(dc.productDetails) && dc.productDetails.some((p: any) => p.closeLeadDestination)) {
+            dc.productDetails = dc.productDetails.filter(
+              (p: any) => p.closeLeadDestination !== 'TERM_WISE_DC'
+            )
+          }
           return true
         }
         
@@ -1465,8 +1471,10 @@ export default function ClientDCPage() {
           body: JSON.stringify(updatePayload),
         })
       } else if (term2Only) {
-        console.log('📦 DC has only Term 2 products - going to Term-Wise DC (NOT Closed Sales)')
-        updatePayload.status = 'scheduled_for_later' // Goes to Term-Wise DC
+        // Term 2 only: still enter Closed Sales when Executive requests from My Clients.
+        // (Previously parked only in Term-Wise and never set DcOrder dc_requested.)
+        console.log('📦 Request DC (Term 2 only) → Closed Sales queue (DcOrder dc_requested)')
+        updatePayload.status = 'po_submitted'
         updatedDC = await apiRequest(`/dc/${selectedDC._id}`, {
           method: 'PUT',
           body: JSON.stringify(updatePayload),
@@ -1718,10 +1726,10 @@ export default function ClientDCPage() {
         console.warn('⚠️ Total amount is 0; backend billing recompute will still run on delivery events')
       }
 
-      // Update the related DcOrder status based on terms
-      // Term 1 or "Both" DCs should update DcOrder to 'dc_requested' (appears in Closed Sales)
-      // Term 2 only DCs don't need DcOrder update (they appear in Term-Wise DC via DC status, NOT Closed Sales)
-      if (selectedDC.dcOrderId && !term2Only) {
+      // Update the related DcOrder status so Super Admin Closed Sales can find it.
+      // Term 1, Both, and Term 2-only requests from My Clients all set dc_requested.
+      // (Split Term 2 companion DCs still use scheduled_for_later on the Term 2 DC doc.)
+      if (selectedDC.dcOrderId) {
         try {
           const dcOrderId = typeof selectedDC.dcOrderId === 'object' 
             ? selectedDC.dcOrderId._id 
@@ -1785,8 +1793,6 @@ export default function ClientDCPage() {
           // Continue even if DcOrder update fails, but show warning
           toast.warning('DC updated but failed to update DcOrder status. Please check Closed Sales manually.')
         }
-      } else if (term2Only) {
-        console.log('📦 Term 2 only DC - no DcOrder update needed, appears in Term-Wise DC (NOT Closed Sales)')
       } else {
         console.warn('⚠️ No dcOrderId found on DC, cannot update DcOrder status')
       }
@@ -1849,13 +1855,9 @@ export default function ClientDCPage() {
         toast.success(
           'Term 1 and Term 2 sent together to Closed Sales for Admin/Coordinator review.'
         )
-      } else if (term1Only || hasTerm1 || hasBothTerm) {
+      } else if (term1Only || hasTerm1 || hasBothTerm || term2Only) {
         toast.success(
           'Request sent to Closed Sales. Admin/Coordinator will Raise DC; then it moves to Pending DC and warehouse.'
-        )
-      } else if (term2Only) {
-        toast.success(
-          'DC requested successfully! It will appear in Term-Wise DC. Request DC there when ready for Closed Sales.'
         )
       } else {
         toast.success('Client Request submitted successfully!')

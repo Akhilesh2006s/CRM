@@ -9,10 +9,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { getCurrentUser } from '@/lib/auth'
 import ChatbotWidget from '@/components/ChatbotWidget'
 import { lookupPincode, type PostOfficeArea } from '@/lib/pincode'
 import { toast } from 'sonner'
+import { useProducts } from '@/hooks/useProducts'
 import {
   validateContactMobile,
   validateContactPerson,
@@ -23,6 +25,14 @@ import {
 /** Create Sale School Type options (Super Admin / Coordinator). */
 const CREATE_SALE_SCHOOL_TYPES = ['New', 'Existing'] as const
 type CreateSaleSchoolType = (typeof CREATE_SALE_SCHOOL_TYPES)[number]
+
+type ProductSelection = {
+  name: string
+  checked: boolean
+  price: number
+  quantity: number
+  strength: number
+}
 
 function normalizeCreateSaleSchoolType(value: unknown): CreateSaleSchoolType | '' {
   if (typeof value !== 'string') return ''
@@ -35,6 +45,9 @@ export default function CreateDealPage() {
   const router = useRouter()
   const currentUser = getCurrentUser()
   const tenantId = currentUser?._id || ''
+  const { productNames: availableProducts } = useProducts()
+  const isSuperAdmin =
+    currentUser?.role === 'Super Admin' || Boolean((currentUser as any)?.isSuperAdmin)
   
   const [form, setForm] = useState({
     school_type: '',
@@ -74,7 +87,49 @@ export default function CreateDealPage() {
     contact_person2?: string
     contact_mobile2?: string
     follow_up_date?: string
+    products?: string
   }>({})
+
+  // Super Admin Create Sale: product checklist (reuse CRM product master)
+  const [products, setProducts] = useState<ProductSelection[]>([])
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    if (availableProducts.length > 0 && products.length === 0) {
+      setProducts(
+        availableProducts.map((p) => ({
+          name: p,
+          checked: false,
+          price: 0,
+          quantity: 1,
+          strength: 0,
+        }))
+      )
+    }
+  }, [availableProducts, isSuperAdmin, products.length])
+
+  const handleProductCheck = (index: number, checked: boolean) => {
+    const updated = [...products]
+    updated[index].checked = checked
+    setProducts(updated)
+    if (checked) {
+      setFieldErrors((prev) => {
+        if (!prev.products) return prev
+        const next = { ...prev }
+        delete next.products
+        return next
+      })
+    }
+  }
+
+  const handleProductFieldChange = (
+    index: number,
+    field: 'price' | 'quantity' | 'strength',
+    value: number
+  ) => {
+    const updated = [...products]
+    updated[index][field] = value
+    setProducts(updated)
+  }
   
   const [employees, setEmployees] = useState<{ _id: string; name: string }[]>([])
   const [loadingEmployees, setLoadingEmployees] = useState(true)
@@ -282,16 +337,31 @@ export default function CreateDealPage() {
       if (!contactMobileCheck.ok) nextFieldErrors.contact_mobile = contactMobileCheck.message
 
       const contactPerson2Check = validateContactPerson(form.contact_person2, {
-        required: false,
+        required: true,
         label: 'Contact Person 2',
       })
       if (!contactPerson2Check.ok) nextFieldErrors.contact_person2 = contactPerson2Check.message
 
-      const contactMobile2Check = validateContactMobile(form.contact_mobile2, { required: false })
+      const contactMobile2Check = validateContactMobile(form.contact_mobile2, { required: true })
       if (!contactMobile2Check.ok) nextFieldErrors.contact_mobile2 = contactMobile2Check.message
 
       if (!form.follow_up_date || !String(form.follow_up_date).trim()) {
         nextFieldErrors.follow_up_date = 'Follow-up Date is required.'
+      }
+
+      const selectedProducts = isSuperAdmin
+        ? products
+            .filter((p) => p.checked)
+            .map((p) => ({
+              product_name: p.name,
+              quantity: p.quantity || 1,
+              unit_price: p.price || 0,
+              strength: p.strength || 0,
+            }))
+        : []
+
+      if (isSuperAdmin && selectedProducts.length === 0) {
+        nextFieldErrors.products = 'Please select at least one product.'
       }
 
       setFieldErrors(nextFieldErrors)
@@ -359,8 +429,8 @@ export default function CreateDealPage() {
         school_type: form.school_type || undefined,
         contact_person: contactPersonCheck.value,
         contact_mobile: contactMobileCheck.value,
-        contact_person2: contactPerson2Check.value || undefined,
-        contact_mobile2: contactMobile2Check.value || undefined,
+        contact_person2: contactPerson2Check.value,
+        contact_mobile2: contactMobile2Check.value,
         location: form.location,
         address: form.address.trim(),
         pincode: schoolPincode || undefined,
@@ -374,7 +444,7 @@ export default function CreateDealPage() {
         strength: Number(form.strength),
         remarks: form.remarks.trim(),
         email: form.email.trim(),
-        products: [],
+        products: selectedProducts,
         estimated_delivery_date: followUpIso,
         follow_up_date: followUpIso,
         assigned_to: form.assigned_to,
@@ -384,8 +454,26 @@ export default function CreateDealPage() {
         _id?: string
         dc?: { _id?: string }
         dcCreated?: boolean
+        assignedToLeadWorkflow?: boolean
+        assigned_to?: string | { _id?: string; name?: string }
         message?: string
       }>('/dc-orders/create', { method: 'POST', body: JSON.stringify(payload) })
+
+      // Super Admin + assigned Executive: sale enters that Executive's Leads (no auto-DC / Closed Sales).
+      if (isSuperAdmin && (created?.assignedToLeadWorkflow || (!created?.dc && !created?.dcCreated))) {
+        if (!created?._id) {
+          throw new Error(created?.message || 'Sale was not created. Please try again.')
+        }
+        const assigneeName =
+          typeof created.assigned_to === 'object' && created.assigned_to?.name
+            ? created.assigned_to.name
+            : 'the selected Executive'
+        alert(
+          `Sale created successfully and assigned to ${assigneeName}. It will appear in their Leads for follow-up — not in Closed Sales until they request a DC.`
+        )
+        router.push('/dashboard/dc/create')
+        return
+      }
 
       if (!created?.dc && !created?.dcCreated) {
         throw new Error(
@@ -398,13 +486,11 @@ export default function CreateDealPage() {
         'Deal created successfully! DC entry has been automatically created. You can view it under Clients → All Created DCs.'
       )
 
-      // Same All Created DCs page for Coordinator / Admin / Super Admin (role-scoped on API).
+      // Same All Created DCs page for Coordinator / Admin (role-scoped on API).
       const redirectPath =
         currentUser?.role === 'Admin' ||
-        currentUser?.role === 'Super Admin' ||
         currentUser?.role === 'Coordinator' ||
-        currentUser?.role === 'Senior Coordinator' ||
-        Boolean((currentUser as any)?.isSuperAdmin)
+        currentUser?.role === 'Senior Coordinator'
           ? '/dashboard/dc/admin/my'
           : currentUser?.role === 'Executive'
             ? '/dashboard/dc/my'
@@ -521,19 +607,20 @@ export default function CreateDealPage() {
             />
           </div>
           <div>
-            <Label>Contact Person 2</Label>
+            <Label>Contact Person 2 *</Label>
             <Input
               className={`bg-white text-neutral-900 ${fieldErrors.contact_person2 ? 'border-red-500' : ''}`}
               name="contact_person2"
               value={form.contact_person2}
               onChange={onChange}
+              required
             />
             {fieldErrors.contact_person2 && (
               <p className="text-xs text-red-600 mt-1">{fieldErrors.contact_person2}</p>
             )}
           </div>
           <div>
-            <Label>Contact Mobile 2</Label>
+            <Label>Contact Mobile 2 *</Label>
             <Input
               className={`bg-white text-neutral-900 ${fieldErrors.contact_mobile2 ? 'border-red-500' : ''}`}
               name="contact_mobile2"
@@ -541,6 +628,7 @@ export default function CreateDealPage() {
               onChange={onChange}
               inputMode="numeric"
               maxLength={10}
+              required
             />
             {fieldErrors.contact_mobile2 && (
               <p className="text-xs text-red-600 mt-1">{fieldErrors.contact_mobile2}</p>
@@ -606,6 +694,118 @@ export default function CreateDealPage() {
             <Label>Address *</Label>
             <Textarea className="bg-white text-neutral-900" name="address" value={form.address} onChange={onChange} required />
           </div>
+
+          {isSuperAdmin && (
+            <div className="md:col-span-2 space-y-2">
+              <Label>Products *</Label>
+              <div
+                className={`space-y-3 p-4 bg-white rounded border ${
+                  fieldErrors.products ? 'border-red-500' : 'border-neutral-200'
+                }`}
+              >
+                {products.length === 0 ? (
+                  <p className="text-sm text-neutral-500">Loading products...</p>
+                ) : (
+                  products.map((product, index) => (
+                    <div
+                      key={product.name}
+                      className="flex items-center gap-4 p-2 border rounded hover:bg-gray-50"
+                    >
+                      <div className="flex items-center space-x-2 min-w-[200px]">
+                        <Checkbox
+                          id={`create-sale-product-${index}`}
+                          checked={product.checked}
+                          onCheckedChange={(checked) =>
+                            handleProductCheck(index, checked as boolean)
+                          }
+                        />
+                        <Label
+                          htmlFor={`create-sale-product-${index}`}
+                          className="font-medium cursor-pointer"
+                        >
+                          {product.name}
+                        </Label>
+                      </div>
+
+                      {product.checked && (
+                        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-3">
+                          <div className="space-y-2">
+                            <Label htmlFor={`create-sale-product-price-${index}`} className="text-xs">
+                              Price (₹)
+                            </Label>
+                            <Input
+                              id={`create-sale-product-price-${index}`}
+                              type="number"
+                              className="bg-white text-neutral-900 h-8"
+                              value={product.price || ''}
+                              onChange={(e) =>
+                                handleProductFieldChange(
+                                  index,
+                                  'price',
+                                  Number(e.target.value) || 0
+                                )
+                              }
+                              placeholder="0"
+                              min="0"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`create-sale-product-qty-${index}`} className="text-xs">
+                              Quantity
+                            </Label>
+                            <Input
+                              id={`create-sale-product-qty-${index}`}
+                              type="number"
+                              className="bg-white text-neutral-900 h-8"
+                              value={product.quantity || ''}
+                              onChange={(e) =>
+                                handleProductFieldChange(
+                                  index,
+                                  'quantity',
+                                  Number(e.target.value) || 1
+                                )
+                              }
+                              placeholder="1"
+                              min="1"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label
+                              htmlFor={`create-sale-product-strength-${index}`}
+                              className="text-xs"
+                            >
+                              Strength
+                            </Label>
+                            <Input
+                              id={`create-sale-product-strength-${index}`}
+                              type="number"
+                              className="bg-white text-neutral-900 h-8"
+                              value={product.strength || ''}
+                              onChange={(e) =>
+                                handleProductFieldChange(
+                                  index,
+                                  'strength',
+                                  Number(e.target.value) || 0
+                                )
+                              }
+                              placeholder="0"
+                              min="0"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-neutral-500 mt-2">
+                Check products to enable Price, Quantity, and Strength fields for each product.
+              </p>
+              {fieldErrors.products && (
+                <p className="text-xs text-red-600 mt-1">{fieldErrors.products}</p>
+              )}
+            </div>
+          )}
 
           <div>
             <Label>Deal Status</Label>

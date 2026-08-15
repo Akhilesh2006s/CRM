@@ -385,6 +385,88 @@ function applySuperAdminNavOrder(nav: NavItem[]): NavItem[] {
   return [...rest, ...settings, ...signOut]
 }
 
+/** Executive: preferred sidebar order; Settings before Samples, then Sign out. */
+function applyExecutiveSidebarOrder(nav: NavItem[]): NavItem[] {
+  const preferred = [
+    'Dashboard',
+    'Clients',
+    'Leads',
+    'Leave Management',
+    'Stock Returns',
+    'Payments',
+    'Expenses',
+    'Settings',
+    'Samples',
+  ] as const
+
+  const isSignOut = (item: NavItem) =>
+    item.label === 'Sign out' || item.href === '/auth/login'
+
+  const byLabel = new Map<string, NavItem>()
+  for (const item of nav) {
+    if (isSignOut(item)) continue
+    byLabel.set(item.label, item)
+  }
+
+  // Existing Executive leave menu may be labeled "My Leaves"
+  if (!byLabel.has('Leave Management') && byLabel.has('My Leaves')) {
+    const leaves = byLabel.get('My Leaves')!
+    byLabel.set('Leave Management', { ...leaves, label: 'Leave Management' })
+    byLabel.delete('My Leaves')
+  }
+
+  // Executive Clients: only My Clients + Term-Wise DC (no Create Sale / Closed Sales / etc.)
+  byLabel.set('Clients', {
+    label: 'Clients',
+    icon: Users,
+    children: [
+      { label: 'My Clients', href: '/dashboard/dc/client-dc', icon: Users },
+      { label: 'Term-Wise DC', href: '/dashboard/dc/client-dc/term-wise', icon: FileText },
+    ],
+  })
+  // My Clients must not remain as a separate top-level item
+  byLabel.delete('My Clients')
+
+  if (!byLabel.has('Settings')) {
+    byLabel.set('Settings', {
+      label: 'Settings',
+      icon: Settings,
+      children: [{ label: 'Change Password', href: '/dashboard/settings/password' }],
+    })
+  }
+
+  const ordered: NavItem[] = []
+  const used = new Set<string>()
+  for (const label of preferred) {
+    const item = byLabel.get(label)
+    if (item) {
+      ordered.push(item)
+      used.add(label)
+    }
+  }
+
+  // Keep any other existing Executive items except My Leaves / top-level My Clients
+  for (const [label, item] of byLabel) {
+    if (!used.has(label) && label !== 'My Leaves' && label !== 'My Clients') {
+      ordered.push(item)
+    }
+  }
+
+  const withoutSettingsAndSamples = ordered.filter(
+    (item) => item.label !== 'Settings' && item.label !== 'Samples'
+  )
+  const settings = byLabel.get('Settings')
+  const samples = byLabel.get('Samples')
+  const signOut = nav.filter(isSignOut)
+
+  return [
+    ...withoutSettingsAndSamples,
+    ...(settings ? [settings] : []),
+    ...(samples ? [samples] : []),
+    ...signOut,
+  ]
+}
+
 /** Role-specific links (e.g. executive-manager dashboard) not in the RBAC catalog. */
 function extractExtraNavItems(
   nav: NavItem[],
@@ -480,21 +562,19 @@ export function Sidebar() {
   const isWarehouseManager = user?.role === 'Warehouse Manager'
   const isPartner = user?.role === 'Partner'
 
-  // Add employee leave menu if employee, replace admin Leave Management
-  const employeeLeavesMenu: NavItem = {
-    label: 'My Leaves',
-    icon: CalendarCheck2,
-    children: [
-      { label: 'Leave Request', href: '/dashboard/leaves/request', icon: PlusCircle },
-      { label: 'Leaves', href: '/dashboard/leaves/approved', icon: CheckCircle2 },
-    ],
-  }
-
-  const leaveManagementIndex = NAV.findIndex(i => i.label === 'Leave Management')
+  // Executive leave items are included in the Executive sidebar as Leave Management
   let finalNav: NavItem[] = []
   if (isEmployee) {
     finalNav = [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+      {
+        label: 'Clients',
+        icon: Users,
+        children: [
+          { label: 'My Clients', href: '/dashboard/dc/client-dc', icon: Users },
+          { label: 'Term-Wise DC', href: '/dashboard/dc/client-dc/term-wise', icon: FileText },
+        ],
+      },
       {
         label: 'Leads',
         icon: TrendingUp,
@@ -505,12 +585,17 @@ export function Sidebar() {
         ],
       },
       {
-        label: 'My Clients',
-        icon: Users,
+        label: 'Leave Management',
+        icon: CalendarCheck2,
         children: [
-          { label: 'My Clients', href: '/dashboard/dc/client-dc', icon: Users },
-          { label: 'Term-Wise DC', href: '/dashboard/dc/client-dc/term-wise', icon: FileText },
+          { label: 'Leave Request', href: '/dashboard/leaves/request', icon: PlusCircle },
+          { label: 'Leaves', href: '/dashboard/leaves/approved', icon: CheckCircle2 },
         ],
+      },
+      {
+        label: 'Stock Returns',
+        icon: RefreshCw,
+        href: '/dashboard/returns/executive',
       },
       {
         label: 'Payments',
@@ -530,19 +615,19 @@ export function Sidebar() {
         ],
       },
       {
-        label: 'Employee Sample',
-        icon: Package,
+        label: 'Settings',
+        icon: Settings,
         children: [
-          { label: 'Request Samples', href: '/dashboard/samples/request', icon: PlusCircle },
-          { label: 'My Samples', href: '/dashboard/samples/my', icon: FileText },
+          { label: 'Change Password', href: '/dashboard/settings/password' },
         ],
       },
       {
-        label: 'Stock Returns',
-        icon: RefreshCw,
-        href: '/dashboard/returns/executive',
+        label: 'Samples',
+        icon: Package,
+        children: [
+          { label: 'Request Samples', href: '/dashboard/samples/request', icon: PlusCircle },
+        ],
       },
-      employeeLeavesMenu,
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
   } else if (isManager) {
@@ -831,7 +916,8 @@ export function Sidebar() {
   }
 
   // Keep role-specific Executive Manager nav intact (do not replace with RBAC catalog).
-  if (rbacActive && permissionsReady && !isExecutiveManager) {
+  // Keep role-specific Executive nav intact so Clients submenu order is preserved.
+  if (rbacActive && permissionsReady && !isExecutiveManager && !isEmployee) {
     const baseNav = finalNav.length > 0 ? finalNav : NAV
     const catalogHrefs = rbacCatalogHrefs()
     const fromPermissions = rbacBuiltToNavItems(buildRbacSidebarNav(permUser))
@@ -840,6 +926,11 @@ export function Sidebar() {
       ...mergeNavExtras(fromPermissions, extras),
       { label: 'Sign out', icon: LogOut, href: '/auth/login' },
     ]
+  }
+
+  // Executive: enforce sidebar order (Clients ▾ with My Clients + Term-Wise DC).
+  if (isEmployee || isExecutive) {
+    finalNav = applyExecutiveSidebarOrder(finalNav)
   }
 
   // Super Admin: hide operational Leads menu (Add/Renewal/Followup). Keep Reports → Leads.

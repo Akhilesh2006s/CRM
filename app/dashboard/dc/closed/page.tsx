@@ -3,16 +3,18 @@
 import { useEffect, useState, useMemo } from 'react'
 import { apiRequest, resolveUploadUrl } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
+import { isSuperAdmin as checkIsSuperAdmin } from '@/lib/permissions'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { X, PlusCircle } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
+import { sanitizeMobileInput, validateContactMobile, validateContactPerson } from '@/lib/saleFormValidation'
 
 /** DcOrder statuses that belong on the Closed Sales page. */
 function isClosedSalesOrderStatus(status?: string) {
@@ -44,6 +46,8 @@ type DcOrder = {
   school_type?: string
   contact_person?: string
   contact_mobile?: string
+  contact_person2?: string
+  contact_mobile2?: string
   email?: string
   address?: string
   location?: string
@@ -135,13 +139,16 @@ export default function ClosedSalesPage() {
   // Get current user to check role
   const currentUser = getCurrentUser()
   const isManager = currentUser?.role === 'Manager'
-  const isSuperAdmin = currentUser?.role === 'Super Admin'
+  const isSuperAdmin = checkIsSuperAdmin(currentUser as any)
   const isCoordinator = currentUser?.role === 'Coordinator'
   const isEmployee = currentUser?.role === 'Executive'
   const isAdmin = currentUser?.role === 'Admin'
   // Employees can request DC, Coordinators/Admins can approve or send to senior
   const canRequestDC = isEmployee
   const canApproveDC = isSuperAdmin || isCoordinator || isAdmin
+  // This Closed Sales form only: Contact Person 2 + Contact Mobile 2 are mandatory
+  // (does not affect Create Sale or other pages).
+  const requireContact2 = true
   
   // Form state for Raise DC modal
   const [dcDate, setDcDate] = useState('')
@@ -152,6 +159,8 @@ export default function ClosedSalesPage() {
     dcDate?: string
     dcCategory?: string
     dcRemarks?: string
+    contact_person2?: string
+    contact_mobile2?: string
   }>({})
   
   // Product rows for DC (like in the Raise DC form)
@@ -305,63 +314,9 @@ export default function ClosedSalesPage() {
         }
       }
       
-      // Also fetch leads with status "Closed" and convert them to DcOrder format
-      try {
-        const closedLeadsRes = await Promise.race([
-          apiRequest<any>(`/leads?status=Closed&limit=500`),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Request timeout')), 8000)
-          )
-        ])
-        const closedLeadsArray = Array.isArray(closedLeadsRes) ? closedLeadsRes : (closedLeadsRes?.data || [])
-        
-        // Convert closed leads to DcOrder format for display
-        const closedLeadsAsDeals: DcOrder[] = closedLeadsArray.map((lead: any) => ({
-          _id: lead._id,
-          school_name: lead.school_name || '',
-          contact_person: lead.contact_person || '',
-          contact_mobile: lead.contact_mobile || '',
-          email: lead.email || '',
-          address: lead.address || lead.location || '',
-          location: lead.location || lead.address || '',
-          zone: lead.zone || '',
-          school_type: lead.school_type || '',
-          products: lead.products || [],
-          assigned_to: lead.managed_by || lead.assigned_by || lead.createdBy || undefined,
-          created_at: lead.createdAt,
-          createdAt: lead.createdAt,
-          remarks: lead.remarks || '',
-          status: 'Closed', // Mark as Closed to distinguish from DcOrders
-          dc_code: undefined, // Leads don't have DC codes
-          pod_proof_url: undefined, // Leads might have PO in associated DC
-          isLead: true, // Flag to identify this is a lead, not a DcOrder
-        }))
-        
-        // Filter out closed leads that have a corresponding DcOrder with status 'dc_requested' or 'dc_accepted'
-        // This prevents duplicates where the same school appears twice (once as closed lead with "Raise DC" and once as DcOrder with "Review DC Request")
-        const filteredClosedLeads = closedLeadsAsDeals.filter((lead: DcOrder) => {
-          // Check if there's a DcOrder with status 'dc_requested' or 'dc_accepted' for this lead
-          // Match by school_name and contact_mobile to identify duplicates
-          const hasMatchingDcOrder = data.some((dcOrder: any) => {
-            const schoolNameMatch = (dcOrder.school_name || '').toLowerCase().trim() === (lead.school_name || '').toLowerCase().trim()
-            const mobileMatch = (dcOrder.contact_mobile || '').trim() === (lead.contact_mobile || '').trim()
-            const isDcRequested = dcOrder.status === 'dc_requested' || dcOrder.status === 'dc_accepted'
-            
-            // If school name and mobile match, and the DcOrder has dc_requested or dc_accepted status, exclude the closed lead
-            return schoolNameMatch && mobileMatch && isDcRequested
-          })
-          
-          // Only include the closed lead if there's no matching DcOrder with dc_requested/dc_accepted status
-          return !hasMatchingDcOrder
-        })
-        
-        // Merge filtered closed leads with DcOrders
-        data = [...data, ...filteredClosedLeads]
-        console.log('Loaded closed leads:', closedLeadsAsDeals.length, 'Filtered to:', filteredClosedLeads.length, '(removed duplicates with dc_requested/dc_accepted status)')
-      } catch (e) {
-        console.warn('Failed to load closed leads:', e)
-        // Continue without closed leads if API fails
-      }
+      // Closed Sales = only after Executive Request DC (DcOrder status dc_requested / dc_accepted).
+      // Do NOT merge Closed leads here — closing a lead / converting to client must stay in
+      // Executive My Clients until Request DC; otherwise sales jump into Closed Sales too early.
       
       console.log('Loaded closed deals:', data)
       console.log('First deal sample:', data[0])
@@ -715,6 +670,8 @@ export default function ClosedSalesPage() {
             school_name: term2DC.customerName || deal.school_name || '',
             contact_person: originalDcOrder?.contact_person || deal.contact_person || '',
             contact_mobile: term2DC.customerPhone || originalDcOrder?.contact_mobile || deal.contact_mobile || '',
+            contact_person2: originalDcOrder?.contact_person2 || (deal as any).contact_person2 || '',
+            contact_mobile2: originalDcOrder?.contact_mobile2 || (deal as any).contact_mobile2 || '',
             email: (term2DC as any).customerEmail || originalDcOrder?.email || deal.email || '',
             address: (term2DC as any).customerAddress || originalDcOrder?.address || deal.address || '',
             location: originalDcOrder?.location || deal.location || '',
@@ -794,6 +751,8 @@ export default function ClosedSalesPage() {
         school_type: fullDeal.school_type || deal.school_type || '',
         contact_person: fullDeal.contact_person || deal.contact_person || '',
         contact_mobile: fullDeal.contact_mobile || deal.contact_mobile || '',
+        contact_person2: (fullDeal as any).contact_person2 || (deal as any).contact_person2 || '',
+        contact_mobile2: (fullDeal as any).contact_mobile2 || (deal as any).contact_mobile2 || '',
         email: fullDeal.email || deal.email || '',
         address: fullDeal.address || deal.address || deal.location || '',
         location: fullDeal.location || deal.location || deal.address || '',
@@ -1018,17 +977,61 @@ export default function ClosedSalesPage() {
     setOpenLocationDialog(true)
   }
 
-  /** DC Date + Category are marked required in the Raise DC UI (*). Remarks is optional. */
+  /** DC Date + Category are marked required in the Raise DC UI (*). Remarks is optional.
+   *  Super Admin Closed Sales also requires Contact Person 2 + Contact Mobile 2. */
   const validateDcDetailsFields = (): boolean => {
-    const next: { dcDate?: string; dcCategory?: string; dcRemarks?: string } = {}
+    const next: {
+      dcDate?: string
+      dcCategory?: string
+      dcRemarks?: string
+      contact_person2?: string
+      contact_mobile2?: string
+    } = {}
     if (!dcDate || !String(dcDate).trim()) {
       next.dcDate = 'DC Date is required.'
     }
     if (!dcCategory || !String(dcCategory).trim()) {
       next.dcCategory = 'DC Category is required.'
     }
+    if (requireContact2) {
+      const person2Check = validateContactPerson(selectedDeal?.contact_person2 || '', {
+        required: true,
+        label: 'Contact Person 2',
+      })
+      if (!person2Check.ok) next.contact_person2 = person2Check.message
+      const mobile2Check = validateContactMobile(selectedDeal?.contact_mobile2 || '', {
+        required: true,
+      })
+      if (!mobile2Check.ok) next.contact_mobile2 = mobile2Check.message
+    }
     setDcDetailsErrors(next)
-    return Object.keys(next).length === 0
+    const ok = Object.keys(next).length === 0
+    if (!ok) {
+      const messages = Object.values(next).filter(Boolean)
+      toast.error(messages[0] || 'Please fill in all required fields.')
+      // Scroll mandatory contact fields into view when they fail
+      if (next.contact_person2 || next.contact_mobile2) {
+        requestAnimationFrame(() => {
+          document.getElementById('closed-sales-contact-person-2')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          })
+        })
+      }
+    }
+    return ok
+  }
+
+  /** Persist Contact Person 2 / Mobile 2 from Closed Sales (Super Admin required). */
+  const closedSalesContact2Payload = () => {
+    if (!selectedDeal) return {}
+    const person2 = String(selectedDeal.contact_person2 || '').trim()
+    const mobile2 = String(selectedDeal.contact_mobile2 || '').trim()
+    return {
+      contact_person2: person2,
+      contact_mobile2: mobile2,
+      ...(requireContact2 ? { validateClosedSalesContact2: true } : {}),
+    }
   }
 
   const handleSubmitToManager = async () => {
@@ -1141,7 +1144,10 @@ export default function ClosedSalesPage() {
       // Leave Closed Sales: DcOrder must no longer be dc_requested/dc_accepted
       await apiRequest(`/dc-orders/${selectedDeal._id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'dc_sent_to_senior' }),
+        body: JSON.stringify({
+          status: 'dc_sent_to_senior',
+          ...closedSalesContact2Payload(),
+        }),
       })
 
       alert(existingDC ? 'DC updated and sent to Senior Coordinator successfully! It will appear in Pending DC list.' : 'DC created and sent to Senior Coordinator successfully! It will appear in Pending DC list.')
@@ -1334,6 +1340,7 @@ export default function ClosedSalesPage() {
           method: 'PUT',
           body: JSON.stringify({
           status: 'saved',
+          ...closedSalesContact2Payload(),
           dcRequestData: {
             dcDate: finalDcDate,
             dcRemarks: finalDcRemarks,
@@ -1475,7 +1482,10 @@ export default function ClosedSalesPage() {
       // Update DcOrder status to 'dc_sent_to_senior' (removes from closed sales)
       await apiRequest(`/dc-orders/${selectedDeal._id}`, {
         method: 'PUT',
-        body: JSON.stringify({ status: 'dc_sent_to_senior' }),
+        body: JSON.stringify({
+          status: 'dc_sent_to_senior',
+          ...closedSalesContact2Payload(),
+        }),
       })
 
       alert('DC request sent to Senior Coordinator! It will appear in Pending DC list.')
@@ -2069,35 +2079,11 @@ export default function ClosedSalesPage() {
 
               {/* Products Table - Editable */}
               <div className="border-t border-slate-200 pt-8 mt-8">
-                <div className="mb-6 flex justify-between items-center">
+                <div className="mb-6">
                   <div>
                     <Label className="text-xl font-bold text-slate-900">Products & Quantities</Label>
                     <p className="text-sm text-slate-500 mt-1">Product details and quantities</p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const newRow: ProductRow = {
-                        id: Date.now().toString(),
-                        product: '',
-                        class: '1',
-                        category: selectedDeal?.school_type === 'Existing' ? 'Old Students' : 'new Students',
-                        specs: 'Regular',
-                        quantity: 1,
-                        strength: 0,
-                        level: 'L2',
-                        term: 'Term 1',
-                        unit_price: 0,
-                      }
-                      setProductRows([...productRows, newRow])
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    Add Product
-                  </Button>
                 </div>
                 
                 <div className="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
@@ -2376,6 +2362,56 @@ export default function ClosedSalesPage() {
                   <p className="text-sm text-slate-500">Enter delivery challan information</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 p-6 rounded-lg border border-slate-200">
+                  <div>
+                    <Label className="text-sm font-semibold mb-2.5 block text-slate-700">Contact Person 2 *</Label>
+                    <Input
+                      id="closed-sales-contact-person-2"
+                      value={selectedDeal.contact_person2 || ''}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setSelectedDeal((prev) => (prev ? { ...prev, contact_person2: value } : prev))
+                        if (dcDetailsErrors.contact_person2) {
+                          setDcDetailsErrors((prev) => {
+                            const next = { ...prev }
+                            delete next.contact_person2
+                            return next
+                          })
+                        }
+                      }}
+                      required
+                      className={`h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white ${dcDetailsErrors.contact_person2 ? 'border-red-500' : ''}`}
+                      placeholder="Contact Person 2"
+                    />
+                    {dcDetailsErrors.contact_person2 && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.contact_person2}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold mb-2.5 block text-slate-700">Contact Mobile 2 *</Label>
+                    <Input
+                      id="closed-sales-contact-mobile-2"
+                      value={selectedDeal.contact_mobile2 || ''}
+                      onChange={(e) => {
+                        const value = sanitizeMobileInput(e.target.value)
+                        setSelectedDeal((prev) => (prev ? { ...prev, contact_mobile2: value } : prev))
+                        if (dcDetailsErrors.contact_mobile2) {
+                          setDcDetailsErrors((prev) => {
+                            const next = { ...prev }
+                            delete next.contact_mobile2
+                            return next
+                          })
+                        }
+                      }}
+                      inputMode="numeric"
+                      maxLength={10}
+                      required
+                      className={`h-11 text-sm border-slate-200 hover:border-blue-400 focus:border-blue-500 focus:ring-blue-500 bg-white ${dcDetailsErrors.contact_mobile2 ? 'border-red-500' : ''}`}
+                      placeholder="10-digit mobile number"
+                    />
+                    {dcDetailsErrors.contact_mobile2 && (
+                      <p className="text-xs text-red-600 mt-1">{dcDetailsErrors.contact_mobile2}</p>
+                    )}
+                  </div>
                   <div>
                     <Label className="text-sm font-semibold mb-2.5 block text-slate-700">DC Date *</Label>
                     <Input

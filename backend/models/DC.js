@@ -294,6 +294,11 @@ const dcSchema = new mongoose.Schema({
       enum: ['Term 1', 'Term 2', 'Both'],
       default: 'Term 1',
     },
+    // Set at Close Lead: MY_CLIENT | TERM_WISE_DC (row-level routing stamp)
+    closeLeadDestination: {
+      type: String,
+      enum: ['MY_CLIENT', 'TERM_WISE_DC'],
+    },
   }],
   // Location tracking for mobile app
   latitude: {

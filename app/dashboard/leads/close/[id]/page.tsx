@@ -13,6 +13,7 @@ import { ArrowLeft, CheckCircle2, X } from 'lucide-react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { normalizeProductTerm, termFromLevelLabel } from '@/lib/productTerm'
+import { partitionProductsForCloseLeadRouting } from '@/lib/closeLeadTermRouting'
 import {
   type ProductDetailRow,
   productDetailsToSections,
@@ -57,6 +58,8 @@ export default function CloseLeadPage() {
   
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  /** True when the record was loaded from /dc-orders (not /leads). */
+  const [isDcOrderRecord, setIsDcOrderRecord] = useState(false)
   const [lead, setLead] = useState<Lead | null>(null)
   const [error, setError] = useState<string | null>(null)
   
@@ -108,9 +111,11 @@ export default function CloseLeadPage() {
       let leadData: any = null
       try {
         leadData = await apiRequest<any>(`/dc-orders/${leadId}`)
+        setIsDcOrderRecord(true)
       } catch {
         // If not found, try leads API
         leadData = await apiRequest<any>(`/leads/${leadId}`)
+        setIsDcOrderRecord(false)
       }
       
       if (leadData) {
@@ -528,8 +533,8 @@ export default function CloseLeadPage() {
       const assignedEmployeeId = currentUser._id
       
       // Determine if this is a DC Order or Lead based on what was loaded
-      // The lead state was set from loadLead which tries dc-orders first, then leads
-      const isDcOrder = lead && lead.dc_code !== undefined
+      // (dc_code alone is unreliable — Super Admin Create Sale orders often have no dc_code yet)
+      const isDcOrder = isDcOrderRecord
       
       // Prepare update payload
       const updatePayload: any = {
@@ -556,9 +561,9 @@ export default function CloseLeadPage() {
       
       try {
         if (isDcOrder) {
-          // DC Order status enum: 'saved', 'pending', 'in_transit', 'completed', 'hold', 'dc_requested', 'dc_accepted', 'dc_approved', 'dc_sent_to_senior'
-          // Don't set status to 'Closed' - use 'completed' or 'saved' instead
-          updatePayload.status = 'completed' // Use 'completed' for DC Orders when closing
+          // DC Order status enum: 'saved', 'pending', 'in_transit', 'completed', 'hold', ...
+          // Use 'saved' so the record appears in Executive My Clients (same as convert-to-client).
+          updatePayload.status = 'saved'
           
           const updated = await apiRequest(`/dc-orders/${leadId}`, {
             method: 'PUT',
@@ -675,12 +680,16 @@ export default function CloseLeadPage() {
           specs: p.specs || 'Regular', // Include specs
           subject: p.subject || undefined, // Include subject if present
           deliverables,
-          term: normalizeProductTerm(
-            termFromLevel ||
+          // Do not force empty → Term 1 here; routing must see real Term 2 / no-term selections.
+          term: (() => {
+            const raw =
+              termFromLevel ||
               (p as any).term ||
               termFromLevelLabel((p as any).level) ||
               (parentRow as any)?.term
-          ),
+            if (raw == null || String(raw).trim() === '') return undefined
+            return normalizeProductTerm(raw)
+          })(),
         }
       })
       
@@ -688,22 +697,19 @@ export default function CloseLeadPage() {
       // so having multiple specs for the same class does NOT multiply the strength.
       const totalQuantity = groupedProductDetails.reduce((sum, p) => sum + (p.strength || 0), 0)
 
-      const term1Items = dcProductDetails.filter(p =>
-        (p.term || 'Term 1') === 'Term 1' || (p.term || 'Term 1') === 'Both'
-      )
-      const term2Items = dcProductDetails.filter(p =>
-        (p.term || 'Term 1') === 'Term 2'
-      )
+      // Group by product: Term/Level 2 → Term-Wise only when same product also has Term/Level 1.
+      const { myClientsProducts, termWiseProducts, needsTermWiseSplit } =
+        partitionProductsForCloseLeadRouting(dcProductDetails)
 
-      if (term1Items.length > 0 && term2Items.length > 0) {
+      if (needsTermWiseSplit) {
         setSubmitting(false)
         setSplitPreview({
-          term1: term1Items.map((p: any) => ({
-            productName: p.productName || p.product,
+          term1: myClientsProducts.map((p: any) => ({
+            productName: `${p.productName || p.product}${p.level ? ` (${p.level})` : p.term ? ` (${p.term})` : ''}`,
             strength: p.strength || p.quantity || 0,
           })),
-          term2: term2Items.map((p: any) => ({
-            productName: p.productName || p.product,
+          term2: termWiseProducts.map((p: any) => ({
+            productName: `${p.productName || p.product}${p.level ? ` (${p.level})` : p.term ? ` (${p.term})` : ''}`,
             strength: p.strength || p.quantity || 0,
           })),
         })

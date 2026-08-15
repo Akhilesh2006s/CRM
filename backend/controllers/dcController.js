@@ -17,6 +17,7 @@ const path = require('path');
 const fs = require('fs');
 const { validateSetPendingDc } = require('../utils/dcStatusFlow');
 const { validateRaiseDcDetails, validatePendingDcDetails } = require('../utils/raiseDcDetailsValidation');
+const { partitionProductsForCloseLeadRouting } = require('../utils/productTerm');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -139,11 +140,104 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       specs,
       subject: p.subject || undefined,
       term: p.term || 'Term 1',
+      ...(p.closeLeadDestination === 'MY_CLIENT' || p.closeLeadDestination === 'TERM_WISE_DC'
+        ? { closeLeadDestination: p.closeLeadDestination }
+        : {}),
     };
   });
 
 const calculateTotalQuantity = (rows = []) =>
   (Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + qtyFromRow(row), 0);
+
+/**
+ * Persist per-product Close Lead routing for a sale:
+ * My Clients DC gets MY_CLIENT rows; Term-Wise DC gets only paired Level 2 / Term 2 rows.
+ * Removes incorrect Term-Wise companions (e.g. Term-2-only products).
+ */
+async function repairSaleCloseLeadRouting(dcOrderId) {
+  if (!dcOrderId) return null;
+
+  const sourceStatuses = ['created', 'po_submitted', 'scheduled_for_later'];
+  const sourceDcs = await DC.find({
+    dcOrderId,
+    status: { $in: sourceStatuses },
+  }).sort({ createdAt: 1 });
+
+  if (!sourceDcs.length) return null;
+
+  const allRows = [];
+  for (const d of sourceDcs) {
+    for (const p of d.productDetails || []) {
+      const plain = typeof p.toObject === 'function' ? p.toObject() : { ...p };
+      delete plain.closeLeadDestination;
+      delete plain._id;
+      allRows.push(plain);
+    }
+  }
+  if (!allRows.length) return null;
+
+  const {
+    myClientsProducts,
+    termWiseProducts,
+    needsTermWiseSplit,
+  } = partitionProductsForCloseLeadRouting(allRows);
+
+  const mainDc = sourceDcs.find((d) => d.status !== 'scheduled_for_later');
+  let twDc = sourceDcs.find((d) => d.status === 'scheduled_for_later');
+  const qty = (rows) =>
+    rows.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
+  const nameOf = (rows, fallback) =>
+    (rows[0] && (rows[0].product || rows[0].productName)) || fallback;
+
+  if (mainDc) {
+    mainDc.productDetails = normalizeProductDetails(myClientsProducts);
+    mainDc.requestedQuantity = qty(myClientsProducts);
+    mainDc.product = nameOf(myClientsProducts, mainDc.product);
+    await mainDc.save();
+  }
+
+  if (needsTermWiseSplit && termWiseProducts.length > 0) {
+    const twDetails = normalizeProductDetails(termWiseProducts);
+    const twQty = qty(termWiseProducts);
+    const twName = nameOf(termWiseProducts, twDc?.product || mainDc?.product);
+
+    if (twDc) {
+      twDc.productDetails = twDetails;
+      twDc.requestedQuantity = twQty;
+      twDc.product = twName;
+      twDc.status = 'scheduled_for_later';
+      await twDc.save();
+      await DC.deleteMany({
+        dcOrderId,
+        status: 'scheduled_for_later',
+        _id: { $ne: twDc._id },
+      });
+    } else if (mainDc) {
+      twDc = await DC.create({
+        dcOrderId: mainDc.dcOrderId,
+        employeeId: mainDc.employeeId,
+        customerName: mainDc.customerName,
+        customerEmail: mainDc.customerEmail,
+        customerAddress: mainDc.customerAddress,
+        customerPhone: mainDc.customerPhone,
+        product: twName,
+        requestedQuantity: twQty,
+        deliverableQuantity: 0,
+        status: 'scheduled_for_later',
+        createdBy: mainDc.createdBy,
+        productDetails: twDetails,
+        dcType: 'normal',
+        fulfillmentStatus: 'full',
+        poPhotoUrl: mainDc.poPhotoUrl,
+        poDocument: mainDc.poDocument,
+      });
+    }
+  } else {
+    await DC.deleteMany({ dcOrderId, status: 'scheduled_for_later' });
+  }
+
+  return { myClientsProducts, termWiseProducts, needsTermWiseSplit };
+}
 
 const hasQuantityFieldsInUpdate = (body = {}) =>
   body.requestedQuantity !== undefined ||
@@ -526,6 +620,56 @@ const getDCs = async (req, res) => {
       }
     }
 
+    // Persist per-product Close Lead routing so Term-Wise / My Clients survive refresh.
+    // Fixes legacy sales that wrongly stored Term-2-only (or whole-sale) rows on Term-Wise.
+    if (
+      status === 'scheduled_for_later' ||
+      status === 'created' ||
+      status === 'po_submitted'
+    ) {
+      const orderIds = [
+        ...new Set(
+          filteredDCs
+            .map((dc) => String(dc.dcOrderId?._id || dc.dcOrderId || ''))
+            .filter(Boolean)
+        ),
+      ];
+      for (const orderId of orderIds) {
+        try {
+          await repairSaleCloseLeadRouting(orderId);
+        } catch (repairErr) {
+          console.warn('repairSaleCloseLeadRouting failed:', orderId, repairErr?.message || repairErr);
+        }
+      }
+      if (orderIds.length > 0) {
+        const existingIds = filteredDCs.map((dc) => dc._id);
+        let refreshed = await DC.find({ _id: { $in: existingIds } })
+          .populate('saleId', 'customerName product quantity status poDocument')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+          .populate('employeeId', 'name email role')
+          .populate('createdBy', 'name email role')
+          .lean();
+
+        if (status === 'scheduled_for_later') {
+          refreshed = refreshed.filter((dc) => dc.status === 'scheduled_for_later');
+          const extras = await DC.find({
+            dcOrderId: { $in: orderIds },
+            status: 'scheduled_for_later',
+            _id: { $nin: existingIds },
+          })
+            .populate('saleId', 'customerName product quantity status poDocument')
+            .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+            .populate('employeeId', 'name email role')
+            .populate('createdBy', 'name email role')
+            .lean();
+          refreshed = [...refreshed, ...extras];
+        } else {
+          refreshed = refreshed.filter((dc) => dc.status === status);
+        }
+        filteredDCs = refreshed;
+      }
+    }
+
     res.json(filteredDCs);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -590,7 +734,7 @@ const raiseDC = async (req, res) => {
     });
     
     const { dcOrderId, dcDate, dcRemarks, dcCategory, dcNotes, requestedQuantity } = req.body;
-    const productDetailsFromBody = req.body.productDetails && Array.isArray(req.body.productDetails) ? req.body.productDetails : null;
+    let productDetailsFromBody = req.body.productDetails && Array.isArray(req.body.productDetails) ? req.body.productDetails : null;
 
     if (!dcOrderId) {
       console.log('❌ DC Order ID is missing');
@@ -825,17 +969,15 @@ const raiseDC = async (req, res) => {
       return res.status(200).json(populatedShortageDc);
     }
 
-    // --- Term split: do it in backend from full productDetails ---
-    const terms = (productDetailsFromBody || []).map(p => (p.term || 'Term 1').trim());
-    const hasTerm1 = terms.includes('Term 1');
-    const hasTerm2 = terms.includes('Term 2');
-    const hasBothTerm = terms.includes('Both');
-    const term1Products = (productDetailsFromBody || []).filter(p => {
-      const t = (p.term || 'Term 1').trim();
-      return t === 'Term 1' || t === 'Both';
-    });
-    const term2Products = (productDetailsFromBody || []).filter(p => (p.term || 'Term 1').trim() === 'Term 2');
-    const needsSplit = term1Products.length > 0 && term2Products.length > 0;
+    // --- Close Lead row routing (group by product) ---
+    // Level/Term 2 → Term-Wise ONLY when the same product also has Level/Term 1.
+    // Term 2 alone / Level 2 alone / no term → My Clients.
+    const {
+      myClientsProducts,
+      termWiseProducts,
+      needsTermWiseSplit,
+    } = partitionProductsForCloseLeadRouting(productDetailsFromBody || []);
+    const mainStatus = req.body.status || 'pending_dc';
 
     const buildDcPayload = (details, status, qty) => {
       const productName = (details && details[0] && (details[0].product || details[0].productName)) || (dcOrder.products && dcOrder.products[0] && dcOrder.products[0].product_name) || 'Abacus';
@@ -871,64 +1013,88 @@ const raiseDC = async (req, res) => {
       return payload;
     };
 
-    if (needsSplit) {
-      // Split in backend: Term 1 + Both → pending_dc, Term 2 → scheduled_for_later
-      const term1Qty = term1Products.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
-      const term2Qty = term2Products.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
-      const existingDcs = await DC.find({ dcOrderId: dcOrder._id }).sort({ status: 1, createdAt: 1 });
-      const dcPending = existingDcs.find(d => d.status !== 'scheduled_for_later');
-      const dcTerm2 = existingDcs.find(d => d.status === 'scheduled_for_later');
+    if (needsTermWiseSplit) {
+      // My Clients portion keeps caller status (created on Close Lead; pending_dc on Closed Sales raise).
+      // Paired Level 2 / Term 2 rows only → Term-Wise DC (scheduled_for_later).
+      let resolvedMainStatus = mainStatus;
+      if (resolvedMainStatus === 'pending_dc') {
+        const existingForCheck = await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 });
+        const pendingCheck = validateSetPendingDc(existingForCheck, req.user?.role, 'pending_dc');
+        if (!pendingCheck.allowed) {
+          resolvedMainStatus = pendingCheck.coercedStatus || 'po_submitted';
+        }
+      }
 
-      // Term 1 DC (pending_dc)
-      if (dcPending) {
-        // Ensure productDetails are properly formatted and saved
-        dcPending.productDetails = normalizeProductDetails(term1Products);
-        dcPending.requestedQuantity = term1Qty;
-        dcPending.status = 'pending_dc';
-        dcPending.workflowStage = WORKFLOW_STAGE.PendingDC;
-        dcPending.dcType = 'normal';
-        dcPending.fulfillmentStatus = 'full';
-        if (req.body.dcDate) dcPending.deliveryDate = new Date(req.body.dcDate);
-        if (req.body.dcRemarks) dcPending.deliveryNotes = req.body.dcRemarks;
-        if (req.body.dcNotes) dcPending.deliveryNotes = req.body.dcNotes ? (dcPending.deliveryNotes ? dcPending.deliveryNotes + '\n' + req.body.dcNotes : req.body.dcNotes) : dcPending.deliveryNotes;
-        if (req.body.poPhotoUrl) { dcPending.poPhotoUrl = req.body.poPhotoUrl; dcPending.poDocument = req.body.poPhotoUrl; }
-        if (!dcPending.poPhotoUrl && dcOrder.pod_proof_url) { dcPending.poPhotoUrl = dcOrder.pod_proof_url; dcPending.poDocument = dcOrder.pod_proof_url; }
-        console.log('💾 Saving Term 1 DC with productDetails:', {
-          dcId: dcPending._id,
-          productDetailsCount: dcPending.productDetails.length,
-          productDetails: dcPending.productDetails
+      const myClientsQty = myClientsProducts.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
+      const termWiseQty = termWiseProducts.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
+      const existingDcs = await DC.find({ dcOrderId: dcOrder._id }).sort({ status: 1, createdAt: 1 });
+      const dcMain = existingDcs.find(d => d.status !== 'scheduled_for_later');
+      let dcTerm2 = existingDcs.find(d => d.status === 'scheduled_for_later');
+      const mainStage = workflowStageFromDcStatus(resolvedMainStatus);
+
+      if (dcMain) {
+        dcMain.productDetails = normalizeProductDetails(myClientsProducts);
+        dcMain.requestedQuantity = myClientsQty;
+        dcMain.status = resolvedMainStatus;
+        if (mainStage) dcMain.workflowStage = mainStage;
+        else dcMain.workflowStage = undefined;
+        dcMain.dcType = 'normal';
+        dcMain.fulfillmentStatus = 'full';
+        if (req.body.dcDate) dcMain.deliveryDate = new Date(req.body.dcDate);
+        if (req.body.dcRemarks) dcMain.deliveryNotes = req.body.dcRemarks;
+        if (req.body.dcNotes) dcMain.deliveryNotes = req.body.dcNotes ? (dcMain.deliveryNotes ? dcMain.deliveryNotes + '\n' + req.body.dcNotes : req.body.dcNotes) : dcMain.deliveryNotes;
+        if (req.body.poPhotoUrl) { dcMain.poPhotoUrl = req.body.poPhotoUrl; dcMain.poDocument = req.body.poPhotoUrl; }
+        if (!dcMain.poPhotoUrl && dcOrder.pod_proof_url) { dcMain.poPhotoUrl = dcOrder.pod_proof_url; dcMain.poDocument = dcOrder.pod_proof_url; }
+        const mainProductName = (myClientsProducts[0] && (myClientsProducts[0].product || myClientsProducts[0].productName)) || dcMain.product;
+        if (mainProductName) dcMain.product = mainProductName;
+        console.log('💾 Saving My Clients DC (split) with productDetails:', {
+          dcId: dcMain._id,
+          status: resolvedMainStatus,
+          productDetailsCount: dcMain.productDetails.length,
         });
-        await dcPending.save();
+        await dcMain.save();
       } else {
-        const payload = buildDcPayload(term1Products, 'pending_dc', term1Qty);
-        console.log('💾 Creating new Term 1 DC with productDetails:', {
+        const payload = buildDcPayload(myClientsProducts, resolvedMainStatus, myClientsQty);
+        console.log('💾 Creating My Clients DC (split) with productDetails:', {
+          status: resolvedMainStatus,
           productDetailsCount: payload.productDetails?.length || 0,
-          productDetails: payload.productDetails
         });
         await DC.create(payload);
       }
 
-      // Term 2 DC (scheduled_for_later)
       if (dcTerm2) {
-        dcTerm2.productDetails = normalizeProductDetails(term2Products);
-        dcTerm2.requestedQuantity = term2Qty;
+        dcTerm2.productDetails = normalizeProductDetails(termWiseProducts);
+        dcTerm2.requestedQuantity = termWiseQty;
         dcTerm2.status = 'scheduled_for_later';
         dcTerm2.dcType = 'normal';
         dcTerm2.fulfillmentStatus = 'full';
+        const twName = (termWiseProducts[0] && (termWiseProducts[0].product || termWiseProducts[0].productName)) || dcTerm2.product;
+        if (twName) dcTerm2.product = twName;
         if (req.body.dcDate) dcTerm2.deliveryDate = new Date(req.body.dcDate);
         if (req.body.poPhotoUrl) { dcTerm2.poPhotoUrl = req.body.poPhotoUrl; dcTerm2.poDocument = req.body.poPhotoUrl; }
         await dcTerm2.save();
       } else {
-        const payload = buildDcPayload(term2Products, 'scheduled_for_later', term2Qty);
-        await DC.create(payload);
+        const payload = buildDcPayload(termWiseProducts, 'scheduled_for_later', termWiseQty);
+        dcTerm2 = await DC.create(payload);
       }
 
-      const term1Dc = await DC.findOne({ dcOrderId: dcOrder._id, status: 'pending_dc' }).sort({ createdAt: -1 });
-      const toReturn = term1Dc || (await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 }));
+      // Remove leftover Term-Wise DCs for this sale (e.g. prior Term-2-only misroutes).
+      if (dcTerm2?._id) {
+        await DC.deleteMany({
+          dcOrderId: dcOrder._id,
+          status: 'scheduled_for_later',
+          _id: { $ne: dcTerm2._id },
+        });
+      }
+
+      const mainDc =
+        (await DC.findOne({ dcOrderId: dcOrder._id, status: resolvedMainStatus }).sort({ createdAt: -1 })) ||
+        (await DC.findOne({ dcOrderId: dcOrder._id, status: { $ne: 'scheduled_for_later' } }).sort({ createdAt: -1 }));
+      const toReturn = mainDc || (await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 }));
       if (!dcOrder.assigned_to && employeeId) {
         await DcOrder.findByIdAndUpdate(dcOrder._id, { assigned_to: employeeId });
       }
-      if (toReturn) {
+      if (toReturn && resolvedMainStatus === 'pending_dc') {
         toReturn.status = 'pending_dc';
         toReturn.workflowStage = WORKFLOW_STAGE.PendingDC;
         await toReturn.save().catch(() => {});
@@ -937,6 +1103,9 @@ const raiseDC = async (req, res) => {
           syncAllLinkedDcs: true,
         });
       }
+      await repairSaleCloseLeadRouting(dcOrder._id).catch((e) =>
+        console.warn('post-raise repair failed:', e?.message || e)
+      );
       const populatedDC = await DC.findById(toReturn._id)
         .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products')
         .populate('saleId', 'customerName product quantity status poDocument')
@@ -945,11 +1114,15 @@ const raiseDC = async (req, res) => {
       return res.status(200).json(populatedDC);
     }
 
-    // Single DC (no split)
-    let requestedStatus =
-      hasTerm2 && !hasTerm1 && !hasBothTerm
-        ? 'scheduled_for_later'
-        : req.body.status || 'pending_dc';
+    // Single DC — all rows are My Clients (includes Term 2 / Level 2 alone).
+    // Prefer stamped rows from partition when body had productDetails.
+    if (productDetailsFromBody && myClientsProducts.length > 0) {
+      productDetailsFromBody = myClientsProducts;
+      req.body.productDetails = myClientsProducts;
+    }
+    // No paired Term-Wise rows → remove any leftover Term-Wise DCs for this sale.
+    await DC.deleteMany({ dcOrderId: dcOrder._id, status: 'scheduled_for_later' });
+    let requestedStatus = mainStatus;
     if (requestedStatus === 'pending_dc') {
       const existingForCheck = await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 });
       const pendingCheck = validateSetPendingDc(existingForCheck, req.user?.role, 'pending_dc');
@@ -1093,6 +1266,10 @@ const raiseDC = async (req, res) => {
         { $set: { status: 'created' } }
       );
     }
+
+    await repairSaleCloseLeadRouting(dcOrder._id).catch((e) =>
+      console.warn('post-raise repair failed:', e?.message || e)
+    );
 
     const populatedDC = await DC.findById(dc._id)
       .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products')
@@ -1993,8 +2170,8 @@ const getMyDCs = async (req, res) => {
       : employeeId;
     const { status, limit = 50 } = req.query;
 
-    // Get DCs assigned to this employee
-    const filter = { employeeId: employeeIdObj };
+    // Get DCs assigned to this employee (My Clients — exclude Term-Wise companions)
+    const filter = { employeeId: employeeIdObj, status: { $ne: 'scheduled_for_later' } };
     if (status) filter.status = status;
 
     // Use lean() for faster queries and only populate what's needed
@@ -2217,7 +2394,7 @@ const getMyDCs = async (req, res) => {
     const allDCs = [...dcs, ...dcOrderAsDCs];
     
     // Remove duplicates based on dcOrderId
-    const uniqueDCs = [];
+    let uniqueDCs = [];
     const seenDcOrderIds = new Set();
     
     allDCs.forEach(dc => {
@@ -2241,6 +2418,28 @@ const getMyDCs = async (req, res) => {
         uniqueDCs.push(dc);
       }
     });
+
+    // Repair persisted My Clients / Term-Wise product split for each sale (source of truth).
+    const repairOrderIds = [...seenDcOrderIds];
+    for (const orderId of repairOrderIds) {
+      try {
+        await repairSaleCloseLeadRouting(orderId);
+      } catch (repairErr) {
+        console.warn('getMyDCs repair failed:', orderId, repairErr?.message || repairErr);
+      }
+    }
+    if (repairOrderIds.length > 0) {
+      const refreshed = await DC.find({
+        _id: { $in: uniqueDCs.map((d) => d._id).filter(Boolean) },
+        status: { $ne: 'scheduled_for_later' },
+      })
+        .populate('saleId', 'customerName product quantity status poDocument')
+        .populate('dcOrderId', 'school_name school_code contact_person contact_mobile email address location zone products dc_code status school_type')
+        .populate('employeeId', 'name email')
+        .lean();
+      const byId = new Map(refreshed.map((d) => [String(d._id), d]));
+      uniqueDCs = uniqueDCs.map((d) => byId.get(String(d._id)) || d).filter((d) => d.status !== 'scheduled_for_later');
+    }
 
     res.json(uniqueDCs);
   } catch (error) {

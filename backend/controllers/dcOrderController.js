@@ -472,23 +472,21 @@ const create = async (req, res) => {
         updatedAt: new Date(),
       }];
     }
+
+    const isSuperAdminCreator =
+      req.user?.role === 'Super Admin' || Boolean(req.user?.isSuperAdmin);
+    const assignedToRaw = payload.assigned_to ? String(payload.assigned_to) : '';
+    const assignedToOtherExecutive =
+      Boolean(assignedToRaw) && assignedToRaw !== String(req.user._id);
+
+    // Super Admin creates + assigns Executive → Executive owns the lead workflow.
+    // Keep created_by as Super Admin (audit); do NOT auto-create a DC / Closed Sales entry.
+    if (isSuperAdminCreator && assignedToOtherExecutive) {
+      payload.status = 'pending';
+      delete payload.workflowStage;
+    }
     
     const item = await DcOrder.create(payload);
-    
-    // Auto-create DC entry when DcOrder (Lead/Deal) is created and assigned to an executive.
-    // Admin "All Created DCs" lists DC docs with status "created" — not bare DcOrders.
-    let productName = 'Abacus'; // default
-    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
-      productName = item.products[0].product_name || item.products[0].product || 'Abacus';
-    } else if (typeof item.products === 'string') {
-      const products = item.products.split(',').map(p => p.trim()).filter(Boolean);
-      productName = products.length > 0 ? products[0] : 'Abacus';
-    }
-    
-    let quantity = 1;
-    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
-      quantity = item.products.reduce((sum, p) => sum + (p.quantity || 1), 0);
-    }
 
     if (!item.assigned_to) {
       await DcOrder.findByIdAndDelete(item._id);
@@ -507,6 +505,36 @@ const create = async (req, res) => {
     if (!assignedExecutive) {
       await DcOrder.findByIdAndDelete(item._id);
       return res.status(400).json({ message: 'Assigned executive not found.' });
+    }
+
+    // Super Admin → assigned Executive: sale stays in that Executive's Leads until they
+    // close the lead, move it to My Clients, and request DC (then Closed Sales).
+    if (isSuperAdminCreator && assignedToOtherExecutive) {
+      const populatedLeadSale = await DcOrder.findById(item._id)
+        .populate('created_by', 'name email')
+        .populate('assigned_to', 'name email');
+      return res.status(201).json({
+        ...populatedLeadSale.toObject(),
+        dc: null,
+        dcCreated: false,
+        assignedToLeadWorkflow: true,
+      });
+    }
+    
+    // Auto-create DC entry when DcOrder (Lead/Deal) is created and assigned to an executive.
+    // Admin "All Created DCs" lists DC docs with status "created" — not bare DcOrders.
+    // (Coordinator / Executive self-create and other roles keep this path.)
+    let productName = 'Abacus'; // default
+    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
+      productName = item.products[0].product_name || item.products[0].product || 'Abacus';
+    } else if (typeof item.products === 'string') {
+      const products = item.products.split(',').map(p => p.trim()).filter(Boolean);
+      productName = products.length > 0 ? products[0] : 'Abacus';
+    }
+    
+    let quantity = 1;
+    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
+      quantity = item.products.reduce((sum, p) => sum + (p.quantity || 1), 0);
     }
 
     // One sale → one DC. Reuse if a created DC already exists for this order (no duplicates).
@@ -572,6 +600,29 @@ const update = async (req, res) => {
     if (!item) {
       console.log('❌ DcOrder not found:', req.params.id);
       return res.status(404).json({ message: 'DC not found' });
+    }
+
+    // Closed Sales page sends validateClosedSalesContact2 — require Contact Person 2 / Mobile 2.
+    // Scoped by this flag only (not model-level); Create Sale / other updates omit the flag.
+    if (req.body.validateClosedSalesContact2 === true) {
+      const { validateContactPerson, validateContactMobile } = require('../utils/saleFieldValidation');
+      const person2Raw =
+        req.body.contact_person2 !== undefined ? req.body.contact_person2 : item.contact_person2;
+      const mobile2Raw =
+        req.body.contact_mobile2 !== undefined ? req.body.contact_mobile2 : item.contact_mobile2;
+      const person2Check = validateContactPerson(person2Raw, {
+        required: true,
+        label: 'Contact Person 2',
+      });
+      if (!person2Check.ok) {
+        return res.status(400).json({ message: person2Check.message });
+      }
+      const mobile2Check = validateContactMobile(mobile2Raw, { required: true });
+      if (!mobile2Check.ok) {
+        return res.status(400).json({ message: mobile2Check.message });
+      }
+      req.body.contact_person2 = person2Check.value;
+      req.body.contact_mobile2 = mobile2Check.value;
     }
 
     if (Array.isArray(req.body.products)) {
