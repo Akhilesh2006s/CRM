@@ -18,6 +18,7 @@ import { useProducts } from '@/hooks/useProducts'
 import { lookupPincode } from '@/lib/pincode'
 import { sanitizePhoneInput, validateIndianMobile } from '@/lib/phone'
 import { normalizeIntegerInput } from '@/lib/numericInput'
+import { toFollowUpDatePayload } from '@/lib/followUpDate'
 
 const LEAD_STATUS_OPTIONS = ['Hot', 'Warm', 'Cold'] as const
 
@@ -311,23 +312,6 @@ export default function NewSchoolPage() {
     }
     
     try {
-      const parseFollowUp = (s: string) => {
-        if (!s) return undefined
-        // Handle date input type format (YYYY-MM-DD)
-        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-          const d = new Date(s + 'T00:00:00Z')
-          if (!isNaN(d.getTime())) return d.toISOString()
-        }
-        // Fallback for manual entry format (dd-mm-yyyy)
-        const norm = s.replace(/\//g, '-').trim()
-        if (/^\d{2}-\d{2}-\d{4}$/.test(norm)) {
-          const [dd, mm, yyyy] = norm.split('-').map(Number)
-          const d = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1))
-          if (!isNaN(d.getTime())) return d.toISOString()
-        }
-        return undefined
-      }
-      
       // Build products array from checked products - include term and per-product status/strength/chance
       const selectedProducts = products.filter((p) => p.checked)
 
@@ -413,7 +397,7 @@ export default function NewSchoolPage() {
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
         email: form.email,
         products: productsPayload,
-        follow_up_date: parseFollowUp(form.follow_up_date), // Save as follow_up_date, NOT estimated_delivery_date
+        follow_up_date: toFollowUpDatePayload(form.follow_up_date), // Date only — no default time
         assigned_to: currentUser?._id, // Auto-assign to current employee
         cluster_code: form.cluster_code || undefined,
       }

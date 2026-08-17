@@ -454,26 +454,10 @@ export default function CreateDealPage() {
         _id?: string
         dc?: { _id?: string }
         dcCreated?: boolean
-        assignedToLeadWorkflow?: boolean
+        healedOrphanDeal?: boolean
         assigned_to?: string | { _id?: string; name?: string }
         message?: string
       }>('/dc-orders/create', { method: 'POST', body: JSON.stringify(payload) })
-
-      // Super Admin + assigned Executive: sale enters that Executive's Leads (no auto-DC / Closed Sales).
-      if (isSuperAdmin && (created?.assignedToLeadWorkflow || (!created?.dc && !created?.dcCreated))) {
-        if (!created?._id) {
-          throw new Error(created?.message || 'Sale was not created. Please try again.')
-        }
-        const assigneeName =
-          typeof created.assigned_to === 'object' && created.assigned_to?.name
-            ? created.assigned_to.name
-            : 'the selected Executive'
-        alert(
-          `Sale created successfully and assigned to ${assigneeName}. It will appear in their Leads for follow-up — not in Closed Sales until they request a DC.`
-        )
-        router.push('/dashboard/dc/create')
-        return
-      }
 
       if (!created?.dc && !created?.dcCreated) {
         throw new Error(
@@ -482,12 +466,12 @@ export default function CreateDealPage() {
         )
       }
 
-      alert(
-        'Deal created successfully! DC entry has been automatically created. You can view it under Clients → All Created DCs.'
-      )
+      // Create Sale → Deal + DC → All Created DCs; assigned Executive sees Follow-up Leads.
+      // Never send newly created DCs to Closed Sales.
+      alert('Deal and DC created successfully.')
 
-      // Same All Created DCs page for Coordinator / Admin (role-scoped on API).
       const redirectPath =
+        isSuperAdmin ||
         currentUser?.role === 'Admin' ||
         currentUser?.role === 'Coordinator' ||
         currentUser?.role === 'Senior Coordinator'

@@ -93,19 +93,18 @@ export default function AllCreatedDCsPage() {
   const [raising, setRaising] = useState(false)
 
   const currentUser = getCurrentUser()
-  const isAdmin =
-    currentUser?.role === 'Admin' ||
-    currentUser?.role === 'Super Admin' ||
-    Boolean((currentUser as any)?.isSuperAdmin)
+  const isSuperAdminUser =
+    currentUser?.role === 'Super Admin' || Boolean((currentUser as any)?.isSuperAdmin)
+  const isAdmin = currentUser?.role === 'Admin'
   const isCoordinator =
     currentUser?.role === 'Coordinator' || currentUser?.role === 'Senior Coordinator'
-  // Same page + full actions for Super Admin and Coordinator (reference = Super Admin UI).
-  const canAccess = isAdmin || isCoordinator
+  // Super Admin / Admin / Coordinator — Create Sale auto-DCs list here.
+  const canAccess = isSuperAdminUser || isAdmin || isCoordinator
 
   const load = async () => {
     setLoading(true)
     try {
-      // Shared Super Admin source of truth — complete created DC list.
+      // Admin / Coordinator source of truth — complete created DC list.
       const data = await apiRequest<DC[] | { data?: DC[] }>(`/dc?status=created`)
       const list = Array.isArray(data)
         ? data

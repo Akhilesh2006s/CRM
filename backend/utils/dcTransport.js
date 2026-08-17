@@ -2,12 +2,19 @@ function nonEmpty(value) {
   return typeof value === 'string' && value.trim() !== '';
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (nonEmpty(value)) return String(value).trim();
+  }
+  return '';
+}
+
 function resolveTransportFields(order) {
-  const pe = order?.pendingEdit?.status === 'pending' ? order.pendingEdit : null;
+  const pe = order?.pendingEdit || null;
   return {
-    transport_name: String(pe?.transport_name ?? order?.transport_name ?? '').trim(),
-    transport_location: String(pe?.transport_location ?? order?.transport_location ?? '').trim(),
-    pincode: String(pe?.pincode ?? order?.pincode ?? '').trim(),
+    transport_name: firstNonEmpty(order?.transport_name, pe?.transport_name),
+    transport_location: firstNonEmpty(order?.transport_location, pe?.transport_location),
+    pincode: firstNonEmpty(order?.pincode, pe?.pincode),
   };
 }
 

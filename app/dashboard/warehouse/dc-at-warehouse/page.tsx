@@ -14,9 +14,16 @@ import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
+import {
+  matchWarehouseItem,
+  requiredQtyFromDcRow,
+  validateDcStockAgainstInventory,
+} from '@/lib/warehouseInventoryMatch'
 
 type ProductDetail = {
   product: string
+  productName?: string
+  productCategory?: string
   class: string
   category: string
   specs: string
@@ -117,6 +124,22 @@ function pickNonEmpty(...vals: Array<string | undefined | null>): string {
   return ''
 }
 
+/** Identity fields used to match a DC row to a warehouse SKU. */
+function toStockRow(p: Record<string, any>) {
+  return {
+    product: p.product || p.productName || '',
+    productName: p.productName || p.product || '',
+    class: p.class,
+    category: p.category,
+    productCategory: p.productCategory,
+    specs: p.specs,
+    subject: p.subject,
+    level: p.level,
+    quantity: p.quantity,
+    strength: p.strength,
+  }
+}
+
 export default function WarehouseDcAtWarehouse() {
   const router = useRouter()
   const [rows, setRows] = useState<DC[]>([])
@@ -138,6 +161,7 @@ export default function WarehouseDcAtWarehouse() {
   const [onHoldProcessing, setOnHoldProcessing] = useState(false)
   const [openDialog, setOpenDialog] = useState(false)
   const [insufficientQuantity, setInsufficientQuantity] = useState(false)
+  const [insufficientStockMessage, setInsufficientStockMessage] = useState('')
   const [warehouseInventory, setWarehouseInventory] = useState<WarehouseItem[]>([])
   
   const { productNames: availableProducts } = useProducts()
@@ -217,238 +241,76 @@ export default function WarehouseDcAtWarehouse() {
         dcOrderId: Object.keys(dcOrder).length > 0 ? dcOrder : fullDC.dcOrderId,
       }
       setSelectedDC(mergedDC)
-      
-      // Helper function to find matching inventory item
-      const findInventoryItem = (productName: string, category?: string, level?: string, specs?: string, subject?: string): WarehouseItem | null => {
-        // Normalize subject for comparison (handle empty strings, null, undefined)
-        const normalizedSubject = subject && subject.trim() !== '' ? subject.trim() : undefined
-        const normalizedSpecs = (specs && specs.trim() !== '') ? specs.trim() : 'Regular'
-        
-        // If subject is provided, we MUST match it exactly - don't fall back to items without subjects
-        if (normalizedSubject !== undefined) {
-          // Try exact match with subject (productName, category, level, specs, subject)
-          let match = inventoryArray.find(item => {
-            const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-            const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-            return (
-              item.productName?.toLowerCase() === productName?.toLowerCase() &&
-              (item.category || '') === (category || '') &&
-              (item.level || '') === (level || '') &&
-              itemSpecs === normalizedSpecs &&
-              itemSubject === normalizedSubject // Exact subject match required
-            )
-          })
-          
-          // If no exact match with category, try without category (productName, level, specs, subject)
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject // Exact subject match required
-              )
-            })
-          }
-          
-          // If no exact match with subject, try case-insensitive subject match (with category)
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim().toLowerCase() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.category || '') === (category || '') &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject?.toLowerCase() // Case-insensitive subject match
-              )
-            })
-          }
-          
-          // If no match, try case-insensitive subject match without category
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim().toLowerCase() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject?.toLowerCase() // Case-insensitive subject match
-              )
-            })
-          }
-          
-          return match || null
-        }
-        
-        // If no subject is provided, try matching without subject
-        // Try exact match first (productName, category, level, specs, no subject)
-        let match = inventoryArray.find(item => {
-          const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-          const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-          return (
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '') &&
-            (item.level || '') === (level || '') &&
-            itemSpecs === normalizedSpecs &&
-            itemSubject === undefined // No subject in inventory item
-          )
-        })
-        
-        // If no exact match, try productName, category, level, and specs (ignore subject)
-        if (!match) {
-          match = inventoryArray.find(item => {
-            const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-            return (
-              item.productName?.toLowerCase() === productName?.toLowerCase() &&
-              (item.category || '') === (category || '') &&
-              (item.level || '') === (level || '') &&
-              itemSpecs === normalizedSpecs
-            )
-          })
-        }
-        
-        // If no exact match, try productName, category, and level (without specs/subject)
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '') &&
-            (item.level || '') === (level || '')
-          )
-        }
-        
-        // If no exact match, try productName and category only
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '')
-          )
-        }
-        
-        // If still no match, try productName only
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase()
-          )
-        }
-        
-        return match || null
-      }
-      
-      // Load product details
+
       if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-        console.log('Loading productDetails for DC @ Warehouse:', JSON.stringify(fullDC.productDetails, null, 2))
-        setProductRows(fullDC.productDetails.map((p, idx) => {
-          const productName = p.product || 'ABACUS'
-          const category = p.category
-          const level = p.level
-          
-          // Use specs and subject DIRECTLY from DC productDetails (saved from pending DC stage)
-          // This is the actual data that was entered/edited by the employee/manager
-          // DO NOT override with inventory values - use what's in the DC
-          // Check for undefined/null explicitly, not just falsy (empty string is valid)
-          const specsValue = (p.specs !== undefined && p.specs !== null && p.specs !== '') 
-            ? p.specs 
-            : ((p as any).specs !== undefined && (p as any).specs !== null && (p as any).specs !== '')
-              ? (p as any).specs
-              : 'Regular'
-          const subjectValue = (p.subject !== undefined && p.subject !== null && p.subject !== '')
-            ? p.subject
-            : ((p as any).subject !== undefined && (p as any).subject !== null && (p as any).subject !== '')
-              ? (p as any).subject
-              : undefined
-          
-          // Find matching inventory item ONLY for getting available quantity
-          // Use the specs and subject from DC to find the correct inventory item
-          const inventoryItem = findInventoryItem(
+        setProductRows(fullDC.productDetails.map((p) => {
+          const specsValue = (p.specs !== undefined && p.specs !== null && String(p.specs).trim() !== '')
+            ? String(p.specs)
+            : 'Regular'
+          const subjectValue = (p.subject !== undefined && p.subject !== null && String(p.subject).trim() !== '')
+            ? String(p.subject)
+            : undefined
+          const stockRow = toStockRow({
+            ...p,
+            specs: specsValue,
+            subject: subjectValue,
+            level: p.level || '',
+          })
+          const productName = stockRow.productName || stockRow.product
+          const requestedQty = requiredQtyFromDcRow(stockRow)
+          const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
+          const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+          const deliverableQty = (p.deliverableQuantity !== undefined && p.deliverableQuantity !== null)
+            ? Number(p.deliverableQuantity)
+            : requestedQty
+          const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+
+          return {
+            product: productName,
             productName,
-            category,
-            level,
-            specsValue,
-            subjectValue
-          )
-          
-          console.log(`Product ${idx + 1} raw data from DC:`, {
-            product: productName,
-            category,
-            level,
-            specsFromDC: specsValue,
-            subjectFromDC: subjectValue,
-            fullProductDetail: p,
-            inventoryMatch: inventoryItem ? {
-              productName: inventoryItem.productName,
-              category: inventoryItem.category,
-              level: inventoryItem.level,
-              specs: inventoryItem.specs,
-              subject: inventoryItem.subject,
-              stock: inventoryItem.currentStock
-            } : null
-          })
-          
-          // Get requested quantity - use the larger of quantity or strength
-          // Sometimes backend has quantity: 1 but strength: 500, so we use the larger value
-          const qty = (p.quantity !== undefined && p.quantity !== null) ? Number(p.quantity) : 0
-          const str = (p.strength !== undefined && p.strength !== null) ? Number(p.strength) : 0
-          const requestedQty = Math.max(qty, str) // Use the larger value
-          const availableQty = inventoryItem ? inventoryItem.currentStock : (p.availableQuantity !== undefined && p.availableQuantity !== null ? Number(p.availableQuantity) : 0)
-          // Use deliverable quantity from database if available, otherwise calculate it
-          // The deliverable quantity from database is the value set by the manager/employee
-          const deliverableQty = (p.deliverableQuantity !== undefined && p.deliverableQuantity !== null) 
-            ? Number(p.deliverableQuantity) 
-            : Math.min(requestedQty, availableQty) // Fallback: calculate if not in database
-          const remainingQty = availableQty - deliverableQty
-          
-          console.log(`Product ${idx + 1} quantity calculation:`, {
-            'p.quantity': p.quantity,
-            'p.strength': p.strength,
-            'p.deliverableQuantity (from database)': p.deliverableQuantity,
-            'requestedQty (calculated)': requestedQty,
-            'availableQty (from inventory)': availableQty,
-            'deliverableQty (from database or calculated)': deliverableQty
-          })
-          
-          const productRow = {
-            product: productName,
+            productCategory: (p as any).productCategory,
             class: p.class || 'NA',
             category: p.category || 'Training-Material',
-            specs: specsValue, // Use specs from DC productDetails (saved from pending DC)
-            subject: subjectValue, // Use subject from DC productDetails (saved from pending DC)
-            quantity: requestedQty, // Requested quantity (read-only)
-            availableQuantity: availableQty, // Available in warehouse (from inventory, auto-filled)
-            deliverableQuantity: deliverableQty, // Deliverable quantity (from database, or calculated if not available)
-            remainingQuantity: remainingQty, // Remaining in warehouse after delivery
+            specs: specsValue,
+            subject: subjectValue,
+            quantity: requestedQty,
+            availableQuantity: availableQty,
+            deliverableQuantity: deliverableQty,
+            remainingQuantity: remainingQty,
             strength: p.strength || 0,
             price: p.price || 0,
             total: p.total || 0,
-            level: p.level || 'L2',
+            level: p.level || '',
           }
-          console.log(`Product ${idx + 1} final row:`, productRow)
-          return productRow
         }))
       } else {
-        // Fallback: create from product string
-        const productName = fullDC.product || 'ABACUS'
-        const inventoryItem = findInventoryItem(productName, 'Training-Material', undefined, undefined, undefined)
-        const requestedQty = fullDC.requestedQuantity || 0
-        const availableQty = inventoryItem ? inventoryItem.currentStock : 0
-        const deliverableQty = Math.min(requestedQty, availableQty)
-        const remainingQty = availableQty - deliverableQty
-        
+        const productName = fullDC.product || ''
+        const stockRow = toStockRow({
+          product: productName,
+          productName,
+          category: 'Training-Material',
+          specs: 'Regular',
+          quantity: fullDC.requestedQuantity || 0,
+        })
+        const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
+        const requestedQty = requiredQtyFromDcRow(stockRow)
+        const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+        const deliverableQty = requestedQty
+        const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+
         setProductRows([{
           product: productName,
+          productName,
           class: 'NA',
           category: 'Training-Material',
           specs: 'Regular',
           subject: undefined,
-          quantity: requestedQty, // Requested quantity
-          availableQuantity: availableQty, // From inventory
-          deliverableQuantity: deliverableQty, // Calculated
-          remainingQuantity: remainingQty, // Remaining
+          quantity: requestedQty,
+          availableQuantity: availableQty,
+          deliverableQuantity: deliverableQty,
+          remainingQuantity: remainingQty,
           strength: 0,
+          level: '',
         }])
       }
       
@@ -492,6 +354,7 @@ export default function WarehouseDcAtWarehouse() {
       )
       setRemarks(pickNonEmpty(mergedDC.remarks, dcOrder.remarks))
       setInsufficientQuantity(false)
+      setInsufficientStockMessage('')
       setOpenDialog(true)
     } catch (e: any) {
       console.error('Failed to load DC details:', e)
@@ -502,231 +365,82 @@ export default function WarehouseDcAtWarehouse() {
   // Check if quantities are sufficient when product rows change
   useEffect(() => {
     if (openDialog && selectedDC && productRows.length > 0) {
-      // Check if available quantities are entered and if any are insufficient
-      const hasAllAvailableQty = productRows.every(p => 
-        p.availableQuantity !== undefined && p.availableQuantity !== null && p.availableQuantity > 0
+      const stockCheck = validateDcStockAgainstInventory(
+        productRows.map(toStockRow),
+        warehouseInventory
       )
-      // Check if any product has available qty < deliverable qty
-      const hasInvalidDeliverableQty = productRows.some(p => 
-        (p.availableQuantity || 0) < (p.deliverableQuantity || 0)
-      )
-      const hasInsufficientQty = productRows.some(p => 
-        (p.availableQuantity || 0) < (p.quantity || 0)
-      )
-      
-      if (!hasAllAvailableQty) {
-        setInsufficientQuantity(false) // Still entering, don't show warning yet
-      } else if (hasInvalidDeliverableQty || hasInsufficientQty) {
-        setInsufficientQuantity(true) // Some products have insufficient quantity or invalid deliverable qty
-      } else {
-        setInsufficientQuantity(false) // All products have sufficient quantity
-      }
+      setInsufficientQuantity(!stockCheck.ok)
+      setInsufficientStockMessage(stockCheck.ok ? '' : stockCheck.message)
     } else {
       setInsufficientQuantity(false)
+      setInsufficientStockMessage('')
     }
-  }, [productRows, openDialog, selectedDC])
+  }, [productRows, openDialog, selectedDC, warehouseInventory])
 
   const processDC = async () => {
     if (!selectedDC) return
 
-    // Validate required fields
     if (!schoolType || schoolType.trim() === '') {
       alert('School Type is required. Please enter the school type before submitting.')
       return
     }
 
-    // Validate that available qty >= deliverable qty for all products
-    const hasInvalidDeliverableQty = productRows.some(p => 
-      (p.availableQuantity || 0) < (p.deliverableQuantity || 0)
-    )
-    
-    if (hasInvalidDeliverableQty) {
-      alert('Enough quantity is not available. Available quantity is less than deliverable quantity for one or more products. Please adjust deliverable quantities or use the "Hold DC" button to put the DC on hold.')
-      return
-    }
-
     setProcessing(true)
     try {
-      // Fetch latest warehouse inventory from database first
       const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
-      // Ensure inventory is an array before using
       const inventoryArray = Array.isArray(inventory) ? inventory : []
-      
-      // Helper function to find matching inventory item
-      const findInventoryItem = (productName: string, category?: string, level?: string, specs?: string, subject?: string): WarehouseItem | null => {
-        // Normalize subject for comparison (handle empty strings, null, undefined)
-        const normalizedSubject = subject && subject.trim() !== '' ? subject.trim() : undefined
-        const normalizedSpecs = (specs && specs.trim() !== '') ? specs.trim() : 'Regular'
-        
-        // If subject is provided, we MUST match it exactly - don't fall back to items without subjects
-        if (normalizedSubject !== undefined) {
-          // Try exact match with subject (productName, category, level, specs, subject)
-          let match = inventoryArray.find(item => {
-            const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-            const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-            return (
-              item.productName?.toLowerCase() === productName?.toLowerCase() &&
-              (item.category || '') === (category || '') &&
-              (item.level || '') === (level || '') &&
-              itemSpecs === normalizedSpecs &&
-              itemSubject === normalizedSubject // Exact subject match required
-            )
-          })
-          
-          // If no exact match with category, try without category (productName, level, specs, subject)
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject // Exact subject match required
-              )
-            })
-          }
-          
-          // If no exact match with subject, try case-insensitive subject match (with category)
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim().toLowerCase() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.category || '') === (category || '') &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject?.toLowerCase() // Case-insensitive subject match
-              )
-            })
-          }
-          
-          // If no match, try case-insensitive subject match without category
-          if (!match) {
-            match = inventoryArray.find(item => {
-              const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim().toLowerCase() : undefined
-              const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-              return (
-                item.productName?.toLowerCase() === productName?.toLowerCase() &&
-                (item.level || '') === (level || '') &&
-                itemSpecs === normalizedSpecs &&
-                itemSubject === normalizedSubject?.toLowerCase() // Case-insensitive subject match
-              )
-            })
-          }
-          
-          return match || null
-        }
-        
-        // If no subject is provided, try matching without subject
-        // Try exact match first (productName, category, level, specs, no subject)
-        let match = inventoryArray.find(item => {
-          const itemSubject = item.subject && item.subject.trim() !== '' ? item.subject.trim() : undefined
-          const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-          return (
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '') &&
-            (item.level || '') === (level || '') &&
-            itemSpecs === normalizedSpecs &&
-            itemSubject === undefined // No subject in inventory item
-          )
-        })
-        
-        // If no exact match, try productName, category, level, and specs (ignore subject)
-        if (!match) {
-          match = inventoryArray.find(item => {
-            const itemSpecs = (item.specs && item.specs.trim() !== '') ? item.specs.trim() : 'Regular'
-            return (
-              item.productName?.toLowerCase() === productName?.toLowerCase() &&
-              (item.category || '') === (category || '') &&
-              (item.level || '') === (level || '') &&
-              itemSpecs === normalizedSpecs
-            )
-          })
-        }
-        
-        // If no exact match, try productName, category, and level (without specs/subject)
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '') &&
-            (item.level || '') === (level || '')
-          )
-        }
-        
-        // If no exact match, try productName and category only
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase() &&
-            (item.category || '') === (category || '')
-          )
-        }
-        
-        // If still no match, try productName only
-        if (!match) {
-          match = inventoryArray.find(item => 
-            item.productName?.toLowerCase() === productName?.toLowerCase()
-          )
-        }
-        
-        return match || null
-      }
+      setWarehouseInventory(inventoryArray)
 
-      // Update available quantities from inventory and recalculate remaining qty for all products
       const updatedProductRows = productRows.map(p => {
-        // Find matching inventory item to get latest available quantity
-        const inventoryItem = findInventoryItem(
-          p.product || '',
-          p.category,
-          p.level,
-          p.specs,
-          p.subject
-        )
-        
-        // Use inventory quantity if found, otherwise keep existing available quantity
-        const availableQty = inventoryItem ? inventoryItem.currentStock : (p.availableQuantity || 0)
-        const deliverableQty = p.deliverableQuantity || 0
-        // Calculate remaining qty = available qty - deliverable qty (only if available >= deliverable)
+        const stockRow = toStockRow(p)
+        const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
+        const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+        const requiredQty = requiredQtyFromDcRow(stockRow)
+        const deliverableQty = p.deliverableQuantity != null ? Number(p.deliverableQuantity) : requiredQty
         const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
-        
         return {
           ...p,
+          quantity: requiredQty,
           availableQuantity: availableQty,
           remainingQuantity: remainingQty,
         }
       })
-
-      // Use the updated product rows with recalculated remaining qty
-      // Update the productRows state to reflect the recalculated values
       setProductRows(updatedProductRows)
 
-      // Calculate totals - use the larger of quantity or strength for each product
-      const totalRequestedQty = updatedProductRows.reduce((sum, p) => {
-        const qty = p.quantity || 0
-        const str = p.strength || 0
-        return sum + Math.max(qty, str) // Use the larger value
-      }, 0)
+      const stockCheck = validateDcStockAgainstInventory(
+        updatedProductRows.map(toStockRow),
+        inventoryArray
+      )
+      if (!stockCheck.ok) {
+        setInsufficientQuantity(true)
+        setInsufficientStockMessage(stockCheck.message)
+        alert(stockCheck.message)
+        return
+      }
+
+      const totalRequestedQty = updatedProductRows.reduce((sum, p) => sum + requiredQtyFromDcRow(toStockRow(p)), 0)
       const totalAvailableQty = updatedProductRows.reduce((sum, p) => sum + (p.availableQuantity || 0), 0)
       const totalDeliverableQty = updatedProductRows.reduce((sum, p) => sum + (p.deliverableQuantity || 0), 0)
-      // Update DC with product details including available quantities
+
       await apiRequest(`/dc/${selectedDC._id}`, {
         method: 'PUT',
         body: JSON.stringify({
           productDetails: updatedProductRows.map(p => ({
             product: p.product,
+            productName: p.productName || p.product,
+            productCategory: p.productCategory,
             class: p.class,
             category: p.category,
             specs: p.specs || 'Regular',
             subject: p.subject || undefined,
-            quantity: p.quantity, // Requested quantity (original)
-            availableQuantity: p.availableQuantity, // Available in warehouse
-            deliverableQuantity: p.deliverableQuantity, // Final deliverable
-            remainingQuantity: p.remainingQuantity, // Remaining in warehouse after delivery
+            quantity: p.quantity,
+            availableQuantity: p.availableQuantity,
+            deliverableQuantity: p.deliverableQuantity,
+            remainingQuantity: p.remainingQuantity,
             strength: p.strength,
             price: p.price,
             total: p.total,
-            level: p.level,
+            level: p.level || '',
           })),
           requestedQuantity: totalRequestedQty,
           availableQuantity: totalAvailableQty,
@@ -745,8 +459,7 @@ export default function WarehouseDcAtWarehouse() {
             : selectedDC.dcOrderId,
         }),
       })
-      
-      // Process the DC in warehouse (this will set status to 'completed')
+
       await apiRequest(`/dc/${selectedDC._id}/warehouse-process`, {
         method: 'POST',
         body: JSON.stringify({
@@ -755,12 +468,17 @@ export default function WarehouseDcAtWarehouse() {
           remarks,
         }),
       })
-      
+
       alert('DC processed successfully! It will appear in Completed DC page.')
       setOpenDialog(false)
       load()
     } catch (err: any) {
-      alert(err?.message || 'Failed to process DC')
+      const message = err?.message || 'Failed to process DC'
+      if (/insufficient stock/i.test(message)) {
+        setInsufficientQuantity(true)
+        setInsufficientStockMessage(message)
+      }
+      alert(message)
     } finally {
       setProcessing(false)
     }
@@ -1211,7 +929,7 @@ export default function WarehouseDcAtWarehouse() {
                   {insufficientQuantity && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md">
                       <p className="text-sm font-medium text-red-800">
-                        ⚠️ Warning: Enough quantity is not available. Available quantity is less than deliverable quantity for one or more products. Please adjust deliverable quantities or use the "Hold DC" button to put the DC on hold.
+                        {insufficientStockMessage || 'Insufficient stock. Please ensure sufficient stock before processing this DC.'}
                       </p>
                     </div>
                   )}
@@ -1239,7 +957,7 @@ export default function WarehouseDcAtWarehouse() {
                         </tr>
                       ) : (
                         productRows.map((row, idx) => (
-                          <tr key={idx} className="border-b bg-white">
+                          <tr key={idx} className={`border-b ${(row.quantity || 0) > (row.availableQuantity || 0) ? 'bg-red-50' : 'bg-white'}`}>
                             <td className="py-2 px-3 border-r">
                               <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
                                 {row.product}
@@ -1278,7 +996,7 @@ export default function WarehouseDcAtWarehouse() {
                             <td className="py-2 px-3 border-r">
                 <Input
                   type="number"
-                                className="h-8 text-xs bg-neutral-50 border-neutral-300 text-neutral-700 font-medium"
+                                className={`h-8 text-xs bg-neutral-50 font-medium ${(row.quantity || 0) > (row.availableQuantity || 0) ? 'border-red-300 text-red-800' : 'border-neutral-300 text-neutral-700'}`}
                                 value={row.availableQuantity !== undefined && row.availableQuantity !== null ? String(row.availableQuantity) : ''}
                                 readOnly
                                 disabled

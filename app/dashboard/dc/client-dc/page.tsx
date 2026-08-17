@@ -30,7 +30,17 @@ import {
   findMatchingOrderProduct,
   resolveClientDCRowFields,
   dedupeProductDetailLines,
-  mergeRequestDCProductDetails,
+  lineMatchesTermWiseCompanion,
+  displayProductLevel,
+  collapseEmptyLevelDuplicateLines,
+  orderProductToClientDcDetail,
+  appendMissingMyClientsOrderLines,
+  resolveAddEditPoProduct,
+  expandEditPoRowsBySubject,
+  editPoProductIdentity,
+  ensureProductLineId,
+  pickRicherProductRows,
+  normalizeEditPoSubjectKey,
   type ResolveClientDCRowOpts,
 } from '@/lib/clientDcProductRows'
 import {
@@ -200,18 +210,21 @@ export default function ClientDCPage() {
     id: string
     product_name: string
     quantity: number
-    unit_price: number
+    unit_price: number | string
     class?: string
     specs?: string
     productCategory?: string
     category?: string
     strength?: number
     subject?: string
+    selected_subjects?: string[]
     level?: string // Level configured on Products master; shown in Edit PO
     term?: string // Academic term (Term 1 / 2 / Both) for split tables
+    lineId?: string
   }>>([])
   const [addProductDialogOpen, setAddProductDialogOpen] = useState(false)
   const [addNewProductDialogOpen, setAddNewProductDialogOpen] = useState(false)
+  const [highlightedEditProductRowId, setHighlightedEditProductRowId] = useState<string | null>(null)
   const [originalPOProducts, setOriginalPOProducts] = useState<string[]>([])
   // Track original state for change detection
   const [originalPDFUrl, setOriginalPDFUrl] = useState<string>('')
@@ -224,20 +237,91 @@ export default function ClientDCPage() {
   const [currentEditingDCId, setCurrentEditingDCId] = useState<string | null>(null)
   
   const {
+    products: catalogProducts,
     productNames: availableProducts,
     getProductLevels,
     getDefaultLevel,
     getProductSpecs,
     getProductSubjects,
+    hasProductSubjects,
     getProductCategories,
     hasProductCategories,
     getCalculationType,
-    getCatalogFallbackCount,
+    getProductId,
   } = useProducts()
   
   // Get available levels for a specific product, default to L1 if product not found
   const getAvailableLevels = (product: string): string[] => {
     return getProductLevels(product)
+  }
+
+  // Actual productLevels from Products master — empty means no level (not L1 / Term 1).
+  const getConfiguredLevels = (productName: string): string[] => {
+    const n = String(productName || '').trim().toLowerCase()
+    const product = catalogProducts.find(
+      (p) => String(p.productName || '').trim().toLowerCase() === n
+    )
+    if (!product || !Array.isArray(product.productLevels)) return []
+    return product.productLevels.map((l) => String(l).trim()).filter(Boolean)
+  }
+
+  const resolveProductRowLevel = (productName: string, savedLevel?: string): string => {
+    const configured = getConfiguredLevels(productName)
+    if (configured.length === 0) return '-'
+    const saved = String(savedLevel || '').trim()
+    if (saved && saved !== '-' && configured.includes(saved)) return saved
+    return configured[0]
+  }
+
+  const handleAddProductToEditPo = (product: string, closeDialog: () => void) => {
+    const configured = getConfiguredLevels(product)
+    const configuredSubjects = getProductSubjects(product)
+    const { level, subject, duplicateRow } = resolveAddEditPoProduct(
+      product,
+      editProductRows,
+      configured,
+      getProductId,
+      resolveProductRowLevel,
+      configuredSubjects
+    )
+    if (duplicateRow) {
+      toast.error(
+        'This product with this subject is already added. Please edit the existing quantity.'
+      )
+      if (duplicateRow.id) setHighlightedEditProductRowId(String(duplicateRow.id))
+      closeDialog()
+      return
+    }
+    const term = termFromLevelLabel(level) ?? 'Term 1'
+    const lineId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : Date.now().toString()
+    const nextRows = [
+      ...editProductRows,
+      {
+        id: lineId,
+        lineId,
+        product_name: product,
+        quantity: 0,
+        unit_price: '' as const,
+        class: '1',
+        level,
+        term,
+        subject: subject || undefined,
+        selected_subjects: subject ? [subject] : [],
+      },
+    ]
+    setEditProductRows(nextRows)
+    const afterAdd = resolveAddEditPoProduct(
+      product,
+      nextRows,
+      configured,
+      getProductId,
+      resolveProductRowLevel,
+      configuredSubjects
+    )
+    if (afterAdd.duplicateRow) closeDialog()
   }
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
   const availableCategories = ['New Students', 'Existing Students', 'Both']
@@ -523,6 +607,12 @@ export default function ClientDCPage() {
     )
   }, [editProductRows, editPODialogOpen])
 
+  useEffect(() => {
+    if (!highlightedEditProductRowId) return
+    const t = setTimeout(() => setHighlightedEditProductRowId(null), 4000)
+    return () => clearTimeout(t)
+  }, [highlightedEditProductRowId])
+
   const getProgramInvoiceGate = async (
     dcOrderId?: string | null,
     productName?: string | null
@@ -603,68 +693,12 @@ export default function ClientDCPage() {
           const usedIndices = new Set<number>()
           
           paymentBreakdown = fullDC.productDetails.map((pd: any, index: number) => {
-            // First try to match by index/position (most accurate)
-            let matchingProduct: any = null
-            let matchingIndex = -1
-            
-            // Try exact index match first
-            if (index < dcOrder.products.length && !usedIndices.has(index)) {
-              matchingProduct = dcOrder.products[index]
-              matchingIndex = index
-              usedIndices.add(index)
-              console.log(`Invoice Product[${index}]: Matched by exact index -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-            } else {
-              // If exact index is used or out of bounds, find unused product with matching name
-              const dcProductName = (pd.product || '').toLowerCase().trim()
-              
-              // First try to find unused product with exact name match
-              for (let i = 0; i < dcOrder.products.length; i++) {
-                if (usedIndices.has(i)) continue
-                
-                const p = dcOrder.products[i]
-                const orderProductName = (p.product_name || '').toLowerCase().trim()
-                
-                if (dcProductName === orderProductName) {
-                  matchingProduct = p
-                  matchingIndex = i
-                  usedIndices.add(i)
-                  console.log(`Invoice Product[${index}]: Matched by name (exact) at index ${i} -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                  break
-                }
-              }
-              
-              // If still no match, try partial name match
-              if (!matchingProduct) {
-                for (let i = 0; i < dcOrder.products.length; i++) {
-                  if (usedIndices.has(i)) continue
-                  
-                  const p = dcOrder.products[i]
-                  const orderProductName = (p.product_name || '').toLowerCase().trim()
-                  
-                  if (dcProductName.includes(orderProductName) || orderProductName.includes(dcProductName)) {
-                    matchingProduct = p
-                    matchingIndex = i
-                    usedIndices.add(i)
-                    console.log(`Invoice Product[${index}]: Matched by name (partial) at index ${i} -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                    break
-                  }
-                }
-              }
-              
-              // Last resort: use any matching product name (even if already used)
-              if (!matchingProduct) {
-                const dcProductName = (pd.product || '').toLowerCase().trim()
-                matchingProduct = dcOrder.products.find((p: any) => {
-                  const orderProductName = (p.product_name || '').toLowerCase().trim()
-                  return dcProductName === orderProductName || 
-                         dcProductName.includes(orderProductName) || 
-                         orderProductName.includes(dcProductName)
-                })
-                if (matchingProduct) {
-                  console.log(`Invoice Product[${index}]: Matched by name (fallback, may be duplicate) -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                }
-              }
-            }
+            const matchingProduct = findMatchingOrderProduct(
+              dcOrder.products,
+              pd,
+              index,
+              usedIndices
+            )
             
             // Get unit price from database - prioritize DcOrder product price, then DC productDetails price
             // Both are from database, DcOrder is more up-to-date
@@ -675,7 +709,7 @@ export default function ClientDCPage() {
                   : 0)
             
             const quantity = Number(pd.quantity) || 0
-            const strength = Number(pd.strength) || 0
+            const strength = Number(pd.strength) || quantity
             // Total = strength * price (from database)
             const total = strength * unitPrice
             totalAmount += total
@@ -683,7 +717,7 @@ export default function ClientDCPage() {
             // Prioritize term from DcOrder product if available (more up-to-date), otherwise use DC productDetails term
             const term = matchingProduct?.term || pd.term || 'Term 1'
             
-            console.log(`Invoice Product[${index}]: ${pd.product}, UnitPrice: ₹${unitPrice}, Strength: ${strength}, Total: ₹${total}, MatchedIndex: ${matchingIndex}, Term: ${term}`)
+            console.log(`Invoice Product[${index}]: ${pd.product}, UnitPrice: ₹${unitPrice}, Strength: ${strength}, Total: ₹${total}, Term: ${term}`)
             
             return {
               product: pd.product || '',
@@ -693,7 +727,7 @@ export default function ClientDCPage() {
               subject: pd.subject || undefined,
               quantity: quantity,
               strength: strength,
-              level: pd.level || 'L2',
+              level: displayProductLevel(pd.level),
               unitPrice: unitPrice,
               total: total,
               term: term,
@@ -705,7 +739,7 @@ export default function ClientDCPage() {
             // Get price from database (DC productDetails.price)
             const price = p.price !== undefined && p.price !== null ? Number(p.price) : 0
             const quantity = Number(p.quantity) || 0
-            const strength = Number(p.strength) || 0
+            const strength = Number(p.strength) || quantity
             // Total = strength * price (from database) - always recalculate, don't use stored total
             const total = strength * price
             totalAmount += total
@@ -717,7 +751,7 @@ export default function ClientDCPage() {
               subject: p.subject || undefined,
               quantity: quantity,
               strength: strength,
-              level: p.level || 'L2',
+              level: displayProductLevel(p.level),
               unitPrice: price,
               total: total,
               term: p.term || 'Term 1',
@@ -733,7 +767,7 @@ export default function ClientDCPage() {
           // Get price from database (DC productDetails.price)
           const price = pd.price !== undefined && pd.price !== null ? Number(pd.price) : 0
           const quantity = Number(pd.quantity) || 0
-          const strength = Number(pd.strength) || 0
+          const strength = Number(pd.strength) || quantity
           // Total = strength * price (from database)
           const total = strength * price
           totalAmount += total
@@ -745,7 +779,7 @@ export default function ClientDCPage() {
             subject: pd.subject || undefined,
             quantity: quantity,
             strength: strength,
-            level: pd.level || 'L2',
+            level: displayProductLevel(pd.level),
             unitPrice: price,
             total: total,
             term: pd.term || 'Term 1',
@@ -759,13 +793,13 @@ export default function ClientDCPage() {
             ...pb,
             product: pb.product || '',
             class: pb.class || '1',
-            strength: Number(pb.strength) || 0,
+            strength: Number(pb.strength) || Number(pb.quantity) || 0,
             unitPrice: Number(pb.unitPrice) || 0,
             level: pb.level,
             subject: pb.subject,
           })),
           getCalculationType,
-          getCatalogFallbackCount
+          () => 0
         )
         paymentBreakdown = adj.paymentBreakdown
         totalAmount = adj.totalAmount
@@ -1045,60 +1079,97 @@ export default function ClientDCPage() {
     
     // Load products from DcOrder (includes products added/edited in Edit PO)
     let dcOrderProducts: any[] = []
+    let dcOrderDoc: any = null
     if (dcOrderId) {
       try {
-        const dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
-        if (dcOrder.products && Array.isArray(dcOrder.products)) {
-          dcOrderProducts = dcOrder.products
+        dcOrderDoc = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
+        if (dcOrderDoc.products && Array.isArray(dcOrderDoc.products)) {
+          dcOrderProducts = dcOrderDoc.products
         }
       } catch (e) {
         console.error('Failed to load DcOrder products:', e)
       }
     }
     
-    // Load full DC details (merge lines from this DC + sibling DCs on same order)
-    try {
-      const fullDC = await apiRequest<any>(`/dc/${dc._id}`)
-      let mergedDetails: any[] = Array.isArray(fullDC.productDetails)
-        ? [...fullDC.productDetails]
-        : []
-      if (dcOrderId) {
-        try {
-          const related = await apiRequest<any[]>(
-            `/dc?dcOrderId=${encodeURIComponent(dcOrderId)}`
-          )
-          mergedDetails = mergeRequestDCProductDetails(
-            fullDC._id,
-            fullDC.productDetails,
-            related
-          )
-        } catch (relErr) {
-          console.warn('Could not load related DC lines for Request DC:', relErr)
-          mergedDetails = dedupeProductDetailLines(mergedDetails)
-        }
-      } else {
-        mergedDetails = dedupeProductDetailLines(mergedDetails)
+    // Load products belonging ONLY to this DC. Never merge sibling Term-Wise lines.
+    let siblingRows: any[] = []
+    if (dcOrderId) {
+      try {
+        const related = await apiRequest<any[]>(
+          `/dc?dcOrderId=${encodeURIComponent(dcOrderId)}`
+        )
+        siblingRows = (Array.isArray(related) ? related : [])
+          .filter((r: any) => r?.status === 'scheduled_for_later')
+          .flatMap((r: any) => (Array.isArray(r.productDetails) ? r.productDetails : []))
+      } catch (relErr) {
+        console.warn('Could not load related DC lines for Request DC:', relErr)
       }
+    }
 
-      const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
-      const productsToShow = buildClientDCProductRows(
-        mergedDetails,
+    const pendingProducts =
+      Array.isArray(dcOrderDoc?.pendingEdit?.products) && dcOrderDoc.pendingEdit.products.length > 0
+        ? dcOrderDoc.pendingEdit.products
+        : null
+    const committedProducts =
+      Array.isArray(dcOrderDoc?.products) && dcOrderDoc.products.length > 0
+        ? dcOrderDoc.products
+        : null
+    const pendingQty = (pendingProducts || []).reduce(
+      (s: number, p: any) => s + (Number(p.quantity) || Number(p.strength) || 0),
+      0
+    )
+    const committedQty = (committedProducts || []).reduce(
+      (s: number, p: any) => s + (Number(p.quantity) || Number(p.strength) || 0),
+      0
+    )
+    const pendingIsRicher =
+      !!pendingProducts &&
+      (!committedProducts ||
+        pendingProducts.length > committedProducts.length ||
+        pendingQty > committedQty)
+    const approvedProducts =
+      (dcOrderDoc?.pendingEdit?.status === 'approved' && pendingProducts) ||
+      pendingIsRicher
+        ? pendingProducts
+        : committedProducts
+    if (approvedProducts && approvedProducts.length > 0) {
+      dcOrderProducts = approvedProducts
+    }
+
+    const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
+    const toRequestDcRows = (details: any[]) =>
+      buildClientDCProductRows(
+        collapseEmptyLevelDuplicateLines(
+          dedupeProductDetailLines(
+            appendMissingMyClientsOrderLines(
+              (details || []).filter(
+                (p) => !lineMatchesTermWiseCompanion(p, siblingRows)
+              ),
+              dcOrderProducts,
+              siblingRows
+            )
+          )
+        ),
         dcOrderProducts,
         rowOpts,
         getDefaultLevel
       )
 
-      
-      // Set the products to display
-      if (productsToShow.length > 0) {
-        console.log('Setting products for Request DC:', JSON.stringify(productsToShow, null, 2))
-        setDcProductRows(productsToShow)
-      } else {
-        // No products - show empty state
-        setDcProductRows([])
-      }
-      
-      // Load DC details
+    try {
+      const fullDC = await apiRequest<any>(`/dc/${dc._id}`)
+      let thisDetails: any[] = Array.isArray(fullDC.productDetails)
+        ? [...fullDC.productDetails]
+        : []
+
+      // Flow: Edit PO approved by Executive Manager → Request DC shows that My Clients list (incl. P2).
+      const mappedApproved = (approvedProducts || [])
+        .map((p: any) => orderProductToClientDcDetail(p))
+        .filter((p: any) => p.product)
+      thisDetails = pickRicherProductRows(thisDetails, mappedApproved)
+
+      const productsToShow = toRequestDcRows(thisDetails)
+      setDcProductRows(productsToShow)
+
       setDcDate(fullDC.dcDate ? new Date(fullDC.dcDate).toISOString().split('T')[0] : '')
       setDcRemarks(fullDC.dcRemarks || '')
       setDcCategory(fullDC.dcCategory || '')
@@ -1106,8 +1177,13 @@ export default function ClientDCPage() {
       setDcPoPhotoUrl(fullDC.poPhotoUrl || '')
     } catch (e) {
       console.error('Failed to load DC details:', e)
-      // Initialize with empty state - no products until added via "Add Products"
-      setDcProductRows([])
+      const fallbackDetails = pickRicherProductRows(
+        [],
+        approvedProducts
+          ? approvedProducts.map((p: any) => orderProductToClientDcDetail(p)).filter((p: any) => p.product)
+          : []
+      )
+      setDcProductRows(toRequestDcRows(fallbackDetails))
       setDcDate('')
       setDcRemarks('')
       setDcCategory('')
@@ -1263,7 +1339,7 @@ export default function ClientDCPage() {
             specs: row.specs || 'Regular',
             quantity: Number(row.quantity) || 0,
             strength: Number(row.strength) || 0,
-            level: row.level || getDefaultLevel(row.product || 'Abacus'),
+            level: row.level && row.level !== '-' ? row.level : '',
             term: row.term || 'Term 1',
           }))
         : undefined
@@ -1351,6 +1427,7 @@ export default function ClientDCPage() {
 
       // Prepare product details
       const productDetails = dcProductRows.map(row => ({
+        lineId: ensureProductLineId(row),
         product: row.product || '',
         class: row.class || '1',
         category: normalizeStudentCategory(row.category) || defaultStudentCategory,
@@ -1359,7 +1436,7 @@ export default function ClientDCPage() {
         subject: row.subject || undefined,
         quantity: Number(row.quantity) || 0,
         strength: Number(row.strength) || 0,
-        level: row.level || getDefaultLevel(row.product || 'Abacus'),
+        level: row.level && row.level !== '-' ? row.level : '',
         term: resolveClientDCRowTerm(row),
       }))
 
@@ -1510,77 +1587,21 @@ export default function ClientDCPage() {
             const usedIndices = new Set<number>()
             
             paymentBreakdown = productDetails.map((pd: any, index: number) => {
-              // First try to match by index/position (most accurate)
-              let matchingProduct: any = null
-              let matchingIndex = -1
+              const matchingProduct = findMatchingOrderProduct(
+                dcOrder.products,
+                pd,
+                index,
+                usedIndices
+              )
               
-              // Try exact index match first
-              if (index < dcOrder.products.length && !usedIndices.has(index)) {
-                matchingProduct = dcOrder.products[index]
-                matchingIndex = index
-                usedIndices.add(index)
-                console.log(`Payment Creation Product[${index}]: Matched by exact index -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-              } else {
-                // If exact index is used or out of bounds, find unused product with matching name
-                const dcProductName = (pd.product || '').toLowerCase().trim()
-                
-                // First try to find unused product with exact name match
-                for (let i = 0; i < dcOrder.products.length; i++) {
-                  if (usedIndices.has(i)) continue
-                  
-                  const p = dcOrder.products[i]
-                  const orderProductName = (p.product_name || '').toLowerCase().trim()
-                  
-                  if (dcProductName === orderProductName) {
-                    matchingProduct = p
-                    matchingIndex = i
-                    usedIndices.add(i)
-                    console.log(`Payment Creation Product[${index}]: Matched by name (exact) at index ${i} -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                    break
-                  }
-                }
-                
-                // If still no match, try partial name match
-                if (!matchingProduct) {
-                  for (let i = 0; i < dcOrder.products.length; i++) {
-                    if (usedIndices.has(i)) continue
-                    
-                    const p = dcOrder.products[i]
-                    const orderProductName = (p.product_name || '').toLowerCase().trim()
-                    
-                    if (dcProductName.includes(orderProductName) || orderProductName.includes(dcProductName)) {
-                      matchingProduct = p
-                      matchingIndex = i
-                      usedIndices.add(i)
-                      console.log(`Payment Creation Product[${index}]: Matched by name (partial) at index ${i} -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                      break
-                    }
-                  }
-                }
-                
-                // Last resort: use any matching product name (even if already used)
-                if (!matchingProduct) {
-                  const dcProductName = (pd.product || '').toLowerCase().trim()
-                  matchingProduct = dcOrder.products.find((p: any) => {
-                    const orderProductName = (p.product_name || '').toLowerCase().trim()
-                    return dcProductName === orderProductName || 
-                           dcProductName.includes(orderProductName) || 
-                           orderProductName.includes(dcProductName)
-                  })
-                  if (matchingProduct) {
-                    console.log(`Payment Creation Product[${index}]: Matched by name (fallback, may be duplicate) -> ${matchingProduct?.product_name} (₹${matchingProduct?.unit_price})`)
-                  }
-                }
-              }
-              
-              const unitPrice = matchingProduct ? (Number(matchingProduct.unit_price) || 0) : 0
+              const unitPrice = matchingProduct ? (Number(matchingProduct.unit_price) || 0) : (Number(pd.price) || 0)
               const quantity = Number(pd.quantity) || 0
               const strength = Number(pd.strength) || 0
               // Use strength for calculation (not quantity) - strength is the actual number of students/items
               const total = unitPrice * strength
               totalAmount += total
               
-              console.log(`Payment Creation Product[${index}]: ${pd.product}, UnitPrice: ₹${unitPrice}, Quantity: ${quantity}, Strength: ${strength}, Total: ₹${total}, MatchedIndex: ${matchingIndex}`)
+              console.log(`Payment Creation Product[${index}]: ${pd.product}, UnitPrice: ₹${unitPrice}, Quantity: ${quantity}, Strength: ${strength}, Total: ₹${total}`)
               
               return {
                 product: pd.product || '',
@@ -1590,7 +1611,7 @@ export default function ClientDCPage() {
                 subject: pd.subject || undefined,
                 quantity: quantity,
                 strength: strength,
-                level: pd.level || 'L2',
+                level: displayProductLevel(pd.level),
                 unitPrice: unitPrice,
                 total: total,
               }
@@ -1621,7 +1642,7 @@ export default function ClientDCPage() {
             subject: p.subject || undefined,
             quantity: quantity,
             strength: strength,
-            level: p.level || 'L2',
+            level: displayProductLevel(p.level),
             unitPrice: price,
             total: total,
           }
@@ -1656,7 +1677,7 @@ export default function ClientDCPage() {
                 subject: pd.subject || undefined,
                 quantity: quantity,
                 strength: strength,
-                level: pd.level || 'L2',
+                level: displayProductLevel(pd.level),
                 unitPrice: estimatedUnitPrice,
                 total: total,
               }
@@ -1673,13 +1694,13 @@ export default function ClientDCPage() {
             ...pb,
             product: pb.product || '',
             class: pb.class || '1',
-            strength: Number(pb.strength) || 0,
+            strength: Number(pb.strength) || Number(pb.quantity) || 0,
             unitPrice: Number(pb.unitPrice) || 0,
             level: pb.level,
             subject: pb.subject,
           })),
           getCalculationType,
-          getCatalogFallbackCount
+          () => 0
         )
         paymentBreakdown = adj.paymentBreakdown
         totalAmount = adj.totalAmount
@@ -1729,6 +1750,7 @@ export default function ClientDCPage() {
       // Update the related DcOrder status so Super Admin Closed Sales can find it.
       // Term 1, Both, and Term 2-only requests from My Clients all set dc_requested.
       // (Split Term 2 companion DCs still use scheduled_for_later on the Term 2 DC doc.)
+      // Backend PUT /dc status=po_submitted already promotes the sale; this stores request details.
       if (selectedDC.dcOrderId) {
         try {
           const dcOrderId = typeof selectedDC.dcOrderId === 'object' 
@@ -1744,32 +1766,19 @@ export default function ClientDCPage() {
           
           console.log('🔄 Updating DcOrder status to dc_requested with request data:', dcOrderId)
           
-          // Store the request data in DcOrder so Admin/Coordinator can see it in Closed Sales
-          // Also update the main products array to only contain Term 1 products (for display in Closed Sales)
-          const productsArrayForDcOrder = productsForDcOrder.map((p: any) => ({
-            product_name: p.product || p.product_name || 'Unknown',
-            quantity: p.quantity || p.strength || 0,
-            unit_price: p.unit_price || 0,
-            term: p.term || 'Term 1',
-          }))
-          
           const updateResult = await apiRequest(`/dc-orders/${dcOrderId}`, {
             method: 'PUT',
             body: JSON.stringify({ 
               status: 'dc_requested',
-              // Update main products array to only show Term 1 products (for display in Closed Sales)
-              products: productsArrayForDcOrder,
               dcRequestData: {
-                // Store product details from the request (Term 1 products if split)
                 productDetails: productsForDcOrder,
                 requestedQuantity: quantityForDcOrder,
-                // Store employee ID who made the request
-                employeeId: currentUser?._id || selectedDC.employeeId,
-                // Store any PO photo URL if provided
-                poPhotoUrl: dcPoPhotoUrl || undefined,
-                // Store timestamp
+                employeeId: currentUser?._id || (
+                  typeof selectedDC.employeeId === 'object'
+                    ? selectedDC.employeeId?._id
+                    : selectedDC.employeeId
+                ),
                 requestedAt: new Date().toISOString(),
-                // Indicate if this was split (for reference)
                 isSplit: splitTerm2,
                 term2DCId: splitTerm2 ? term2DC?._id : undefined,
                 requestDcTermRouting: requestDcTermRouting || undefined,
@@ -1790,27 +1799,11 @@ export default function ClientDCPage() {
               ? selectedDC.dcOrderId._id 
               : selectedDC.dcOrderId
           })
-          // Continue even if DcOrder update fails, but show warning
-          toast.warning('DC updated but failed to update DcOrder status. Please check Closed Sales manually.')
+          // PUT /dc already queued Closed Sales; do not treat this as a hard failure.
+          toast.warning('Request sent. If it does not appear in Closed Sales, refresh and try Request DC again.')
         }
       } else {
         console.warn('⚠️ No dcOrderId found on DC, cannot update DcOrder status')
-      }
-
-      // If PO photo is provided and status is created, also submit PO
-      if (dcPoPhotoUrl && selectedDC.status === 'created') {
-        try {
-          await apiRequest(`/dc/${selectedDC._id}/submit-po`, {
-            method: 'POST',
-            body: JSON.stringify({ 
-              poPhotoUrl: dcPoPhotoUrl,
-              remarks: 'PO submitted via Client Request'
-            }),
-          })
-        } catch (poErr) {
-          console.error('PO submission failed:', poErr)
-          // Continue even if PO submission fails
-        }
       }
 
       // Store invoice data for viewing
@@ -1970,9 +1963,17 @@ export default function ClientDCPage() {
 
       const pe = dcOrder.pendingEdit?.status === 'pending' ? dcOrder.pendingEdit : null
       const orderProducts = (pe?.products?.length ? pe.products : dcOrder.products) || []
-      const dcDetails = dedupeProductDetailLines(
-        Array.isArray(fullDC?.productDetails) ? fullDC.productDetails : []
+      const dcDetailsRaw = dedupeProductDetailLines(
+        (Array.isArray(fullDC?.productDetails) ? fullDC.productDetails : []).filter((p: any) => {
+          if (p?.closeLeadDestination === 'TERM_WISE_DC') return false
+          return true
+        })
       )
+      // Last submitted Edit PO (pending) is what the user just saved. Do not reopen the older DC snapshot.
+      const dcDetails =
+        pe?.products?.length > 0
+          ? pe.products.map((p: any) => orderProductToClientDcDetail(p)).filter((p: any) => p.product)
+          : dcDetailsRaw
       const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
 
       // When a manager approval is pending, show that snapshot; otherwise last saved order
@@ -2017,27 +2018,31 @@ export default function ClientDCPage() {
                 ? {
                     ...p,
                     product: name,
-                    class: order.class ?? p.class,
-                    specs: order.specs ?? p.specs,
-                    productCategory: order.productCategory ?? p.productCategory,
-                    strength: p.strength ?? order.quantity,
+                    class: p.class ?? order.class,
+                    specs: p.specs ?? order.specs,
+                    productCategory: p.productCategory ?? order.productCategory,
+                    strength: Number(p.strength) || Number(p.quantity) || 0,
+                    quantity: Number(p.quantity) || Number(p.strength) || 0,
                     price: p.price ?? order.unit_price,
                     level: p.level || order.level,
                     term: p.term ?? order.term,
+                    subject: p.subject ?? order.subject,
+                    selected_subjects: p.selected_subjects ?? order.selected_subjects,
+                    lineId: p.lineId || order.lineId,
                   }
                 : p
               const resolved = resolveClientDCRowFields(merged, name, rowOpts)
-              const catalogLevels = getAvailableLevels(name)
-              const fallbackLevel = catalogLevels[0] || getDefaultLevel(name || 'Abacus')
               const savedLevel = (merged.level && String(merged.level).trim()) || ''
-              const level = savedLevel || fallbackLevel
+              const level = savedLevel && savedLevel !== '-' ? savedLevel : '-'
               const term = normalizeProductTerm(
                 merged.term ?? termFromLevelLabel(savedLevel) ?? termFromLevelLabel(level)
               )
+              const lineId = ensureProductLineId(merged, idx)
               return {
-                id: String(idx + 1),
+                id: lineId,
+                lineId,
                 product_name: name,
-                quantity: Number(merged.strength ?? merged.quantity ?? order?.quantity) || 0,
+                quantity: Number(merged.quantity ?? merged.strength) || 0,
                 unit_price: Number(merged.price ?? order?.unit_price) || 0,
                 class: resolved.class,
                 specs: resolved.specs,
@@ -2045,40 +2050,17 @@ export default function ClientDCPage() {
                 category: merged.category,
                 strength: Number(merged.strength ?? merged.quantity) || 0,
                 subject: merged.subject,
+                selected_subjects: Array.isArray(merged.selected_subjects) ? merged.selected_subjects : undefined,
                 level,
                 term,
               }
             })
           : []
 
-      setEditProductRows(
-        rowsFromDetails.length > 0
-          ? rowsFromDetails
-          : orderProducts.map((p: any, idx: number) => {
-              const name = p.product_name || ''
-              const resolved = resolveClientDCRowFields(p, name, rowOpts)
-              const catalogLevels = getAvailableLevels(name)
-              const fallbackLevel = catalogLevels[0] || getDefaultLevel(name || 'Abacus')
-              const savedLevel = (p.level && String(p.level).trim()) || ''
-              const level = savedLevel || fallbackLevel
-              const term = normalizeProductTerm(
-                p.term ?? termFromLevelLabel(savedLevel) ?? termFromLevelLabel(level)
-              )
-              return {
-                id: String(idx + 1),
-                product_name: name,
-                quantity: Number(p.quantity) || 0,
-                unit_price: Number(p.unit_price) || 0,
-                class: resolved.class,
-                specs: resolved.specs,
-                productCategory: resolved.productCategory,
-                category: p.category,
-                strength: Number(p.quantity) || 0,
-                level,
-                term,
-              }
-            })
-      )
+      const expandedDetails = expandEditPoRowsBySubject(rowsFromDetails, getProductSubjects)
+      // This DC's productDetails are the source of truth. Never substitute DcOrder.products —
+      // that array still holds the unsplit lead (P3 L1+L2 summed to 14).
+      setEditProductRows(expandedDetails)
 
       // Original PO product names (committed on DcOrder) — for price lock + "new product" detection
       const originalProducts = Array.from(
@@ -2130,7 +2112,7 @@ export default function ClientDCPage() {
       const invalidProducts = editProductRows.filter(row => {
         const hasProductName = row.product_name && row.product_name.trim() !== ''
         if (!hasProductName) return false // Skip empty rows
-        return !row.quantity || row.quantity <= 0 || !row.unit_price || row.unit_price <= 0
+        return !row.quantity || row.quantity <= 0 || !row.unit_price || Number(row.unit_price) <= 0
       })
       
       if (invalidProducts.length > 0) {
@@ -2143,26 +2125,32 @@ export default function ClientDCPage() {
       const products = editProductRows
         .filter(row => row.product_name && row.product_name.trim() !== '') // Only include rows with product names
         .map(row => {
-          const level =
-            row.level ||
-            getAvailableLevels(row.product_name || '')[0] ||
-            getDefaultLevel(row.product_name || 'Abacus')
+          const rawLevel = String(row.level || '').trim()
+          const level = !rawLevel || rawLevel === '-' ? '' : rawLevel
+          const qty = Number(row.quantity) || 0
           return {
+            lineId: ensureProductLineId(row),
             product_name: row.product_name,
-            quantity: row.quantity,
-            unit_price: row.unit_price,
-            class: row.class || '1',
+            quantity: qty,
+            unit_price: Number(row.unit_price) || 0,
+            total: qty * (Number(row.unit_price) || 0),
+            class: row.class && String(row.class).trim() !== '' ? String(row.class).trim() : '1',
             specs: row.specs || 'Regular',
             productCategory: row.productCategory || undefined,
             category: row.category || undefined,
-            strength: Number(row.strength ?? row.quantity) || 0,
-            // Keep term for backward compatibility in DcOrder schema, but UI uses level only
+            strength: qty,
             term: normalizeProductTerm(
               (row.term != null && String(row.term).trim() !== '')
                 ? row.term
                 : (termFromLevelLabel(level) ?? 'Term 1')
             ),
             level,
+            subject: row.subject && String(row.subject).trim() !== '-' ? String(row.subject).trim() : undefined,
+            selected_subjects:
+              row.subject && String(row.subject).trim() !== '-'
+                ? [String(row.subject).trim()]
+                : [],
+            closeLeadDestination: 'MY_CLIENT',
           }
         })
 
@@ -2197,33 +2185,53 @@ export default function ClientDCPage() {
           total_amount: totalAmount,
         // Explicitly include transport fields (overrides any from spread)
         ...transportFields,
+        originatingDcId: selectedDC?._id || currentEditingDCId || undefined,
       }
       const dcProductDetailsPayload = editProductRows
         .filter((row) => row.product_name && row.product_name.trim() !== '')
         .map((row) => {
-          const level =
-            row.level ||
-            getAvailableLevels(row.product_name || '')[0] ||
-            getDefaultLevel(row.product_name || 'Abacus')
+          const rawLevel = String(row.level || '').trim()
+          const level = !rawLevel || rawLevel === '-' ? '' : rawLevel
+          const qty = Number(row.quantity) || 0
           return {
+            lineId: ensureProductLineId(row),
             product: row.product_name,
-            class: row.class || '1',
+            class: row.class && String(row.class).trim() !== '' ? String(row.class).trim() : '1',
             specs: row.specs || 'Regular',
-            quantity: Number(row.quantity) || 0,
-            strength: Number(row.strength || row.quantity) || 0,
+            quantity: qty,
+            strength: qty,
             level,
             term: normalizeProductTerm(
               (row.term != null && String(row.term).trim() !== '')
                 ? row.term
                 : (termFromLevelLabel(level) ?? 'Term 1')
             ),
-            subject: row.subject || undefined,
+            subject: row.subject && String(row.subject).trim() !== '-' ? String(row.subject).trim() : undefined,
+            selected_subjects:
+              row.subject && String(row.subject).trim() !== '-'
+                ? [String(row.subject).trim()]
+                : [],
             category: row.category || undefined,
             productCategory: row.productCategory || undefined,
             price: Number(row.unit_price) || 0,
-            total: (Number(row.quantity) || 0) * (Number(row.unit_price) || 0),
+            total: qty * (Number(row.unit_price) || 0),
+            closeLeadDestination: 'MY_CLIENT',
           }
         })
+
+      const syncThisDcProducts = async () => {
+        if (!selectedDC?._id) return
+        await apiRequest(`/dc/${selectedDC._id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            productDetails: dcProductDetailsPayload,
+            requestedQuantity: dcProductDetailsPayload.reduce(
+              (sum: number, p: any) => sum + (Number(p.quantity) || 0),
+              0
+            ),
+          }),
+        })
+      }
 
       // If PDF changed or new products added, create pendingEdit request for Executive Manager approval
       if (pdfChanged || hasNewProducts) {
@@ -2241,7 +2249,6 @@ export default function ClientDCPage() {
           console.log('✅ PendingEdit request created successfully:', response)
           if (response?._id) setSelectedDcOrder(response)
           
-          // Mark DC as having pending changes and pending edit request
           if (currentEditingDCId) {
             setDcsWithPendingChanges(prev => new Set(prev).add(currentEditingDCId))
             setDcsWithPendingEditRequests(prev => new Set(prev).add(currentEditingDCId))
@@ -2250,17 +2257,11 @@ export default function ClientDCPage() {
           toast.success('PO edit request submitted! Executive Manager will review and approve.')
         } catch (e: any) {
           console.error('❌ Failed to create pendingEdit request:', e)
-          // If there's already a pending edit, that's okay - just update the existing one
-          if (e?.message?.includes('already a pending edit')) {
-            toast.info('Edit request already pending. Executive Manager will review it.')
-          } else {
-            toast.error(e?.message || 'Failed to submit edit request. Please try again.')
-            setSubmittingEdit(false)
-            return
-          }
+          toast.error(e?.message || 'Failed to submit edit request. Please try again.')
+          setSubmittingEdit(false)
+          return
         }
       } else {
-        // No PDF or product changes - update directly (no approval needed)
         console.log('📤 Updating DC Order directly (no approval needed):', `/dc-orders/${selectedDcOrder._id}`)
       const response = await apiRequest<any>(`/dc-orders/${selectedDcOrder._id}`, {
         method: 'PUT',
@@ -2268,22 +2269,7 @@ export default function ClientDCPage() {
       })
       console.log('✅ DC Order updated successfully:', response)
       if (response?._id) setSelectedDcOrder(response)
-
-      // Keep DC productDetails in sync so Edit PO reopens with saved levels/terms.
-      if (selectedDC?._id) {
-        await apiRequest(`/dc/${selectedDC._id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            productDetails: dcProductDetailsPayload,
-            requestedQuantity: dcProductDetailsPayload.reduce(
-              (sum: number, p: any) => sum + (Number(p.quantity) || 0),
-              0
-            ),
-          }),
-        })
-      }
         
-        // Remove from pending changes if no changes detected
         if (currentEditingDCId) {
           setDcsWithPendingChanges(prev => {
             const newSet = new Set(prev)
@@ -2294,6 +2280,8 @@ export default function ClientDCPage() {
 
       toast.success('PO updated successfully!')
       }
+
+      await syncThisDcProducts()
 
       setEditPODialogOpen(false)
       // Reset editing state
@@ -2326,12 +2314,6 @@ export default function ClientDCPage() {
         )
       : []
     if (fromDetails.length > 0) return fromDetails.join(', ')
-    const fromOrder = d.dcOrderId?.products && Array.isArray(d.dcOrderId.products)
-      ? d.dcOrderId.products
-          .map((p: any) => (p.product_name || p.product || '').toString().trim())
-          .filter(Boolean)
-      : []
-    if (fromOrder.length > 0) return Array.from(new Set(fromOrder)).join(', ')
     return d.product || d.saleId?.product || ''
   }
 
@@ -3912,7 +3894,14 @@ export default function ClientDCPage() {
                   const renderProductRow = (row: typeof editProductRows[0], idx: number) => {
                     const actualIdx = editProductRows.findIndex(r => r.id === row.id)
                     return (
-                        <TableRow key={row.id}>
+                        <TableRow
+                          key={row.id}
+                          className={
+                            highlightedEditProductRowId === row.id
+                              ? 'bg-amber-50'
+                              : undefined
+                          }
+                        >
                           <TableCell>
                             <Input
                               value={row.product_name}
@@ -3926,13 +3915,95 @@ export default function ClientDCPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          {/* Level selector based on Products master configuration */}
                           <Select
-                            value={
-                              row.level ||
-                              getAvailableLevels(row.product_name || '')[0] ||
-                              getDefaultLevel(row.product_name || 'Abacus')
+                            value={String(row.class || '1')}
+                            onValueChange={(value) => {
+                              const updated = [...editProductRows]
+                              updated[actualIdx].class = value
+                              setEditProductRows(updated)
+                            }}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Class" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableClasses.map((cls) => (
+                                <SelectItem key={cls} value={cls}>
+                                  {cls}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const catalogSubjects = getProductSubjects(row.product_name || '')
+                            const hasSubjects = catalogSubjects.length > 0 || hasProductSubjects(row.product_name || '')
+                            const current = String(row.subject || '').trim()
+                            const options = hasSubjects
+                              ? (current && !catalogSubjects.includes(current)
+                                  ? [current, ...catalogSubjects]
+                                  : catalogSubjects)
+                              : ['-']
+                            const value = hasSubjects
+                              ? (current && options.includes(current) ? current : (current || undefined))
+                              : '-'
+                            if (!hasSubjects) {
+                              return <span className="text-sm text-neutral-500">-</span>
                             }
+                            return (
+                              <Select
+                                value={value || undefined}
+                                onValueChange={(next) => {
+                                  const dup = editProductRows.some((other) => {
+                                    if (other.id === row.id) return false
+                                    if (
+                                      editPoProductIdentity(other.product_name || '', getProductId) !==
+                                      editPoProductIdentity(row.product_name || '', getProductId)
+                                    ) {
+                                      return false
+                                    }
+                                    const otherClass = String(other.class || '1').trim() || '1'
+                                    const thisClass = String(row.class || '1').trim() || '1'
+                                    if (otherClass !== thisClass) return false
+                                    return normalizeEditPoSubjectKey(other.subject) === normalizeEditPoSubjectKey(next)
+                                  })
+                                  if (dup) {
+                                    toast.error(
+                                      'This product with this subject is already added. Please edit the existing quantity.'
+                                    )
+                                    return
+                                  }
+                                  const updated = [...editProductRows]
+                                  updated[actualIdx].subject = next
+                                  updated[actualIdx].selected_subjects = next ? [next] : []
+                                  setEditProductRows(updated)
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select subject" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {options.map((subj) => (
+                                    <SelectItem key={subj} value={subj}>
+                                      {subj}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          {/* Level from Products master only — no L1/Term 1 default when unconfigured */}
+                          {(() => {
+                            const configuredLevels = getConfiguredLevels(row.product_name || '')
+                            const hasConfiguredLevels = configuredLevels.length > 0
+                            const levelValue = resolveProductRowLevel(row.product_name || '', row.level)
+                            return (
+                          <Select
+                            value={levelValue}
+                            disabled={!hasConfiguredLevels}
                             onValueChange={(value) => {
                               const updated = [...editProductRows]
                               updated[actualIdx].level = value
@@ -3941,31 +4012,25 @@ export default function ClientDCPage() {
                               setEditProductRows(updated)
                               // Recalculate total after level change (total is still qty × price)
                               const total = updated.reduce(
-                                (sum, p) => sum + p.quantity * p.unit_price,
+                                (sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.unit_price) || 0),
                                 0
                               )
                               setEditFormData({ ...editFormData, total_amount: total })
                             }}
                           >
                             <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select level" />
+                              <SelectValue placeholder="-" />
                             </SelectTrigger>
                             <SelectContent>
-                              {(() => {
-                                const catalog = getAvailableLevels(row.product_name || '')
-                                const cur =
-                                  row.level ||
-                                  catalog[0] ||
-                                  getDefaultLevel(row.product_name || 'Abacus')
-                                const levelOptions = [...new Set([cur, ...catalog].filter(Boolean))]
-                                return levelOptions.map((lvl) => (
-                                  <SelectItem key={lvl} value={lvl}>
-                                    {lvl}
-                                  </SelectItem>
-                                ))
-                              })()}
+                              {(hasConfiguredLevels ? configuredLevels : ['-']).map((lvl) => (
+                                <SelectItem key={lvl} value={lvl}>
+                                  {lvl}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
+                            )
+                          })()}
                           </TableCell>
                           <TableCell>
                             <Input
@@ -3976,7 +4041,7 @@ export default function ClientDCPage() {
                               updated[actualIdx].quantity = Number(e.target.value) || 0
                                 setEditProductRows(updated)
                                 // Update total amount
-                              const total = updated.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
+                              const total = updated.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.unit_price) || 0)), 0)
                                 setEditFormData({ ...editFormData, total_amount: total })
                               }}
                               min="0"
@@ -3988,26 +4053,26 @@ export default function ClientDCPage() {
                           <TableCell>
                             <Input
                               type="number"
-                              value={row.unit_price}
+                              value={row.unit_price === '' || row.unit_price === undefined || row.unit_price === null ? '' : row.unit_price}
                               onChange={(e) => {
                                 const updated = [...editProductRows]
-                              updated[actualIdx].unit_price = Number(e.target.value) || 0
+                              updated[actualIdx].unit_price = e.target.value === '' ? '' : e.target.value
                                 setEditProductRows(updated)
                                 // Update total amount
-                              const total = updated.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
+                              const total = updated.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.unit_price) || 0)), 0)
                                 setEditFormData({ ...editFormData, total_amount: total })
                               }}
                               min="0"
                               step="0.01"
                             required
                             readOnly={originalProductNames.includes(row.product_name)}
-                            className={`${row.product_name && (!row.unit_price || row.unit_price <= 0) ? "border-red-500" : ""} ${originalProductNames.includes(row.product_name) ? "bg-neutral-50 cursor-not-allowed" : ""}`}
-                            placeholder="Required"
+                            className={`${row.product_name && (!row.unit_price || Number(row.unit_price) <= 0) ? "border-red-500" : ""} ${originalProductNames.includes(row.product_name) ? "bg-neutral-50 cursor-not-allowed" : ""} [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:m-0`}
+                            placeholder=""
                             title={originalProductNames.includes(row.product_name) ? "Unit price cannot be changed for original PO products" : ""}
                             />
                           </TableCell>
                           <TableCell>
-                            {(row.quantity * row.unit_price).toFixed(2)}
+                            {((Number(row.quantity) || 0) * (Number(row.unit_price) || 0)).toFixed(2)}
                           </TableCell>
                           <TableCell>
                             <Button
@@ -4018,7 +4083,7 @@ export default function ClientDCPage() {
                               const updated = editProductRows.filter((_, i) => i !== actualIdx)
                                 setEditProductRows(updated)
                                 // Recalculate total
-                                const total = updated.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
+                                const total = updated.reduce((sum, p) => sum + ((Number(p.quantity) || 0) * (Number(p.unit_price) || 0)), 0)
                                 setEditFormData({ ...editFormData, total_amount: total })
                               }}
                             >
@@ -4044,6 +4109,8 @@ export default function ClientDCPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Product Name</TableHead>
+                              <TableHead>Class</TableHead>
+                              <TableHead>Subject</TableHead>
                               <TableHead>Level</TableHead>
                               <TableHead>Quantity</TableHead>
                               <TableHead>Unit Price</TableHead>
@@ -4054,7 +4121,7 @@ export default function ClientDCPage() {
                           <TableBody>
                             {editProductRows.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
+                                <TableCell colSpan={8} className="text-center text-neutral-500 py-4">
                                   No products added yet
                                 </TableCell>
                               </TableRow>
@@ -4088,6 +4155,8 @@ export default function ClientDCPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
+                                <TableHead>Class</TableHead>
+                                <TableHead>Subject</TableHead>
                                 <TableHead>Level</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Unit Price</TableHead>
@@ -4098,7 +4167,7 @@ export default function ClientDCPage() {
                             <TableBody>
                               {term1Products.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
+                                  <TableCell colSpan={8} className="text-center text-neutral-500 py-4">
                                     No Level 1 products added yet
                                   </TableCell>
                                 </TableRow>
@@ -4118,6 +4187,8 @@ export default function ClientDCPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
+                                <TableHead>Class</TableHead>
+                                <TableHead>Subject</TableHead>
                                 <TableHead>Level</TableHead>
                                 <TableHead>Quantity</TableHead>
                                 <TableHead>Unit Price</TableHead>
@@ -4128,7 +4199,7 @@ export default function ClientDCPage() {
                             <TableBody>
                               {term2Products.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={6} className="text-center text-neutral-500 py-4">
+                                  <TableCell colSpan={8} className="text-center text-neutral-500 py-4">
                                     No Level 2 products added yet
                                   </TableCell>
                                 </TableRow>
@@ -4142,6 +4213,22 @@ export default function ClientDCPage() {
                     </div>
                   )
                 })()}
+                <div className="flex justify-end gap-8 mt-3 text-sm font-semibold text-slate-800">
+                  <span>
+                    Total Quantity ={' '}
+                    {editProductRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0)}
+                  </span>
+                  <span>
+                    Total Amount ={' '}
+                    {editProductRows
+                      .reduce(
+                        (sum, row) =>
+                          sum + (Number(row.quantity) || 0) * (Number(row.unit_price) || 0),
+                        0
+                      )
+                      .toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -4188,13 +4275,25 @@ export default function ClientDCPage() {
                     const productSpecs = getProductSpecs(product)
                     const hasSpecs = productSpecs.length > 0
                     const specCount = hasSpecs ? productSpecs.length : 1
-                    // Check if this product is already added
-                    const isAlreadyAdded = editProductRows.some(row => row.product_name === product)
+                    const addResult = resolveAddEditPoProduct(
+                      product,
+                      editProductRows,
+                      getConfiguredLevels(product),
+                      getProductId,
+                      resolveProductRowLevel,
+                      getProductSubjects(product)
+                    )
+                    const isAlreadyAdded = Boolean(addResult.duplicateRow)
                     
                     return (
                       <div key={`${product}-${index}`} className={`flex items-center justify-between p-2 border rounded hover:bg-neutral-50 ${isAlreadyAdded ? 'bg-green-50 border-green-200' : ''}`}>
                         <div className="flex items-center space-x-2 flex-1">
                           <span className="text-sm font-medium">{product}</span>
+                          {getProductSubjects(product).length > 0 && (
+                            <span className="text-xs text-neutral-500">
+                              ({getProductSubjects(product).join(', ')})
+                            </span>
+                          )}
                           {hasSpecs && (
                             <span className="text-xs text-neutral-500">({specCount} specs - {productSpecs.join(', ')})</span>
                           )}
@@ -4206,23 +4305,11 @@ export default function ClientDCPage() {
                           type="button"
                           variant={isAlreadyAdded ? "secondary" : "outline"}
                           size="sm"
-                          onClick={() => {
-                            // Add product to editProductRows
-                            const newRow = {
-                              id: Date.now().toString(),
-                              product_name: product,
-                              quantity: 0,
-                              unit_price: 0,
-                              level: getAvailableLevels(product)[0] || getDefaultLevel(product || 'Abacus'),
-                              term: 'Term 1',
-                            }
-                            setEditProductRows([...editProductRows, newRow])
-                            setAddProductDialogOpen(false)
-                          }}
+                          onClick={() => handleAddProductToEditPo(product, () => setAddProductDialogOpen(false))}
                           className="text-xs"
                         >
                           <PlusCircle className="w-3 h-3 mr-1" />
-                          {isAlreadyAdded ? 'Add Another' : 'Add'}
+                          Add
                         </Button>
     </div>
   )
@@ -4265,8 +4352,15 @@ export default function ClientDCPage() {
                     const productSpecs = getProductSpecs(product)
                     const hasSpecs = productSpecs.length > 0
                     const specCount = hasSpecs ? productSpecs.length : 1
-                    // Check if this product is already added
-                    const isAlreadyAdded = editProductRows.some(row => row.product_name === product)
+                    const addResult = resolveAddEditPoProduct(
+                      product,
+                      editProductRows,
+                      getConfiguredLevels(product),
+                      getProductId,
+                      resolveProductRowLevel,
+                      getProductSubjects(product)
+                    )
+                    const isAlreadyAdded = Boolean(addResult.duplicateRow)
                     // Check if this product is from original PO
                     const isFromPO = originalPOProducts.includes(product)
                     
@@ -4274,6 +4368,11 @@ export default function ClientDCPage() {
                       <div key={`new-${product}-${index}`} className={`flex items-center justify-between p-2 border rounded hover:bg-neutral-50 ${isAlreadyAdded ? 'bg-green-50 border-green-200' : ''}`}>
                         <div className="flex items-center space-x-2 flex-1">
                           <span className="text-sm font-medium">{product}</span>
+                          {getProductSubjects(product).length > 0 && (
+                            <span className="text-xs text-neutral-500">
+                              ({getProductSubjects(product).join(', ')})
+                            </span>
+                          )}
                           {hasSpecs && (
                             <span className="text-xs text-neutral-500">({specCount} specs - {productSpecs.join(', ')})</span>
                           )}
@@ -4288,23 +4387,11 @@ export default function ClientDCPage() {
                           type="button"
                           variant={isAlreadyAdded ? "secondary" : "outline"}
                           size="sm"
-                          onClick={() => {
-                            // Add product to editProductRows
-                            const newRow = {
-                              id: Date.now().toString(),
-                              product_name: product,
-                              quantity: 0,
-                              unit_price: 0,
-                              level: getAvailableLevels(product)[0] || getDefaultLevel(product || 'Abacus'),
-                              term: 'Term 1',
-                            }
-                            setEditProductRows([...editProductRows, newRow])
-                            setAddNewProductDialogOpen(false)
-                          }}
+                          onClick={() => handleAddProductToEditPo(product, () => setAddNewProductDialogOpen(false))}
                           className="text-xs"
                         >
                           <PlusCircle className="w-3 h-3 mr-1" />
-                          {isAlreadyAdded ? 'Add Another' : 'Add'}
+                          Add
                         </Button>
                       </div>
                     )

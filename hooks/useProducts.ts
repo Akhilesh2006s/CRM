@@ -117,7 +117,8 @@ export function useProducts() {
     },
     // Get product _id by name (for API calls that need productId)
     getProductId: (productName: string): string | undefined => {
-      const product = products.find(p => p.productName === productName)
+      const n = String(productName || '').trim().toLowerCase()
+      const product = products.find(p => String(p.productName || '').trim().toLowerCase() === n)
       return product?._id
     },
     getCalculationType: (productName: string): CalculationType => {

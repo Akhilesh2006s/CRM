@@ -6,6 +6,8 @@ const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
 const { ensureSchoolCode, isClientConversionUpdate } = require('../utils/clientSchoolCode');
 const { normalizeProductTerm } = require('../utils/productTerm');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
+const { parseFollowUpDateOnly } = require('../utils/followUpDate');
+const { closeOpenLeadsForConvertedOrder } = require('../utils/closeOpenLeadsForClient');
 
 function mapProductsFromInterested(productsInput) {
   if (!Array.isArray(productsInput)) return [];
@@ -54,8 +56,10 @@ const getLeads = async (req, res) => {
       fromDate, 
       toDate,
       lead_type: leadType,
+      pipeline,
     } = req.query;
     const filter = {};
+    const isFollowUpPipeline = String(pipeline || '').toLowerCase() === 'followup';
 
     if (leadType) {
       if (String(leadType).includes(',')) {
@@ -65,7 +69,10 @@ const getLeads = async (req, res) => {
       }
     }
 
-    if (status) {
+    if (isFollowUpPipeline) {
+      // Follow-up Leads: only active/open leads. Closed/converted must not be returned.
+      filter.status = { $in: ['Pending', 'Processing'] };
+    } else if (status) {
       // Handle multiple statuses (comma-separated)
       if (status.includes(',')) {
         filter.status = { $in: status.split(',').map(s => s.trim()) };
@@ -114,7 +121,7 @@ const getLeads = async (req, res) => {
 
     // Pagination support
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Default 50 items per page
+    const limit = parseInt(req.query.limit) || (isFollowUpPipeline ? 500 : 50);
     const skip = (page - 1) * limit;
 
     // Get total count for pagination - use estimatedDocumentCount for better performance if no filters
@@ -142,7 +149,9 @@ const getLeads = async (req, res) => {
     // Only populate essential fields for list view
     let query = Lead.find(filter)
       .select(
-        'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
+        isFollowUpPipeline
+          ? 'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority products managed_by assigned_by createdBy lead_type school_id renewalSource'
+          : 'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
       ) // Only select needed fields
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -307,6 +316,10 @@ const createLead = async (req, res) => {
     delete leadData.school_id;
     delete leadData.renewalSource;
 
+    if (leadData.follow_up_date) {
+      leadData.follow_up_date = parseFollowUpDateOnly(leadData.follow_up_date) || undefined;
+    }
+
     // Normalize product terms (adds default Term 1 when missing, validates when provided)
     try {
       leadData.products = normalizeLeadProducts(leadData.products);
@@ -407,7 +420,7 @@ const createRenewalLead = async (req, res) => {
       remarks: req.body.remarks != null ? String(req.body.remarks) : '',
       priority: ['Hot', 'Warm', 'Cold'].includes(req.body.priority) ? req.body.priority : 'Warm',
       status: 'Pending',
-      follow_up_date: req.body.follow_up_date ? new Date(req.body.follow_up_date) : undefined,
+      follow_up_date: req.body.follow_up_date ? parseFollowUpDateOnly(req.body.follow_up_date) || undefined : undefined,
       createdBy: userId,
       managed_by: userId,
       assigned_by: userId,
@@ -525,7 +538,7 @@ const updateLead = async (req, res) => {
       req.body.$push = {
         updateHistory: {
           follow_up_date: hasFollowUpDate && req.body.follow_up_date
-            ? new Date(req.body.follow_up_date)
+            ? parseFollowUpDateOnly(req.body.follow_up_date)
             : null,
           remarks: hasRemarks ? (req.body.remarks || '') : '',
           priority: historyPriority,
@@ -539,6 +552,11 @@ const updateLead = async (req, res) => {
     const updateData = { ...req.body };
     const pushData = updateData.$push;
     delete updateData.$push;
+    if (hasFollowUpDate) {
+      updateData.follow_up_date = req.body.follow_up_date
+        ? parseFollowUpDateOnly(req.body.follow_up_date)
+        : null;
+    }
 
     const becomingClosed =
       String(updateData.status || '').toLowerCase() === 'closed' ||
@@ -813,6 +831,9 @@ const convertToClient = async (req, res) => {
     const dcOrder = await DcOrder.create(dcOrderPayload);
 
     await Lead.findByIdAndUpdate(req.params.id, { status: 'Closed' });
+    await closeOpenLeadsForConvertedOrder(dcOrder).catch((err) => {
+      console.warn('Could not close matching open leads after convert-to-client:', err?.message);
+    });
 
     const populated = await DcOrder.findById(dcOrder._id)
       .populate('assigned_to', 'name email')

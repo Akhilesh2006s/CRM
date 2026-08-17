@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { useProducts } from '@/hooks/useProducts'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
+import { displayProductLevel } from '@/lib/clientDcProductRows'
 
 type DC = {
   _id: string
@@ -318,7 +319,7 @@ export default function TermWiseDCPage() {
               subject: pd.subject || undefined,
               quantity: quantity,
               strength: strength,
-              level: pd.level || 'L2',
+              level: displayProductLevel(pd.level),
               unitPrice: unitPrice,
               total: total,
               term: term,
@@ -339,7 +340,7 @@ export default function TermWiseDCPage() {
               subject: p.subject || undefined,
               quantity: quantity,
               strength: strength,
-              level: p.level || 'L2',
+              level: displayProductLevel(p.level),
               unitPrice: price,
               total: total,
               term: p.term || 'Term 1',
@@ -368,7 +369,7 @@ export default function TermWiseDCPage() {
               subject: pd.subject || undefined,
               quantity: quantity,
               strength: Number(pd.strength) || 0,
-              level: pd.level || 'L2',
+              level: displayProductLevel(pd.level),
               unitPrice: estimatedUnitPrice,
               total: total,
               term: pd.term || 'Term 1',
@@ -456,35 +457,32 @@ export default function TermWiseDCPage() {
       
       setEditFormData(formData)
       
-      // Load products - prioritize DC's productDetails (has all details), then DcOrder products
+      // Load products from THIS Term-Wise DC only. Never fall back to the full DcOrder.
       let productsToShow: any[] = []
       
-      // First try to get from DC's productDetails (most accurate - has all product details)
       if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-        // Get unit prices from DcOrder products if available
-        productsToShow = dc.productDetails.map((p: any) => {
-          // Try to match with DcOrder product to get unit_price
+        const routedRows = dc.productDetails.some((p: any) => p.closeLeadDestination)
+          ? dc.productDetails.filter((p: any) => p.closeLeadDestination === 'TERM_WISE_DC')
+          : dc.productDetails
+        productsToShow = routedRows.map((p: any) => {
           const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
             const orderProductName = (op.product_name || '').toLowerCase().trim()
             const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
-            return orderProductName === dcProductName
+            if (orderProductName !== dcProductName) return false
+            const orderLevel = String(op.level || '').trim().toLowerCase()
+            const dcLevel = String(p.level || '').trim().toLowerCase()
+            if (dcLevel && orderLevel && dcLevel !== orderLevel) return false
+            return true
           })
           
           return {
             product_name: p.product || p.product_name || '',
-            quantity: p.quantity || p.strength || 0,
+            quantity: Number(p.quantity) || Number(p.strength) || 0,
             unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
-            term: p.term || 'Term 1',
+            term: p.term || p.level || 'Term 1',
+            level: p.level,
           }
         })
-      } else if (dcOrder.products && Array.isArray(dcOrder.products) && dcOrder.products.length > 0) {
-        // Fallback to DcOrder products (initial values)
-        productsToShow = dcOrder.products.map((p: any) => ({
-          product_name: p.product_name || '',
-          quantity: p.quantity || 0,
-          unit_price: p.unit_price || 0,
-          term: p.term || 'Term 1',
-        }))
       }
       
       setEditProductRows(
@@ -612,11 +610,15 @@ export default function TermWiseDCPage() {
           const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
             const orderProductName = (op.product_name || '').toLowerCase().trim()
             const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
-            return orderProductName === dcProductName
+            if (orderProductName !== dcProductName) return false
+            const orderLevel = String(op.level || '').trim().toLowerCase()
+            const dcLevel = String(p.level || '').trim().toLowerCase()
+            if (dcLevel && orderLevel && dcLevel !== orderLevel) return false
+            return true
           })
           return {
             product_name: p.product || p.product_name || '',
-            quantity: p.quantity || p.strength || 0,
+            quantity: Number(p.quantity) || Number(p.strength) || 0,
             unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
             term: p.term || p.level || '',
             level: p.level,

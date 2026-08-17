@@ -16,6 +16,7 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useProducts } from '@/hooks/useProducts'
 import { lookupPincode } from '@/lib/pincode'
+import { toFollowUpDateInputValue, toFollowUpDatePayload } from '@/lib/followUpDate'
 
 type ProductSelection = {
   name: string
@@ -217,9 +218,7 @@ export default function EditLeadPage() {
           strength: lead.strength?.toString() || '',
           remarks: lead.remarks || '',
           average_fee: lead.average_fee?.toString() || '',
-          follow_up_date: (lead.follow_up_date || lead.estimated_delivery_date) 
-            ? new Date(lead.follow_up_date || lead.estimated_delivery_date!).toISOString().split('T')[0] 
-            : '',
+          follow_up_date: toFollowUpDateInputValue(lead.follow_up_date || lead.estimated_delivery_date),
         })
         
         // If pincode exists, load areas
@@ -298,21 +297,6 @@ export default function EditLeadPage() {
     setSubmitting(true)
     setError(null)
     try {
-      const parseFollowUp = (s: string) => {
-        if (!s) return undefined
-        const norm = s.replace(/\//g, '-').trim()
-        let iso: string | undefined
-        if (/^\d{2}-\d{2}-\d{4}$/.test(norm)) {
-          const [dd, mm, yyyy] = norm.split('-').map(Number)
-          const d = new Date(Date.UTC(yyyy, (mm || 1) - 1, dd || 1))
-          if (!isNaN(d.getTime())) iso = d.toISOString()
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(norm)) {
-          const d = new Date(norm + 'T00:00:00Z')
-          if (!isNaN(d.getTime())) iso = d.toISOString()
-        }
-        return iso
-      }
-      
       const selectedProducts = products
         .filter(p => p.checked)
         .map(p => ({
@@ -343,7 +327,7 @@ export default function EditLeadPage() {
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
         email: form.email,
         products: selectedProducts,
-        follow_up_date: parseFollowUp(form.follow_up_date), // Save as follow_up_date, NOT estimated_delivery_date
+        follow_up_date: toFollowUpDatePayload(form.follow_up_date), // Date only — no default time
       }
       
       // Validate required fields

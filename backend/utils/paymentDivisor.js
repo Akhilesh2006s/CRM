@@ -53,6 +53,10 @@ const resolveDivisor = ({
       const n = normalizeSubject(r.subject);
       if (n) subjects.add(n);
     });
+    // Each line already carries its own subject quantity (P2 Phy 10 + P2 Maths 10).
+    if (subjects.size > 0 && subjects.size === activeRows.length) {
+      return 1;
+    }
     let d = subjects.size;
     if (d === 0 && catalogFallbackCount > 0) d = Number(catalogFallbackCount) || 0;
     return Math.max(1, d);
@@ -131,7 +135,11 @@ const calculateProductTotal = ({
  * Group rows by product+class key for billing buckets.
  */
 const bucketKey = (row) =>
-  `${String(row.product || row.product_name || '').trim()}::${String(row.class || '').trim()}`;
+  [
+    String(row.product || row.product_name || '').trim(),
+    String(row.class || '').trim(),
+    String(row.subject || '').trim().toLowerCase(),
+  ].join('::');
 
 module.exports = {
   roundToTwo,

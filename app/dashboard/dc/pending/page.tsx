@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
+import { toast } from 'sonner'
 
 type DcOrderData = {
   _id?: string
@@ -44,6 +45,13 @@ type DcOrderData = {
   transport_location?: string
   transportation_landmark?: string
   pincode?: string
+  dcRequestData?: {
+    productDetails?: any[]
+    dcDate?: string
+    dcCategory?: string
+    dcRemarks?: string
+    dcNotes?: string
+  }
   pendingEdit?: {
     transport_name?: string
     transport_location?: string
@@ -117,6 +125,13 @@ type ProductRow = {
   productName?: string
   quantity?: number
   term: string
+}
+
+function pendingRowQty(row: { quantity?: number; strength?: number }) {
+  const q = Number(row.quantity)
+  if (Number.isFinite(q) && q > 0) return q
+  const s = Number(row.strength)
+  return Number.isFinite(s) && s > 0 ? s : 0
 }
 
 export default function PendingDCPage() {
@@ -263,9 +278,18 @@ export default function PendingDCPage() {
       
       // Populate product rows - prioritize DC.productDetails, then DcOrder.products
       // Filter out empty or invalid productDetails entries
-      const validProductDetails = mergedDC.productDetails && Array.isArray(mergedDC.productDetails) 
-        ? mergedDC.productDetails.filter((p: any) => p && (p.product || p.productName) && (p.quantity > 0 || p.strength > 0))
+      const requestProductDetails = Array.isArray(dcOrderData?.dcRequestData?.productDetails)
+        ? dcOrderData.dcRequestData.productDetails
         : []
+      const dcProductDetails = Array.isArray(mergedDC.productDetails) ? mergedDC.productDetails : []
+      const requestQty = requestProductDetails.reduce((s: number, p: any) => s + (Number(p?.quantity) || Number(p?.strength) || 0), 0)
+      const dcQty = dcProductDetails.reduce((s: number, p: any) => s + (Number(p?.quantity) || Number(p?.strength) || 0), 0)
+      const sourceDetails =
+        requestProductDetails.length > dcProductDetails.length ||
+        (requestProductDetails.length === dcProductDetails.length && requestQty > dcQty)
+          ? requestProductDetails
+          : dcProductDetails
+      const validProductDetails = sourceDetails.filter((p: any) => p && (p.product || p.productName) && (p.quantity > 0 || p.strength > 0))
       
       console.log('📦 Loading products for Pending DC:', {
         dcId: mergedDC._id,
@@ -525,7 +549,14 @@ export default function PendingDCPage() {
       next.dcNotes = 'DC Notes is required.'
     }
     setDcDetailsErrors(next)
-    return Object.keys(next).length === 0
+    if (Object.keys(next).length > 0) {
+      toast.error(Object.values(next)[0] || 'Please fill required DC Details before submitting.')
+      if (typeof document !== 'undefined') {
+        document.getElementById('dc-details-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+      return false
+    }
+    return true
   }
 
   const handleSave = async () => {
@@ -575,8 +606,8 @@ export default function PendingDCPage() {
             category: selectedDC.dcType === 'shortage' ? 'Shortage' : row.category,
             productCategory: row.productCategory || undefined,
             productName: row.productName,
-            quantity: row.quantity,
-            strength: row.strength || 0,
+            quantity: pendingRowQty(row),
+            strength: pendingRowQty(row),
             level: row.level,
             specs: row.specs || 'Regular',
             subject: row.subject || undefined,
@@ -605,9 +636,9 @@ export default function PendingDCPage() {
       return
     }
     
-    const totalQuantity = productRows.reduce((sum, row) => sum + (row.quantity || 0), 0)
+    const totalQuantity = productRows.reduce((sum, row) => sum + pendingRowQty(row), 0)
     if (totalQuantity <= 0) {
-      alert('Please add at least one product with quantity > 0')
+      toast.error('Please add at least one product with quantity > 0')
       return
     }
     
@@ -627,16 +658,6 @@ export default function PendingDCPage() {
     
     setSubmitting(true)
     try {
-      // Determine status: if all products are Term 2, keep as scheduled_for_later
-      // Otherwise, use pending_dc
-      let statusToUse = selectedDC.status || 'pending_dc'
-      if (allProductsAreTerm2 && !hasTerm1) {
-        statusToUse = 'scheduled_for_later'
-      } else if (hasTerm1 || productRows.some(row => (row.term || 'Term 1') === 'Both')) {
-        statusToUse = 'pending_dc'
-      }
-      
-      // First save the changes
       await apiRequest(`/dc/${selectedDC._id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -647,24 +668,23 @@ export default function PendingDCPage() {
           dcCategory,
           dcNotes,
           smeRemarks,
-          status: statusToUse, // Preserve Term 2 status
           productDetails: productRows.map(row => ({
             product: row.product,
             class: row.class || '1',
             category: selectedDC.dcType === 'shortage' ? 'Shortage' : row.category,
             productCategory: row.productCategory || undefined,
             productName: row.productName,
-            quantity: row.quantity,
-            strength: row.strength || 0,
+            quantity: pendingRowQty(row),
+            strength: pendingRowQty(row),
             level: row.level,
             specs: row.specs || 'Regular',
             subject: row.subject || undefined,
             term: row.term || 'Term 1',
           })),
+          requestedQuantity: totalQuantity,
         }),
       })
       
-      // Then submit to warehouse - all DCs go directly to warehouse regardless of terms
       await apiRequest(`/dc/${selectedDC._id}/manager-request`, {
         method: 'POST',
         body: JSON.stringify({
@@ -673,11 +693,11 @@ export default function PendingDCPage() {
         }),
       })
       
-      alert('DC submitted to Warehouse successfully!')
-      load()
+      toast.success('DC submitted to Warehouse')
       setSelectedDC(null)
+      router.push('/dashboard/warehouse/dc-at-warehouse')
     } catch (e: any) {
-      alert(e?.message || 'Failed to submit to Warehouse')
+      toast.error(e?.message || 'Failed to submit to Warehouse')
     } finally {
       setSubmitting(false)
     }
@@ -915,7 +935,7 @@ export default function PendingDCPage() {
           )}
 
           {/* DC Details Section */}
-          <div className="space-y-4 mb-6 border-t pt-6">
+          <div id="dc-details-section" className="space-y-4 mb-6 border-t pt-6">
             <h3 className="font-semibold text-gray-900 text-lg">DC Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
@@ -1173,7 +1193,9 @@ export default function PendingDCPage() {
                           value={row.strength || ''}
                           onChange={(e) => {
                             const updated = [...productRows]
-                            updated[idx].strength = Number(e.target.value) || 0
+                            const next = Number(e.target.value) || 0
+                            updated[idx].strength = next
+                            updated[idx].quantity = next
                             setProductRows(updated)
                           }}
                           placeholder="0"

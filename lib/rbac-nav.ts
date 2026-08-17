@@ -49,6 +49,7 @@ export const RBAC_NAV_MODULES: RbacNavModule[] = [
     label: MODULE_LABELS.clients,
     pages: [
       { label: 'Create Sale', href: '/dashboard/dc/create' },
+      // All Created DCs: Admin / Coordinator only (not Super Admin Clients nav)
       { label: 'All Created DCs', href: '/dashboard/dc/admin/my' },
       { label: 'Closed Sales', href: '/dashboard/dc/closed' },
       { label: 'Saved DC', href: '/dashboard/dc/saved' },

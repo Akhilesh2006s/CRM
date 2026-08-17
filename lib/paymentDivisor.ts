@@ -14,6 +14,11 @@ const normalizeLevel = (level: unknown) =>
     .toLowerCase()
     .replace(/\s+/g, '')
 
+const isRealLevel = (level: unknown) => {
+  const n = normalizeLevel(level)
+  return Boolean(n) && n !== '-' && n !== 'n/a' && n !== 'none'
+}
+
 const normalizeSubject = (subject: unknown) =>
   String(subject || '')
     .trim()
@@ -32,8 +37,7 @@ export function resolveDivisor(opts: {
   if (ct === 'level_based') {
     const levels = new Set<string>()
     activeRows.forEach((r) => {
-      const n = normalizeLevel(r.level)
-      if (n) levels.add(n)
+      if (isRealLevel(r.level)) levels.add(normalizeLevel(r.level))
     })
     let d = levels.size
     if (d === 0 && opts.catalogFallbackCount) d = Number(opts.catalogFallbackCount) || 0
@@ -46,6 +50,11 @@ export function resolveDivisor(opts: {
       const n = normalizeSubject(r.subject)
       if (n) subjects.add(n)
     })
+    // Each line already carries its own subject quantity (Edit PO: P2 Phy 10 + P2 Maths 10).
+    // Do not divide again by subject count — that would count P2 as 10 instead of 20.
+    if (subjects.size > 0 && subjects.size === activeRows.length) {
+      return 1
+    }
     let d = subjects.size
     if (d === 0 && opts.catalogFallbackCount) d = Number(opts.catalogFallbackCount) || 0
     return Math.max(1, d)

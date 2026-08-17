@@ -63,7 +63,7 @@ export function canAccessPath(
   if (isSuperAdmin(user)) return true
   if (!isRbacActive(user)) return true
 
-  // All Created DCs — same complete page for Admin + Coordinators
+  // All Created DCs — Admin + Coordinators + Super Admin (via Create Sale redirect / Clients nav).
   if (
     (user.role === 'Admin' ||
       user.role === 'Coordinator' ||

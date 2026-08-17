@@ -389,8 +389,8 @@ function applySuperAdminNavOrder(nav: NavItem[]): NavItem[] {
 function applyExecutiveSidebarOrder(nav: NavItem[]): NavItem[] {
   const preferred = [
     'Dashboard',
-    'Clients',
     'Leads',
+    'Clients',
     'Leave Management',
     'Stock Returns',
     'Payments',
@@ -936,12 +936,12 @@ export function Sidebar() {
   // Super Admin: hide operational Leads menu (Add/Renewal/Followup). Keep Reports → Leads.
   // Also remove Executive Managers section and place Assign Managers under Users / Employees.
   // Remove Samples. Bottom order: Reports → Products → Vendor → Settings → Sign out.
+  // Keep Clients → All Created DCs (Create Sale lands there after Deal + DC).
   const isSuperAdminNav = user?.role === 'Super Admin' || permUser?.role === 'Super Admin'
   if (isSuperAdminNav) {
     finalNav = finalNav.filter((item) => {
       if (item.label === 'Samples' || item.label === 'Employee Sample') return false
       if (item.label !== 'Leads') return true
-      // Only hide the operational Leads group (children under /dashboard/leads/*)
       const children = item.children || []
       const isOperationalLeads =
         children.length > 0 &&

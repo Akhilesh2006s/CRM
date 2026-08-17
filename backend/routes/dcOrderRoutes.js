@@ -28,7 +28,9 @@ router.put(
   authMiddleware,
   requirePermissionWhen(
     (req) => req.body?.status === 'dc_requested',
-    'clients.closed_sales.request_dc'
+    'clients.closed_sales.request_dc',
+    'clients.my_clients.page.view',
+    'clients.my_clients_term_wise.page.view'
   ),
   requirePermissionWhen(
     (req) =>

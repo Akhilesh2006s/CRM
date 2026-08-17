@@ -18,6 +18,23 @@ const fs = require('fs');
 const { validateSetPendingDc } = require('../utils/dcStatusFlow');
 const { validateRaiseDcDetails, validatePendingDcDetails } = require('../utils/raiseDcDetailsValidation');
 const { partitionProductsForCloseLeadRouting } = require('../utils/productTerm');
+const {
+  siblingTermWiseRows,
+  filterOutTermWiseCompanions,
+  displayLevelValue,
+} = require('../utils/productLineIdentity');
+const { validateDcStockAgainstInventory } = require('../utils/warehouseInventoryMatch');
+
+/** Closed Sales → Saved DC → Pending DC. Do not re-run Close Lead Term-Wise split/strip. */
+const CLOSED_SALES_PIPELINE_ORDER_STATUSES = new Set([
+  'dc_requested',
+  'dc_accepted',
+  'dc_approved',
+  'dc_sent_to_senior',
+]);
+function isClosedSalesPipelineOrder(status) {
+  return CLOSED_SALES_PIPELINE_ORDER_STATUSES.has(String(status || ''));
+}
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -136,7 +153,7 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       strength,
       price,
       total: Number(p.total) || (price * strength),
-      level: p.level || 'L2',
+      level: displayLevelValue(p.level),
       specs,
       subject: p.subject || undefined,
       term: p.term || 'Term 1',
@@ -157,6 +174,11 @@ const calculateTotalQuantity = (rows = []) =>
 async function repairSaleCloseLeadRouting(dcOrderId) {
   if (!dcOrderId) return null;
 
+  const order = await DcOrder.findById(dcOrderId).select('status').lean();
+  if (isClosedSalesPipelineOrder(order?.status)) {
+    return null;
+  }
+
   const sourceStatuses = ['created', 'po_submitted', 'scheduled_for_later'];
   const sourceDcs = await DC.find({
     dcOrderId,
@@ -165,78 +187,74 @@ async function repairSaleCloseLeadRouting(dcOrderId) {
 
   if (!sourceDcs.length) return null;
 
-  const allRows = [];
-  for (const d of sourceDcs) {
-    for (const p of d.productDetails || []) {
-      const plain = typeof p.toObject === 'function' ? p.toObject() : { ...p };
-      delete plain.closeLeadDestination;
-      delete plain._id;
-      allRows.push(plain);
-    }
-  }
-  if (!allRows.length) return null;
-
-  const {
-    myClientsProducts,
-    termWiseProducts,
-    needsTermWiseSplit,
-  } = partitionProductsForCloseLeadRouting(allRows);
-
-  const mainDc = sourceDcs.find((d) => d.status !== 'scheduled_for_later');
-  let twDc = sourceDcs.find((d) => d.status === 'scheduled_for_later');
+  const mainDcs = sourceDcs.filter((d) => d.status !== 'scheduled_for_later');
+  const twDcs = sourceDcs.filter((d) => d.status === 'scheduled_for_later');
   const qty = (rows) =>
     rows.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0) || 1;
   const nameOf = (rows, fallback) =>
     (rows[0] && (rows[0].product || rows[0].productName)) || fallback;
+  const toPlain = (p) => (typeof p.toObject === 'function' ? p.toObject() : { ...p });
 
-  if (mainDc) {
-    mainDc.productDetails = normalizeProductDetails(myClientsProducts);
-    mainDc.requestedQuantity = qty(myClientsProducts);
-    mainDc.product = nameOf(myClientsProducts, mainDc.product);
-    await mainDc.save();
+  const twRows = [];
+  for (const tw of twDcs) {
+    for (const p of tw.productDetails || []) twRows.push(toPlain(p));
   }
 
-  if (needsTermWiseSplit && termWiseProducts.length > 0) {
-    const twDetails = normalizeProductDetails(termWiseProducts);
-    const twQty = qty(termWiseProducts);
-    const twName = nameOf(termWiseProducts, twDc?.product || mainDc?.product);
+  // Each DC is the source of truth. Never pool sibling lines back onto My Clients.
+  // Only strip Term-Wise companions that leaked onto a My Clients DC.
+  for (const mainDc of mainDcs) {
+    const rows = (mainDc.productDetails || []).map(toPlain);
+    const kept = filterOutTermWiseCompanions(rows, twRows);
+    if (kept.length !== rows.length) {
+      mainDc.productDetails = normalizeProductDetails(kept);
+      mainDc.requestedQuantity = qty(kept);
+      mainDc.product = nameOf(kept, mainDc.product);
+      await mainDc.save();
+    }
+  }
 
-    if (twDc) {
-      twDc.productDetails = twDetails;
-      twDc.requestedQuantity = twQty;
-      twDc.product = twName;
-      twDc.status = 'scheduled_for_later';
-      await twDc.save();
-      await DC.deleteMany({
-        dcOrderId,
-        status: 'scheduled_for_later',
-        _id: { $ne: twDc._id },
-      });
-    } else if (mainDc) {
-      twDc = await DC.create({
+  // Legacy only: Term-Wise DC is missing while My Clients still holds both stages.
+  if (twDcs.length === 0 && mainDcs.length > 0) {
+    const allRows = [];
+    for (const d of mainDcs) {
+      for (const p of d.productDetails || []) {
+        const plain = toPlain(p);
+        delete plain.closeLeadDestination;
+        delete plain._id;
+        allRows.push(plain);
+      }
+    }
+    const { myClientsProducts, termWiseProducts, needsTermWiseSplit } =
+      partitionProductsForCloseLeadRouting(allRows);
+    if (needsTermWiseSplit && termWiseProducts.length > 0) {
+      const mainDc = mainDcs[0];
+      mainDc.productDetails = normalizeProductDetails(myClientsProducts);
+      mainDc.requestedQuantity = qty(myClientsProducts);
+      mainDc.product = nameOf(myClientsProducts, mainDc.product);
+      await mainDc.save();
+      await DC.create({
         dcOrderId: mainDc.dcOrderId,
         employeeId: mainDc.employeeId,
         customerName: mainDc.customerName,
         customerEmail: mainDc.customerEmail,
         customerAddress: mainDc.customerAddress,
         customerPhone: mainDc.customerPhone,
-        product: twName,
-        requestedQuantity: twQty,
+        product: nameOf(termWiseProducts, mainDc.product),
+        requestedQuantity: qty(termWiseProducts),
         deliverableQuantity: 0,
         status: 'scheduled_for_later',
         createdBy: mainDc.createdBy,
-        productDetails: twDetails,
+        productDetails: normalizeProductDetails(termWiseProducts),
         dcType: 'normal',
         fulfillmentStatus: 'full',
         poPhotoUrl: mainDc.poPhotoUrl,
         poDocument: mainDc.poDocument,
       });
+      return { myClientsProducts, termWiseProducts, needsTermWiseSplit };
     }
-  } else {
-    await DC.deleteMany({ dcOrderId, status: 'scheduled_for_later' });
   }
 
-  return { myClientsProducts, termWiseProducts, needsTermWiseSplit };
+  return { strippedLeaks: true };
 }
 
 const hasQuantityFieldsInUpdate = (body = {}) =>
@@ -282,7 +300,7 @@ async function setSaleWorkflowStage(dcOrderId, stage, options = {}) {
     orderUpdate.status = 'dc_sent_to_senior';
   }
   if (stage === WORKFLOW_STAGE.ClosedSales) {
-    // Keep caller-provided Closed Sales statuses (dc_requested / dc_accepted)
+    // Keep caller-provided Closed Sales statuses (dc_requested / dc_accepted / saved)
   }
 
   const updated = await DcOrder.findByIdAndUpdate(orderId, { $set: orderUpdate }, { new: true });
@@ -300,6 +318,86 @@ async function setSaleWorkflowStage(dcOrderId, stage, options = {}) {
   }
   console.log(`📍 workflowStage → ${stage} (DcOrder ${orderId}, status → ${updated.status})`);
   return updated;
+}
+
+const PRE_CLOSED_SALES_ORDER_STATUSES = new Set([
+  'saved',
+  'pending',
+  'completed',
+  'hold',
+  'in_transit',
+]);
+
+/**
+ * My Clients "Request DC" (DC → po_submitted) must place the sale on Super Admin Closed Sales.
+ * Do not wait for a second frontend PUT /dc-orders (that call can 403 or fail validators).
+ */
+async function promoteOrderToClosedSalesQueue(dcOrderId, userId, extra = {}) {
+  if (!dcOrderId) return null;
+  const orderId = dcOrderId._id || dcOrderId;
+  const order = await DcOrder.findById(orderId);
+  if (!order) return null;
+  if (['dc_accepted', 'dc_approved', 'dc_sent_to_senior'].includes(order.status)) return order;
+  if (
+    order.status !== 'dc_requested' &&
+    !PRE_CLOSED_SALES_ORDER_STATUSES.has(order.status)
+  ) {
+    return order;
+  }
+
+  const update = {
+    status: 'dc_requested',
+    workflowStage: WORKFLOW_STAGE.ClosedSales,
+    requestedAt: order.requestedAt || new Date(),
+  };
+  if (userId) update.requestedBy = userId;
+  else if (order.requestedBy) update.requestedBy = order.requestedBy;
+  if (extra.pod_proof_url) update.pod_proof_url = extra.pod_proof_url;
+  if (extra.dcRequestData) {
+    const raw = extra.dcRequestData;
+    const employeeId =
+      raw.employeeId && typeof raw.employeeId === 'object' ? raw.employeeId._id : raw.employeeId;
+    update.dcRequestData = {
+      requestedQuantity: raw.requestedQuantity,
+      productDetails: raw.productDetails,
+      employeeId: employeeId || userId,
+      dcRemarks: raw.dcRemarks,
+      dcNotes: raw.dcNotes,
+      dcCategory: raw.dcCategory,
+      dcDate: raw.dcDate,
+    };
+  }
+
+  const updated = await DcOrder.findByIdAndUpdate(orderId, { $set: update }, { new: true });
+  console.log(`📍 Closed Sales queue ← DcOrder ${orderId} (${order.status} → dc_requested)`);
+  return updated;
+}
+
+/** Keep DC.status and DC.workflowStage in lockstep. Pre-pipeline statuses must not stay EmpDC. */
+async function syncDcWorkflowFromStatus(dc) {
+  if (!dc) return null;
+  const stage = workflowStageFromDcStatus(dc.status);
+  const orderId = dc.dcOrderId?._id || dc.dcOrderId;
+
+  if (stage) {
+    dc.workflowStage = stage;
+    await dc.save({ validateBeforeSave: false });
+    if (orderId) {
+      await setSaleWorkflowStage(orderId, stage, { dcId: dc._id });
+    }
+    return stage;
+  }
+
+  dc.workflowStage = undefined;
+  await dc.save({ validateBeforeSave: false });
+  await DC.updateOne({ _id: dc._id }, { $unset: { workflowStage: 1 } });
+  if (orderId) {
+    await DcOrder.updateOne(
+      { _id: orderId },
+      { $set: { workflowStage: WORKFLOW_STAGE.ClosedSales } }
+    );
+  }
+  return null;
 }
 
 async function syncWorkflowFromDc(dc) {
@@ -471,20 +569,10 @@ const getDCs = async (req, res) => {
     // All Created DCs (status=created): same complete list for Super Admin / Admin / Coordinator.
     // Page access is enforced by frontend route/RBAC; do not partial-filter Coordinators here.
 
-    // Mutually exclusive stage filter (preferred over legacy status alone)
-    const stageParam = workflowStage || workflowStageFromDcStatus(status);
-    if (stageParam) {
-      if (status) {
-        andClauses.push({
-          $or: [
-            { workflowStage: stageParam },
-            { workflowStage: { $exists: false }, status },
-            { workflowStage: null, status },
-          ],
-        });
-      } else {
-        filter.workflowStage = stageParam;
-      }
+    // List pages key off DC.status. Do not also require workflowStage — leftover EmpDC
+    // after Accept / Send to Senior would hide the row from Pending DC entirely.
+    if (!status && workflowStage) {
+      filter.workflowStage = workflowStage;
     }
     
     // Date filtering on dcDate or createdAt
@@ -516,7 +604,7 @@ const getDCs = async (req, res) => {
       try {
         const populatedPromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt')
           .populate('employeeId', 'name email role')
           .populate('createdBy', 'name email role')
           .populate('submittedBy', 'name email')
@@ -645,7 +733,7 @@ const getDCs = async (req, res) => {
         const existingIds = filteredDCs.map((dc) => dc._id);
         let refreshed = await DC.find({ _id: { $in: existingIds } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt')
           .populate('employeeId', 'name email role')
           .populate('createdBy', 'name email role')
           .lean();
@@ -658,7 +746,7 @@ const getDCs = async (req, res) => {
             _id: { $nin: existingIds },
           })
             .populate('saleId', 'customerName product quantity status poDocument')
-            .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code created_by')
+            .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt')
             .populate('employeeId', 'name email role')
             .populate('createdBy', 'name email role')
             .lean();
@@ -686,7 +774,7 @@ const getDC = async (req, res) => {
       .populate({
         path: 'dcOrderId',
         select:
-          'school_name school_code school_type dc_code contact_person contact_mobile email address location zone cluster_code products due_amount due_percentage transport_name transport_location transportation_landmark pincode assigned_to remarks',
+          'school_name school_code school_type dc_code contact_person contact_mobile email address location zone cluster_code products due_amount due_percentage transport_name transport_location transportation_landmark pincode assigned_to remarks status',
         populate: { path: 'assigned_to', select: 'name email cluster' },
       })
       .populate('parentDcId', '_id dc_code status requestedQuantity deliverableQuantity fulfillmentStatus dcType')
@@ -702,6 +790,21 @@ const getDC = async (req, res) => {
 
     if (!dc) {
       return res.status(404).json({ message: 'DC not found' });
+    }
+
+    let orderStatusForGet = dc.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId.status : null;
+    if (!orderStatusForGet && dc.dcOrderId) {
+      const linked = await DcOrder.findById(dc.dcOrderId._id || dc.dcOrderId).select('status').lean();
+      orderStatusForGet = linked?.status;
+    }
+    if (
+      dc.status !== 'scheduled_for_later' &&
+      dc.dcOrderId &&
+      Array.isArray(dc.productDetails) &&
+      !isClosedSalesPipelineOrder(orderStatusForGet)
+    ) {
+      const twRows = await siblingTermWiseRows(DC, dc.dcOrderId._id || dc.dcOrderId, dc._id);
+      dc.productDetails = filterOutTermWiseCompanions(dc.productDetails, twRows);
     }
 
     // Ensure productDetails always have specs and subject fields
@@ -975,8 +1078,10 @@ const raiseDC = async (req, res) => {
     const {
       myClientsProducts,
       termWiseProducts,
-      needsTermWiseSplit,
+      needsTermWiseSplit: closeLeadNeedsSplit,
     } = partitionProductsForCloseLeadRouting(productDetailsFromBody || []);
+    const keepClosedSalesProducts = isClosedSalesPipelineOrder(dcOrder.status);
+    const needsTermWiseSplit = keepClosedSalesProducts ? false : closeLeadNeedsSplit;
     const mainStatus = req.body.status || 'pending_dc';
 
     const buildDcPayload = (details, status, qty) => {
@@ -1053,6 +1158,9 @@ const raiseDC = async (req, res) => {
           productDetailsCount: dcMain.productDetails.length,
         });
         await dcMain.save();
+        if (!mainStage) {
+          await DC.updateOne({ _id: dcMain._id }, { $unset: { workflowStage: 1 } });
+        }
       } else {
         const payload = buildDcPayload(myClientsProducts, resolvedMainStatus, myClientsQty);
         console.log('💾 Creating My Clients DC (split) with productDetails:', {
@@ -1102,6 +1210,8 @@ const raiseDC = async (req, res) => {
           dcId: toReturn._id,
           syncAllLinkedDcs: true,
         });
+      } else if (toReturn) {
+        await syncDcWorkflowFromStatus(toReturn);
       }
       await repairSaleCloseLeadRouting(dcOrder._id).catch((e) =>
         console.warn('post-raise repair failed:', e?.message || e)
@@ -1116,12 +1226,14 @@ const raiseDC = async (req, res) => {
 
     // Single DC — all rows are My Clients (includes Term 2 / Level 2 alone).
     // Prefer stamped rows from partition when body had productDetails.
-    if (productDetailsFromBody && myClientsProducts.length > 0) {
+    if (productDetailsFromBody && myClientsProducts.length > 0 && !keepClosedSalesProducts) {
       productDetailsFromBody = myClientsProducts;
       req.body.productDetails = myClientsProducts;
     }
-    // No paired Term-Wise rows → remove any leftover Term-Wise DCs for this sale.
-    await DC.deleteMany({ dcOrderId: dcOrder._id, status: 'scheduled_for_later' });
+    // No paired Term-Wise rows → remove leftover Term-Wise DCs (Close Lead only).
+    if (!keepClosedSalesProducts) {
+      await DC.deleteMany({ dcOrderId: dcOrder._id, status: 'scheduled_for_later' });
+    }
     let requestedStatus = mainStatus;
     if (requestedStatus === 'pending_dc') {
       const existingForCheck = await DC.findOne({ dcOrderId: dcOrder._id }).sort({ createdAt: -1 });
@@ -1237,13 +1349,10 @@ const raiseDC = async (req, res) => {
     dc.status = requestedStatus;
     const raisedStageInline = workflowStageFromDcStatus(requestedStatus);
     if (raisedStageInline) dc.workflowStage = raisedStageInline;
+    else dc.workflowStage = undefined;
     if (req.body.poPhotoUrl && !dc.poPhotoUrl) { dc.poPhotoUrl = req.body.poPhotoUrl; dc.poDocument = req.body.poPhotoUrl; }
     await dc.save();
-
-    const raisedStage = workflowStageFromDcStatus(requestedStatus);
-    if (raisedStage) {
-      await setSaleWorkflowStage(dcOrder._id, raisedStage, { dcId: dc._id });
-    }
+    await syncDcWorkflowFromStatus(dc);
 
     // Collapse accidental duplicate pending_dc rows for the same sale (keep this one)
     if (requestedStatus === 'pending_dc' && dc?._id) {
@@ -1284,9 +1393,9 @@ const raiseDC = async (req, res) => {
   }
 };
 
-// @desc    Submit DC to Manager (from Raise DC modal)
+// @desc    Submit Saved DC to Senior Coordinator (Pending DC)
 // @route   POST /api/dc/:id/submit-to-manager
-// @access  Private (Admin)
+// @access  Private (Admin / Coordinator)
 const submitDCToManager = async (req, res) => {
   try {
     const { requestedQuantity, remarks } = req.body;
@@ -1296,21 +1405,24 @@ const submitDCToManager = async (req, res) => {
       return res.status(404).json({ message: 'DC not found' });
     }
 
-    // Update DC details
+    const pendingCheck = validateSetPendingDc(dc, req.user?.role, 'pending_dc');
+    if (!pendingCheck.allowed) {
+      return res.status(400).json({ message: pendingCheck.message });
+    }
+
     if (requestedQuantity) dc.requestedQuantity = requestedQuantity;
     if (remarks) dc.deliveryNotes = remarks;
 
-    // Move to sent_to_manager first, so Manager can review before it goes to warehouse
-    // This matches the normal workflow: sent_to_manager -> pending_dc
-    dc.status = 'sent_to_manager';
-    dc.managerId = req.user._id;
-    dc.sentToManagerAt = new Date();
+    // Saved DC / Closed Sales → Senior Coordinator = Pending DC.
+    // Warehouse (sent_to_manager / EmpDC) is only set by manager-request after Pending DC.
+    dc.status = 'pending_dc';
+    dc.workflowStage = WORKFLOW_STAGE.PendingDC;
     dc.adminId = req.user._id;
     dc.adminReviewedAt = new Date();
     dc.adminReviewedBy = req.user._id;
     await dc.save();
 
-    await setSaleWorkflowStage(dc.dcOrderId, WORKFLOW_STAGE.EmpDC, { dcId: dc._id });
+    await syncDcWorkflowFromStatus(dc);
 
     const populatedDC = await DC.findById(dc._id)
       .populate('dcOrderId', 'school_name contact_person contact_mobile email address location zone products')
@@ -1743,18 +1855,8 @@ const submitPO = async (req, res) => {
     }
     await dc.save();
 
-    // Keep linked DcOrder in sync so Closed Sales reflects completion.
-    if (dc.dcOrderId) {
-      try {
-        const orderId =
-          typeof dc.dcOrderId === 'object' && dc.dcOrderId._id
-            ? dc.dcOrderId._id
-            : dc.dcOrderId;
-        await DcOrder.findByIdAndUpdate(orderId, { status: 'completed' }).exec();
-      } catch (syncErr) {
-        console.warn('Failed to sync DcOrder status to completed for DC:', dc._id, syncErr);
-      }
-    }
+    // Do not mark DcOrder completed here. Closed Sales is dc_requested after Request DC.
+    // Close Lead PO upload stays in My Clients (saved) until the executive requests DC.
 
     // Update sale PO document if linked to Sale (optional, don't fail if Sale doesn't exist)
     if (dc.saleId) {
@@ -1865,18 +1967,20 @@ const adminReviewPO = async (req, res) => {
 // @access  Private (Manager only)
 const managerRequestWarehouse = async (req, res) => {
   try {
-    const { requestedQuantity, remarks } = req.body;
-
-    if (!requestedQuantity || requestedQuantity <= 0) {
-      return res.status(400).json({ message: 'Valid requested quantity is required' });
-    }
-
     const dc = await DC.findById(req.params.id);
     if (!dc) {
       return res.status(404).json({ message: 'DC not found' });
     }
 
-    // Check if DC is in correct status
+    if (dc.status === 'sent_to_manager' || dc.status === 'warehouse_processing') {
+      const populatedDC = await DC.findById(dc._id)
+        .populate('saleId', 'customerName product quantity status poDocument')
+        .populate('employeeId', 'name email')
+        .populate('managerId', 'name email')
+        .populate('managerRequestedBy', 'name email');
+      return res.json(populatedDC);
+    }
+
     if (dc.status !== 'pending_dc') {
       return res.status(400).json({ message: `DC must be in 'pending_dc' status. Current status: ${dc.status}` });
     }
@@ -1893,20 +1997,33 @@ const managerRequestWarehouse = async (req, res) => {
       return res.status(400).json({ message: pendingDetailsCheck.message });
     }
 
-    // All DCs go directly to warehouse regardless of terms - no splitting
+    const bodyQty = Number(req.body.requestedQuantity);
+    const detailsQty = calculateTotalQuantity(dc.productDetails);
+    const requestedQuantity =
+      Number.isFinite(bodyQty) && bodyQty > 0
+        ? bodyQty
+        : detailsQty;
+    if (!requestedQuantity || requestedQuantity <= 0) {
+      return res.status(400).json({ message: 'Valid requested quantity is required' });
+    }
+
     dc.requestedQuantity = requestedQuantity;
     dc.status = 'sent_to_manager';
     dc.managerId = req.user._id;
     dc.managerRequestedAt = new Date();
     dc.managerRequestedBy = req.user._id;
     dc.sentToManagerAt = new Date();
-    if (remarks) {
-      dc.deliveryNotes = remarks;
+    if (req.body.remarks) {
+      dc.deliveryNotes = req.body.remarks;
     }
     dc.workflowStage = WORKFLOW_STAGE.EmpDC;
-    await dc.save();
+    await dc.save({ validateBeforeSave: false });
 
-    await setSaleWorkflowStage(dc.dcOrderId, WORKFLOW_STAGE.EmpDC, { dcId: dc._id });
+    try {
+      await setSaleWorkflowStage(dc.dcOrderId, WORKFLOW_STAGE.EmpDC, { dcId: dc._id });
+    } catch (stageErr) {
+      console.warn('managerRequestWarehouse workflowStage sync failed:', stageErr?.message || stageErr);
+    }
 
     const populatedDC = await DC.findById(dc._id)
       .populate('saleId', 'customerName product quantity status poDocument')
@@ -1916,6 +2033,7 @@ const managerRequestWarehouse = async (req, res) => {
 
     res.json(populatedDC);
   } catch (error) {
+    console.error('managerRequestWarehouse error:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -1932,115 +2050,75 @@ const warehouseProcess = async (req, res) => {
       return res.status(404).json({ message: 'DC not found' });
     }
 
-    // Check if DC is in correct status (allow both sent_to_manager and warehouse_processing)
     if (dc.status !== 'sent_to_manager' && dc.status !== 'warehouse_processing') {
       return res.status(400).json({ message: `DC must be in 'sent_to_manager' or 'warehouse_processing' status. Current status: ${dc.status}` });
     }
 
-    // Update quantities
+    if (deliverableQuantity !== undefined && deliverableQuantity < 0) {
+      return res.status(400).json({ message: 'Deliverable quantity cannot be negative' });
+    }
+
+    const rows = (Array.isArray(dc.productDetails) ? dc.productDetails : []).map((r) =>
+      r && typeof r.toObject === 'function' ? r.toObject() : r
+    );
+    const inventory = await Warehouse.find({});
+    const stockCheck = validateDcStockAgainstInventory(rows, inventory);
+    if (!stockCheck.ok) {
+      return res.status(400).json({
+        message: stockCheck.message,
+        insufficient: stockCheck.insufficient,
+      });
+    }
+
+    for (const alloc of stockCheck.allocations) {
+      if (!alloc.item || alloc.requiredQty <= 0) continue;
+      const warehouseItem =
+        inventory.find((i) => String(i._id) === String(alloc.item._id)) || alloc.item;
+      const before = Number(warehouseItem.currentStock) || 0;
+      if (before < alloc.requiredQty) {
+        return res.status(400).json({
+          message: stockCheck.message || 'Insufficient stock. Please ensure sufficient stock before processing this DC.',
+          insufficient: stockCheck.insufficient,
+        });
+      }
+      warehouseItem.currentStock = before - alloc.requiredQty;
+      await warehouseItem.save();
+      await StockMovement.create({
+        productId: warehouseItem._id,
+        movementType: 'Out',
+        quantity: alloc.requiredQty,
+        reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
+        createdBy: req.user._id,
+      });
+    }
+
     if (availableQuantity !== undefined) dc.availableQuantity = availableQuantity;
     if (deliverableQuantity !== undefined) {
-      if (deliverableQuantity < 0) {
-        return res.status(400).json({ message: 'Deliverable quantity cannot be negative' });
-      }
       dc.deliverableQuantity = deliverableQuantity;
     }
 
-    // Move to completed status
     dc.status = 'completed';
     dc.warehouseId = req.user._id;
     dc.warehouseProcessedAt = new Date();
     dc.warehouseProcessedBy = req.user._id;
     dc.completedAt = new Date();
     dc.completedBy = req.user._id;
-    
-    // If available quantity > deliverable quantity, mark as listed
-    if (dc.availableQuantity !== undefined && dc.deliverableQuantity !== undefined && 
+
+    if (dc.availableQuantity !== undefined && dc.deliverableQuantity !== undefined &&
         dc.availableQuantity > dc.deliverableQuantity) {
       dc.listedAt = new Date();
     }
-    
+
     if (remarks) {
       dc.deliveryNotes = remarks;
     }
     dc.workflowStage = WORKFLOW_STAGE.CompletedDC;
-    await dc.save();
+    await dc.save({ validateBeforeSave: false });
 
-    await setSaleWorkflowStage(dc.dcOrderId, WORKFLOW_STAGE.CompletedDC, { dcId: dc._id });
-
-    // Automatically deduct stock from inventory for each product in productDetails
-    if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-      for (const productDetail of dc.productDetails) {
-        try {
-          const deliverableQty = productDetail.deliverableQuantity || productDetail.quantity || 0;
-          if (deliverableQty <= 0) continue; // Skip if no quantity to deduct
-          
-          // Find matching warehouse item by productName, category, and level
-          const productName = productDetail.productName || productDetail.product || '';
-          const category = productDetail.category || '';
-          const level = productDetail.level || '';
-          
-          // Try to find exact match first
-          let warehouseItem = await Warehouse.findOne({
-            productName: { $regex: new RegExp(`^${productName}$`, 'i') },
-            category: category,
-            level: level
-          });
-          
-          // If no exact match, try productName and category only
-          if (!warehouseItem) {
-            warehouseItem = await Warehouse.findOne({
-              productName: { $regex: new RegExp(`^${productName}$`, 'i') },
-              category: category
-            });
-          }
-          
-          // If still no match, try productName only
-          if (!warehouseItem) {
-            warehouseItem = await Warehouse.findOne({
-              productName: { $regex: new RegExp(`^${productName}$`, 'i') }
-            });
-          }
-          
-          if (warehouseItem) {
-            // Get availableQty from productDetails or warehouse item
-            const availableQty = productDetail.availableQuantity !== undefined && productDetail.availableQuantity !== null
-              ? Number(productDetail.availableQuantity)
-              : warehouseItem.currentStock || 0;
-            
-            // Use remainingQuantity from productDetails if available (from form)
-            // Otherwise calculate it: available - deliverable
-            let remainingQty;
-            if (productDetail.remainingQuantity !== undefined && productDetail.remainingQuantity !== null) {
-              // Use the remaining qty from the form
-              remainingQty = Number(productDetail.remainingQuantity);
-            } else {
-              // Calculate remaining quantity (available - deliverable)
-              remainingQty = availableQty - deliverableQty;
-            }
-            
-            // Update warehouse stock with remaining quantity
-            warehouseItem.currentStock = Math.max(0, remainingQty); // Ensure non-negative
-            await warehouseItem.save();
-            
-            // Record stock movement
-            await StockMovement.create({
-              productId: warehouseItem._id,
-              movementType: 'Out',
-              quantity: deliverableQty,
-              reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
-              createdBy: req.user._id,
-            });
-            
-            console.log(`Updated stock for ${productName}: ${availableQty} -> ${remainingQty} (deducted ${deliverableQty})`);
-          } else {
-            console.warn(`No warehouse item found for product: ${productName}, category: ${category}, level: ${level}`);
-          }
-        } catch (err) {
-          console.error(`Error updating stock for product ${productDetail.productName}:`, err);
-          // Continue with other products even if one fails
-        }
-      }
+    try {
+      await setSaleWorkflowStage(dc.dcOrderId, WORKFLOW_STAGE.CompletedDC, { dcId: dc._id });
+    } catch (stageErr) {
+      console.warn('warehouseProcess workflowStage sync failed:', stageErr?.message || stageErr);
     }
 
     try {
@@ -2057,6 +2135,7 @@ const warehouseProcess = async (req, res) => {
 
     res.json(populatedDC);
   } catch (error) {
+    console.error('warehouseProcess error:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -2084,10 +2163,11 @@ const getPOSubmittedDCs = async (req, res) => {
 const getSentToManagerDCs = async (req, res) => {
   try {
     const dcs = await DC.find({
+      status: { $in: ['sent_to_manager', 'warehouse_processing'] },
       $or: [
         { workflowStage: WORKFLOW_STAGE.EmpDC },
-        { workflowStage: { $exists: false }, status: { $in: ['sent_to_manager', 'warehouse_processing'] } },
-        { workflowStage: null, status: { $in: ['sent_to_manager', 'warehouse_processing'] } },
+        { workflowStage: { $exists: false } },
+        { workflowStage: null },
       ],
     })
       .populate('saleId', 'customerName product quantity status poDocument')
@@ -2110,12 +2190,14 @@ const getSentToManagerDCs = async (req, res) => {
 // @access  Private (Warehouse)
 const getPendingWarehouseDCs = async (req, res) => {
   try {
-    // EmpDC stage = accepted / in warehouse processing (mutually exclusive with PendingDC)
+    // Only after Pending DC → Submit to Warehouse (sent_to_manager / EmpDC).
+    // Do not treat PendingDC, Saved DC (created), or leftover EmpDC flags as warehouse-ready.
     const dcs = await DC.find({
+      status: { $in: ['sent_to_manager', 'warehouse_processing'] },
       $or: [
         { workflowStage: WORKFLOW_STAGE.EmpDC },
-        { workflowStage: { $exists: false }, status: { $in: ['sent_to_manager', 'warehouse_processing'] } },
-        { workflowStage: null, status: { $in: ['sent_to_manager', 'warehouse_processing'] } },
+        { workflowStage: { $exists: false } },
+        { workflowStage: null },
       ],
     })
       .populate('saleId', 'customerName product quantity status poDocument')
@@ -2346,6 +2428,21 @@ const getMyDCs = async (req, res) => {
       // The employee can still manage the client from "My Clients" page
 
       // Convert DcOrder to DC-like format
+      const { myClientsProducts: virtualMyClients } = partitionProductsForCloseLeadRouting(
+        (order.products || []).map((p) => ({
+          product: p.product_name || p.product || 'Abacus',
+          class: p.class,
+          category: p.category,
+          productCategory: p.productCategory,
+          quantity: p.quantity,
+          strength: p.strength,
+          price: p.unit_price,
+          level: p.level,
+          term: p.term,
+          specs: p.specs,
+          subject: p.subject,
+        }))
+      );
       return {
         _id: order._id, // Use DcOrder ID temporarily
         dcOrderId: {
@@ -2372,17 +2469,17 @@ const getMyDCs = async (req, res) => {
         status: 'created', // Convert saved DcOrder to 'created' status DC for display in "My Clients"
         poPhotoUrl: order.pod_proof_url || null,
         poDocument: order.pod_proof_url || null,
-        productDetails: order.products ? order.products.map(p => ({
-          product: p.product_name || 'Abacus',
+        productDetails: virtualMyClients.map(p => ({
+          product: p.product || p.product_name || 'Abacus',
           class: (p.class != null && String(p.class).trim() !== '') ? String(p.class).trim() : '1',
-          category: order.school_type === 'Existing' ? 'Existing School' : 'New School', // Auto-determine category
+          category: order.school_type === 'Existing' ? 'Existing School' : 'New School',
           quantity: p.quantity || 1,
-          strength: 0,
-          price: p.unit_price || 0,
-          total: (p.quantity || 1) * (p.unit_price || 0),
-          level: p.level || 'L1',
+          strength: p.strength || 0,
+          price: p.price || p.unit_price || 0,
+          total: (p.quantity || 1) * (p.price || p.unit_price || 0),
+          level: displayLevelValue(p.level),
           term: p.term || 'Term 1',
-        })) : [],
+        })),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
         // Add a flag to indicate this is a converted DcOrder (for frontend to handle appropriately)
@@ -2582,7 +2679,15 @@ const updateDC = async (req, res) => {
     if (req.body.productDetails !== undefined) {
       // Ensure productDetails is properly formatted with all fields
       if (Array.isArray(req.body.productDetails)) {
-        dc.productDetails = normalizeProductDetails(req.body.productDetails, { isShortage: dc.dcType === 'shortage' });
+        let incoming = req.body.productDetails;
+        if (dc.status !== 'scheduled_for_later' && dc.dcOrderId) {
+          const linkedOrder = await DcOrder.findById(dc.dcOrderId).select('status').lean();
+          if (!isClosedSalesPipelineOrder(linkedOrder?.status)) {
+            const twRows = await siblingTermWiseRows(DC, dc.dcOrderId, dc._id);
+            incoming = filterOutTermWiseCompanions(incoming, twRows);
+          }
+        }
+        dc.productDetails = normalizeProductDetails(incoming, { isShortage: dc.dcType === 'shortage' });
         // Also update requestedQuantity if productDetails are provided
         if (dc.productDetails.length > 0) {
           const totalQuantity = calculateTotalQuantity(dc.productDetails);
@@ -2653,11 +2758,29 @@ const updateDC = async (req, res) => {
     // Save without validating required fields that might not be present during update
     await dc.save({ validateBeforeSave: false });
 
-    const nextStage = workflowStageFromDcStatus(dc.status);
-    if (nextStage) {
-      dc.workflowStage = nextStage;
-      await dc.save({ validateBeforeSave: false });
-      await setSaleWorkflowStage(dc.dcOrderId, nextStage, { dcId: dc._id });
+    if (req.body.status !== undefined) {
+      await syncDcWorkflowFromStatus(dc);
+    }
+
+    // Request DC from My Clients: DC stays po_submitted until Super Admin Raise DC.
+    // Promote the linked sale into Closed Sales in this same request.
+    if (req.body.status === 'po_submitted' && dc.dcOrderId) {
+      try {
+        await promoteOrderToClosedSalesQueue(dc.dcOrderId, req.user?._id, {
+          pod_proof_url: dc.poPhotoUrl,
+          dcRequestData: {
+            productDetails: dc.productDetails,
+            requestedQuantity: dc.requestedQuantity,
+            employeeId: req.user?._id,
+          },
+        });
+      } catch (promoteErr) {
+        console.warn(
+          'Failed to promote DcOrder to Closed Sales after po_submitted:',
+          dc._id,
+          promoteErr?.message || promoteErr
+        );
+      }
     }
 
     const populatedDC = await DC.findById(dc._id)

@@ -33,24 +33,190 @@ export function formatFlowProductName(
   return parts.join(' ')
 }
 
-/** Stable key for duplicate product lines (Request DC / Edit PO). */
-export function productDetailLineKey(p: Record<string, any>): string {
-  const product = String(p.product || p.productName || '')
+export function productLineIdentityKey(p: Record<string, any>): string {
+  const product = String(p.product || p.productName || p.product_name || '')
     .trim()
     .toLowerCase()
-  const klass = String(p.class ?? '').trim()
+  const klass = String(p.class ?? '').trim().toLowerCase()
   const level = String(p.level ?? '')
     .trim()
     .toLowerCase()
-  const specs = String(p.specs ?? 'Regular')
-    .trim()
-    .toLowerCase()
+  const specs = String(p.specs ?? '').trim().toLowerCase()
   const productCategory = String(p.productCategory ?? '')
     .trim()
     .toLowerCase()
-  const term = String(p.term ?? '').trim()
+  const subject = String(p.subject ?? '')
+    .trim()
+    .toLowerCase()
+  const term = String(p.term ?? '')
+    .trim()
+    .toLowerCase()
+  return [product, klass, level, specs, productCategory, subject, term].join('|')
+}
+
+export function productRowLineId(p: Record<string, any> | null | undefined): string {
+  return String(p?.lineId || '').trim()
+}
+
+/** Stable id for a product-detail row. Never uses array index as the only identity. */
+export function ensureProductLineId(row: Record<string, any>, fallbackIndex?: number): string {
+  const existing = productRowLineId(row)
+  if (existing) return existing
+  const identity = productLineIdentityKey(row)
+  if (identity.replace(/\|/g, '')) {
+    return `line:${identity}`
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `line:${Date.now()}-${fallbackIndex ?? 0}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** Prefer the list with more distinct class/subject/level lines (and higher qty). */
+export function pickRicherProductRows(primary: any[], secondary: any[]): any[] {
+  const keep = (p: any) => p && (p.product || p.productName || p.product_name)
+  const a = (Array.isArray(primary) ? primary : []).filter(keep)
+  const b = (Array.isArray(secondary) ? secondary : []).filter(keep)
+  if (!a.length) return b
+  if (!b.length) return a
+  const identA = new Set(a.map((p) => productLineIdentityKey(p))).size
+  const identB = new Set(b.map((p) => productLineIdentityKey(p))).size
+  if (identB > identA) return b
+  if (identA > identB) return a
+  if (b.length > a.length) return b
+  if (a.length > b.length) return a
+  const qty = (rows: any[]) =>
+    rows.reduce((s, p) => s + (Number(p.quantity) || Number(p.strength) || 0), 0)
+  if (qty(b) > qty(a)) return b
+  return a
+}
+
+/** Drop a second copy of the same DC line that only differs by empty vs filled level. */
+export function collapseEmptyLevelDuplicateLines(rows: any[]): any[] {
+  const result: any[] = []
+  for (const row of rows || []) {
+    const rowLevel = String(row?.level ?? '').trim()
+    const rowEmpty = !rowLevel || rowLevel === '-'
+    const baseKey = productLineIdentityKey({ ...row, level: '' })
+    const existingIdx = result.findIndex(
+      (r) => productLineIdentityKey({ ...r, level: '' }) === baseKey
+    )
+    if (existingIdx < 0) {
+      result.push(row)
+      continue
+    }
+    const existing = result[existingIdx]
+    const existingLevel = String(existing?.level ?? '').trim()
+    const existingEmpty = !existingLevel || existingLevel === '-'
+    if (!existingEmpty && !rowEmpty && existingLevel.toLowerCase() !== rowLevel.toLowerCase()) {
+      result.push(row)
+      continue
+    }
+  }
+  return result
+}
+
+export function displayProductLevel(level?: unknown): string {
+  const s = String(level ?? '').trim()
+  if (!s || s === '-') return '-'
+  return s
+}
+
+/** Map approved Edit PO / DcOrder product lines onto this DC's Request DC table. */
+export function orderProductToClientDcDetail(p: Record<string, any>) {
+  const qty = Number(p.quantity) || Number(p.strength) || 0
+  return {
+    lineId: productRowLineId(p) || undefined,
+    product: p.product_name || p.product || p.productName || '',
+    product_name: p.product_name || p.product || p.productName || '',
+    class: p.class,
+    specs: p.specs,
+    productCategory: p.productCategory,
+    category: p.category,
+    quantity: qty,
+    strength: Number(p.strength) || qty,
+    level: p.level,
+    term: p.term,
+    subject: p.subject,
+    price: p.unit_price ?? p.price,
+    unit_price: p.unit_price ?? p.price,
+    total: p.total,
+    selected_subjects: Array.isArray(p.selected_subjects) ? p.selected_subjects : undefined,
+  }
+}
+
+/**
+ * After Edit PO is approved, new lines (e.g. P2) live on DcOrder.products.
+ * Add those onto this DC without pulling Term-Wise companion lines (P3 L2).
+ */
+export function appendMissingMyClientsOrderLines(
+  dcDetails: any[],
+  orderProducts: any[],
+  siblingRows: any[]
+): any[] {
+  const rows = Array.isArray(dcDetails) ? [...dcDetails] : []
+  const seen = new Set(rows.map((r) => productLineIdentityKey(r)))
+  const seenBase = new Set(rows.map((r) => productLineIdentityKey({ ...r, level: '' })))
+
+  for (const p of Array.isArray(orderProducts) ? orderProducts : []) {
+    const mapped = orderProductToClientDcDetail(p)
+    if (!mapped.product) continue
+    if (lineMatchesTermWiseCompanion(mapped, siblingRows)) continue
+    const key = productLineIdentityKey(mapped)
+    if (seen.has(key)) continue
+    const baseKey = productLineIdentityKey({ ...mapped, level: '' })
+    const mappedEmpty = !String(mapped.level ?? '').trim() || String(mapped.level).trim() === '-'
+    if (mappedEmpty && seenBase.has(baseKey)) continue
+    seen.add(key)
+    seenBase.add(baseKey)
+    rows.push(mapped)
+  }
+  return rows
+}
+
+export function isSecondStageLine(row: Record<string, any>): boolean {
+  const levelKey = String(row?.level ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+  const termKey = String(row?.term ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '')
+  return (
+    levelKey === 'level2' ||
+    /^level2(?!\d)/.test(levelKey) ||
+    levelKey === 'l2' ||
+    levelKey === 'lvl2' ||
+    levelKey.startsWith('term2') ||
+    termKey === 'term2' ||
+    termKey === 't2'
+  )
+}
+
+export function lineMatchesTermWiseCompanion(
+  row: Record<string, any>,
+  siblingRows: Record<string, any>[]
+): boolean {
+  const key = productLineIdentityKey(row)
+  if ((siblingRows || []).some((s) => productLineIdentityKey(s) === key)) return true
+  const name = String(row.product || row.productName || row.product_name || '')
+    .trim()
+    .toLowerCase()
+  if (!name) return false
+  if (!isSecondStageLine(row)) return false
+  return (siblingRows || []).some((s) => {
+    const sn = String(s.product || s.productName || s.product_name || '')
+      .trim()
+      .toLowerCase()
+    return sn === name && isSecondStageLine(s)
+  })
+}
+
+/** Stable key for duplicate product lines (Request DC / Edit PO). */
+export function productDetailLineKey(p: Record<string, any>): string {
   const qty = String(p.quantity ?? p.strength ?? '')
-  return [product, klass, level, specs, productCategory, term, qty].join('|')
+  return `${productLineIdentityKey(p)}|${qty}`
 }
 
 export function dedupeProductDetailLines(lines: any[]): any[] {
@@ -66,20 +232,13 @@ export function dedupeProductDetailLines(lines: any[]): any[] {
   return out
 }
 
-/** Current DC lines + sibling DCs on same order (excludes re-adding current DC). */
+/** Current DC lines only. Sibling DCs on the same order must never be merged in. */
 export function mergeRequestDCProductDetails(
-  currentDcId: string,
+  _currentDcId: string,
   currentDetails: any[],
-  relatedDcs: any[]
+  _relatedDcs?: any[]
 ): any[] {
-  const merged: any[] = Array.isArray(currentDetails) ? [...currentDetails] : []
-  for (const r of Array.isArray(relatedDcs) ? relatedDcs : []) {
-    if (!r?._id || String(r._id) === String(currentDcId)) continue
-    if (Array.isArray(r.productDetails)) {
-      merged.push(...r.productDetails)
-    }
-  }
-  return dedupeProductDetailLines(merged)
+  return dedupeProductDetailLines(Array.isArray(currentDetails) ? currentDetails : [])
 }
 
 /** Normalize class / SKU category / specs for Client DC & Request DC tables. */
@@ -139,51 +298,50 @@ export function resolveClientDCRowFields(
 export function findMatchingOrderProduct(
   orderProducts: any[],
   detail: any,
-  index: number,
+  _index: number,
   used: Set<number>
 ) {
-  const name = (detail.product || detail.productName || '').toLowerCase().trim()
-  const cls = detail.class != null ? String(detail.class).trim() : ''
-  const pc = (detail.productCategory || '').toLowerCase().trim()
-  const sp = (detail.specs || '').toLowerCase().trim()
+  const items = Array.isArray(orderProducts) ? orderProducts : []
+  const detailLineId = productRowLineId(detail)
+  if (detailLineId) {
+    for (let i = 0; i < items.length; i++) {
+      if (used.has(i)) continue
+      if (productRowLineId(items[i]) === detailLineId) {
+        used.add(i)
+        return items[i]
+      }
+    }
+  }
 
-  for (let i = 0; i < orderProducts.length; i++) {
+  const identity = productLineIdentityKey(detail)
+  if (identity.replace(/\|/g, '')) {
+    for (let i = 0; i < items.length; i++) {
+      if (used.has(i)) continue
+      if (productLineIdentityKey(items[i]) === identity) {
+        used.add(i)
+        return items[i]
+      }
+    }
+  }
+
+  const name = (detail.product || detail.productName || detail.product_name || '').toLowerCase().trim()
+  const cls = detail.class != null ? String(detail.class).trim().toLowerCase() : ''
+  const level = String(detail.level ?? '').trim().toLowerCase()
+  const subj = String(detail.subject ?? '').trim().toLowerCase()
+
+  for (let i = 0; i < items.length; i++) {
     if (used.has(i)) continue
-    const o = orderProducts[i]
-    const on = (o.product_name || '').toLowerCase().trim()
-    const oc = o.class != null ? String(o.class).trim() : ''
-    const opc = (o.productCategory || '').toLowerCase().trim()
-    const os = (o.specs || '').toLowerCase().trim()
-    if (on !== name) continue
-    if (cls && oc && cls !== oc) continue
-    if (pc && opc && pc !== opc) continue
-    if (sp && os && sp !== os && sp !== 'regular') continue
+    const o = items[i]
+    const on = (o.product_name || o.product || o.productName || '').toLowerCase().trim()
+    const oc = o.class != null ? String(o.class).trim().toLowerCase() : ''
+    const ol = String(o.level ?? '').trim().toLowerCase()
+    const osj = String(o.subject ?? '').trim().toLowerCase()
+    if (on !== name || !name) continue
+    if (cls !== oc) continue
+    if (subj !== osj) continue
+    if (level !== ol) continue
     used.add(i)
     return o
-  }
-
-  for (let i = 0; i < orderProducts.length; i++) {
-    if (used.has(i)) continue
-    const o = orderProducts[i]
-    const on = (o.product_name || '').toLowerCase().trim()
-    const oc = o.class != null ? String(o.class).trim() : ''
-    if (on === name && (!cls || !oc || cls === oc)) {
-      used.add(i)
-      return o
-    }
-  }
-
-  if (index < orderProducts.length && !used.has(index)) {
-    used.add(index)
-    return orderProducts[index]
-  }
-
-  for (let i = 0; i < orderProducts.length; i++) {
-    if (used.has(i)) continue
-    if ((orderProducts[i].product_name || '').toLowerCase().trim() === name) {
-      used.add(i)
-      return orderProducts[i]
-    }
   }
 
   return null
@@ -212,6 +370,7 @@ function mapToClientDCProductRow(
 
   return {
     id,
+    lineId: productRowLineId(raw) || id,
     product,
     class: resolved.class,
     productCategory: resolved.productCategory,
@@ -219,9 +378,10 @@ function mapToClientDCProductRow(
     category: raw.category,
     quantity: quantityNum,
     strength: strengthNum,
-    level: raw.level || raw.term || getDefaultLevel(product || 'Abacus'),
+    level: displayProductLevel(raw.level),
     term: resolveClientDCRowTerm(raw),
     subject: raw.subject || undefined,
+    price: raw.price ?? raw.unit_price,
   }
 }
 
@@ -253,12 +413,19 @@ export function buildClientDCProductRows(
             selected_classes: p.selected_classes ?? order.selected_classes,
             quantity: p.quantity ?? order.quantity,
             strength: p.strength ?? order.quantity ?? order.strength,
-            level: p.level || order.level,
+            level: p.level ?? order.level,
             term: p.term ?? order.term,
+            subject: p.subject ?? order.subject,
             price: p.price ?? order.unit_price,
+            lineId: productRowLineId(p) || productRowLineId(order),
           }
         : p
-      return mapToClientDCProductRow(merged, `dc-${idx + 1}`, opts, getDefaultLevel)
+      return mapToClientDCProductRow(
+        merged,
+        ensureProductLineId(merged, idx),
+        opts,
+        getDefaultLevel
+      )
     })
   }
 
@@ -275,8 +442,10 @@ export function buildClientDCProductRows(
           strength: p.quantity ?? p.strength,
           level: p.level,
           term: p.term,
+          subject: p.subject,
+          lineId: productRowLineId(p),
         },
-        `dcorder-${idx + 1}`,
+        ensureProductLineId(p, idx),
         opts,
         getDefaultLevel
       )
@@ -288,6 +457,7 @@ export function buildClientDCProductRows(
 
 export type EditPOProductRow = {
   id: string
+  lineId?: string
   product_name: string
   quantity: number
   unit_price: number
@@ -359,6 +529,7 @@ export function buildEditPOProductRows(
           unit_price: order.unit_price ?? raw.unit_price ?? raw.price,
           subject: raw.subject ?? order.subject,
           selected_subjects: raw.selected_subjects ?? order.selected_subjects,
+          lineId: productRowLineId(raw) || productRowLineId(order),
         }
       : raw
 
@@ -375,13 +546,12 @@ export function buildEditPOProductRows(
         : merged.price != null
           ? Number(merged.price)
           : 0
-    const level =
-      merged.level ||
-      getAvailableLevels(productName)[0] ||
-      getDefaultLevel(productName || 'Abacus')
+    const savedLevel = String(merged.level || '').trim()
+    const level = savedLevel && savedLevel !== '-' ? savedLevel : '-'
 
     return {
       id,
+      lineId: ensureProductLineId(merged),
       product_name: productName,
       quantity: qty,
       unit_price: unitPrice,
@@ -403,7 +573,7 @@ export function buildEditPOProductRows(
     const used = new Set<number>()
     return details.map((p, idx) => {
       const order = findMatchingOrderProduct(orders, p, idx, used)
-      return mapRow(p, order, `edit-${idx + 1}`)
+      return mapRow(p, order, ensureProductLineId(p, idx))
     })
   }
 
@@ -423,12 +593,200 @@ export function buildEditPOProductRows(
           unit_price: p.unit_price,
           subject: p.subject,
           selected_subjects: p.selected_subjects,
+          lineId: productRowLineId(p),
         },
         p,
-        `edit-order-${idx + 1}`
+        ensureProductLineId(p, idx),
       )
     )
   }
 
   return []
+}
+
+/** Catalog id when known; otherwise a stable name key. */
+export function editPoProductIdentity(
+  productName: string,
+  getProductId?: (name: string) => string | undefined
+): string {
+  const name = String(productName || '').trim()
+  const id = getProductId?.(name)
+  if (id) return `id:${String(id)}`
+  return `name:${name.toLowerCase()}`
+}
+
+export function normalizeEditPoLevelKey(level: unknown): string {
+  const s = String(level ?? '')
+    .trim()
+    .toLowerCase()
+  if (!s || s === '-' || s === 'n/a' || s === 'none') return ''
+  return s
+}
+
+export function normalizeEditPoSubjectKey(subject: unknown): string {
+  const s = String(subject ?? '')
+    .trim()
+    .toLowerCase()
+  if (!s || s === '-' || s === 'n/a' || s === 'none') return ''
+  return s
+}
+
+/** Subjects stored on a PO/DC line. A comma-joined `subject` is treated as multiple. */
+export function listSubjectsOnProductRow(p: Record<string, any>): string[] {
+  const single = String(p.subject ?? '').trim()
+  if (single && single !== '-' && !single.includes(',')) {
+    return [single]
+  }
+  if (Array.isArray(p.selected_subjects) && p.selected_subjects.length > 0) {
+    return p.selected_subjects.map((s: unknown) => String(s || '').trim()).filter(Boolean)
+  }
+  if (single.includes(',')) {
+    return single.split(',').map((s) => s.trim()).filter(Boolean)
+  }
+  return []
+}
+
+function expandSubjectCoverKey(row: Record<string, any>, subject?: string): string {
+  const name = String(row.product_name || row.product || row.productName || '')
+    .trim()
+    .toLowerCase()
+  const klass = String(row.class ?? '').trim().toLowerCase()
+  const level = String(row.level ?? '').trim().toLowerCase()
+  const subj = String(subject ?? row.subject ?? '')
+    .trim()
+    .toLowerCase()
+  return `${name}::${klass}::${level}::${subj}`
+}
+
+/**
+ * Close Lead may store one P2 row with selected_subjects=[Physics, Chemistry, Maths]
+ * and quantity = strength × subjects. Edit PO needs one row per subject.
+ * Never explode a row that already has a single subject — that duplicated P2 Phy/math
+ * and made Save look like it reduced quantity.
+ */
+export function expandEditPoRowsBySubject<T extends Record<string, any>>(
+  rows: T[],
+  getProductSubjects: (productName: string) => string[]
+): T[] {
+  const source = Array.isArray(rows) ? rows : []
+  const covered = new Set<string>()
+  for (const row of source) {
+    const subj = String(row.subject || '').trim()
+    if (subj && subj !== '-' && !subj.includes(',')) {
+      covered.add(expandSubjectCoverKey(row, subj))
+    }
+  }
+
+  const out: T[] = []
+  for (const row of source) {
+    const name = String(row.product_name || row.product || row.productName || '').trim()
+    const currentSubject = String(row.subject || '').trim()
+    if (currentSubject && currentSubject !== '-' && !currentSubject.includes(',')) {
+      out.push({
+        ...row,
+        subject: currentSubject,
+        selected_subjects: [currentSubject],
+        lineId: ensureProductLineId(row),
+      })
+      continue
+    }
+
+    const catalog = (getProductSubjects(name) || []).map((s) => String(s).trim()).filter(Boolean)
+    const listed = listSubjectsOnProductRow(row)
+
+    if (catalog.length === 0) {
+      out.push({ ...row, subject: '', selected_subjects: [], lineId: ensureProductLineId(row) })
+      continue
+    }
+
+    const subjects = (listed.length > 0 ? listed : [catalog[0]]).filter((s) => {
+      return !covered.has(expandSubjectCoverKey(row, s))
+    })
+    if (subjects.length <= 1) {
+      const s = subjects[0] || listed[0] || catalog[0]
+      out.push({
+        ...row,
+        subject: s,
+        selected_subjects: s ? [s] : [],
+        lineId: ensureProductLineId({ ...row, subject: s }),
+      })
+      continue
+    }
+
+    const totalQty = Number(row.quantity) || 0
+    const strength = Number(row.strength) || 0
+    const n = subjects.length
+    let perQty = totalQty
+    if (strength > 0 && totalQty === strength * n) perQty = strength
+    else if (totalQty > 0 && totalQty % n === 0) perQty = totalQty / n
+    else if (strength > 0) perQty = strength
+
+    subjects.forEach((s, i) => {
+      covered.add(expandSubjectCoverKey(row, s))
+      const exploded = {
+        ...row,
+        subject: s,
+        selected_subjects: [s],
+        quantity: perQty,
+        strength: perQty,
+      }
+      out.push({
+        ...exploded,
+        id: `${row.id || 'row'}-${s}-${i}`,
+        lineId: ensureProductLineId(exploded, i),
+      })
+    })
+  }
+  return out
+}
+
+/**
+ * Add Product does not choose a level. Duplicate = same catalog product + same subject.
+ * Products with multiple master subjects may appear once per unused subject.
+ */
+export function resolveAddEditPoProduct(
+  productName: string,
+  existingRows: Array<{ id?: string; product_name?: string; level?: string; subject?: string; class?: string }>,
+  configuredLevels: string[],
+  getProductId?: (name: string) => string | undefined,
+  _resolveDisplayedLevel?: (productName: string, savedLevel?: string) => string,
+  configuredSubjects: string[] = []
+): {
+  level: string
+  subject: string
+  duplicateRow?: { id?: string; product_name?: string; level?: string; subject?: string; class?: string }
+} {
+  const rows = Array.isArray(existingRows) ? existingRows : []
+  const classOf = (row: { class?: string }) => {
+    const c = String(row.class || '1').trim()
+    return c && c !== '0' ? c : '1'
+  }
+  const sameProduct = rows.filter(
+    (row) =>
+      editPoProductIdentity(row.product_name || '', getProductId) ===
+      editPoProductIdentity(productName, getProductId)
+  )
+  const defaultLevel = configuredLevels.length ? configuredLevels[0] : '-'
+  const catalogSubjects = (configuredSubjects || []).map((s) => String(s).trim()).filter(Boolean)
+
+  if (catalogSubjects.length === 0) {
+    const clash = sameProduct.find((row) => classOf(row) === '1')
+    if (clash) return { level: defaultLevel, subject: '', duplicateRow: clash }
+    return { level: defaultLevel, subject: '' }
+  }
+
+  const used = new Set(
+    sameProduct.map((row) => `${normalizeEditPoSubjectKey(row.subject)}::${classOf(row)}`)
+  )
+  const nextSubject = catalogSubjects.find(
+    (s) => !used.has(`${normalizeEditPoSubjectKey(s)}::1`)
+  )
+  if (!nextSubject) {
+    return {
+      level: defaultLevel,
+      subject: catalogSubjects[0],
+      duplicateRow: sameProduct.find((row) => classOf(row) === '1') || sameProduct[0],
+    }
+  }
+  return { level: defaultLevel, subject: nextSubject }
 }

@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
+import { displayProductLevel, findMatchingOrderProduct } from '@/lib/clientDcProductRows'
 import type { CalculationType } from '@/lib/paymentDivisor'
 
 export type DcInvoicePaymentLine = {
@@ -231,28 +232,12 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
       const usedIndices = new Set<number>()
 
       paymentBreakdown = fullDC.productDetails.map((pd: any, index: number) => {
-        let matchingProduct: any = null
-
-        if (index < dcOrder.products.length && !usedIndices.has(index)) {
-          matchingProduct = dcOrder.products[index]
-          usedIndices.add(index)
-        } else {
-          const dcProductName = (pd.product || '').toLowerCase().trim()
-          for (let i = 0; i < dcOrder.products.length; i++) {
-            if (usedIndices.has(i)) continue
-            const p = dcOrder.products[i]
-            const orderProductName = (p.product_name || '').toLowerCase().trim()
-            if (
-              dcProductName === orderProductName ||
-              dcProductName.includes(orderProductName) ||
-              orderProductName.includes(dcProductName)
-            ) {
-              matchingProduct = p
-              usedIndices.add(i)
-              break
-            }
-          }
-        }
+        const matchingProduct = findMatchingOrderProduct(
+          dcOrder.products,
+          pd,
+          index,
+          usedIndices
+        )
 
         const unitPrice =
           matchingProduct && matchingProduct.unit_price != null
@@ -273,7 +258,7 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
           subject: pd.subject || undefined,
           quantity,
           strength,
-          level: pd.level || 'L2',
+          level: displayProductLevel(pd.level),
           unitPrice,
           total,
           term: matchingProduct?.term || pd.term || 'Term 1',
@@ -294,7 +279,7 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
           subject: p.subject || undefined,
           quantity,
           strength,
-          level: p.level || 'L2',
+          level: displayProductLevel(p.level),
           unitPrice: price,
           total,
           term: p.term || 'Term 1',
@@ -309,13 +294,13 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
         ...pb,
         product: pb.product || '',
         class: pb.class || '1',
-        strength: Number(pb.strength) || 0,
+        strength: Number(pb.strength) || Number(pb.quantity) || 0,
         unitPrice: Number(pb.unitPrice) || 0,
         level: pb.level,
         subject: pb.subject,
       })),
       opts.getCalculationType,
-      opts.getCatalogFallbackCount
+      () => 0
     )
     paymentBreakdown = adj.paymentBreakdown as DcInvoicePaymentLine[]
     totalAmount = adj.totalAmount

@@ -42,6 +42,7 @@ const productSchema = new mongoose.Schema(
     subject: { type: String, trim: true },
     selected_subjects: { type: [String], default: [] },
     levels_snapshot: { type: [String], default: [] }, // distinct levels in bucket at close
+    lineId: { type: String, trim: true },
   },
   { _id: false }
 );
@@ -222,6 +223,7 @@ const dcOrderSchema = new mongoose.Schema(
         approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         approvedAt: { type: Date },
         rejectionReason: { type: String },
+        originatingDcId: { type: mongoose.Schema.Types.ObjectId, ref: 'DC' },
       },
       default: null,
     },

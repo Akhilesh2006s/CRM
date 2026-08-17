@@ -38,6 +38,53 @@ function hasLeftClosedSalesStage(dc?: { status?: string } | null) {
   return DC_LEFT_CLOSED_SALES.has(dc.status)
 }
 
+function productLineQty(p: any): number {
+  const q = Number(p?.quantity)
+  if (Number.isFinite(q) && q > 0) return q
+  const s = Number(p?.strength)
+  return Number.isFinite(s) && s > 0 ? s : 0
+}
+
+function isRicherProductList(candidate?: any[], current?: any[]): boolean {
+  const a = Array.isArray(candidate) ? candidate : []
+  const b = Array.isArray(current) ? current : []
+  if (a.length === 0) return false
+  if (a.length > b.length) return true
+  if (a.length < b.length) return false
+  const qa = a.reduce((sum, p) => sum + productLineQty(p), 0)
+  const qb = b.reduce((sum, p) => sum + productLineQty(p), 0)
+  return qa > qb
+}
+
+/** Latest PO product list for Closed Sales / Raise DC. Prefer the richest snapshot (incl. pending add). */
+function resolveClosedSalesProductLines(deal?: any, dc?: any): any[] {
+  const candidates: any[][] = []
+  const pe = deal?.pendingEdit
+  if (Array.isArray(pe?.products) && pe.products.length > 0) {
+    candidates.push(pe.products)
+  }
+  if (Array.isArray(deal?.products) && deal.products.length > 0) {
+    candidates.push(deal.products)
+  }
+  if (Array.isArray(dc?.productDetails) && dc.productDetails.length > 0) {
+    candidates.push(dc.productDetails)
+  }
+  const requested = deal?.dcRequestData?.productDetails
+  if (Array.isArray(requested) && requested.length > 0) {
+    candidates.push(requested)
+  }
+  if (candidates.length === 0) return []
+  // If an approved PO list exists, start from it; then take any richer pending/committed snapshot.
+  let best =
+    pe?.status === 'approved' && Array.isArray(pe.products) && pe.products.length > 0
+      ? pe.products
+      : candidates[0]
+  for (const next of candidates) {
+    if (isRicherProductList(next, best)) best = next
+  }
+  return best
+}
+
 type DcOrder = {
   _id: string
   dc_code?: string
@@ -317,6 +364,8 @@ export default function ClosedSalesPage() {
       // Closed Sales = only after Executive Request DC (DcOrder status dc_requested / dc_accepted).
       // Do NOT merge Closed leads here — closing a lead / converting to client must stay in
       // Executive My Clients until Request DC; otherwise sales jump into Closed Sales too early.
+      // Do NOT merge Create Sale DCs (status=created) — those stay on Create Sale / Follow-up,
+      // not Closed Sales.
       
       console.log('Loaded closed deals:', data)
       console.log('First deal sample:', data[0])
@@ -776,39 +825,38 @@ export default function ClosedSalesPage() {
       } else {
         setSelectedEmployeeId('')
       }
-      // If deal has DC request data (status is 'dc_requested' or 'dc_accepted'), load it
-      if ((fullDeal.status === 'dc_requested' || fullDeal.status === 'dc_accepted') && (fullDeal as any).dcRequestData) {
-        const dcRequestData = (fullDeal as any).dcRequestData
-        console.log('Loading DC request data:', dcRequestData)
-        
-        // Load DC request data into form
-        setDcDate(dcRequestData.dcDate ? new Date(dcRequestData.dcDate).toISOString().split('T')[0] : '')
-        setDcRemarks(dcRequestData.dcRemarks || '')
-        setDcCategory(dcRequestData.dcCategory || '')
-        setDcNotes(dcRequestData.dcNotes || '')
-        
-        // Load product rows from request data
-        if (dcRequestData.productDetails && Array.isArray(dcRequestData.productDetails) && dcRequestData.productDetails.length > 0) {
-          setProductRows(
-            dcRequestData.productDetails.map((p: any, idx: number) =>
-              mapSourceProductToRow(p, idx, normalizedDeal.school_type)
-            )
+
+      const dcRequestData = (fullDeal as any).dcRequestData || {}
+      if (dcRequestData.dcDate) {
+        setDcDate(new Date(dcRequestData.dcDate).toISOString().split('T')[0])
+      }
+      if (dcRequestData.dcRemarks) setDcRemarks(dcRequestData.dcRemarks)
+      if (dcRequestData.dcCategory) setDcCategory(dcRequestData.dcCategory)
+      if (dcRequestData.dcNotes) setDcNotes(dcRequestData.dcNotes)
+
+      const poProducts = resolveClosedSalesProductLines(fullDeal, existingDCForDeal)
+      if (poProducts.length > 0) {
+        setProductRows(
+          poProducts.map((p: any, idx: number) =>
+            mapSourceProductToRow(p, idx, normalizedDeal.school_type)
           )
-        } else {
-          setProductRows([{
-            id: '1',
-            product: 'Abacus',
-            class: '1',
-            category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-            specs: 'Regular',
-            quantity: 1,
-            strength: 0,
-            level: 'L1',
-            term: 'Term 1',
-            unit_price: 0,
-          }])
-        }
-      } else if (existingDCForDeal) {
+        )
+      }
+
+      if ((fullDeal.status === 'dc_requested' || fullDeal.status === 'dc_accepted') && dcRequestData && poProducts.length === 0) {
+        setProductRows([{
+          id: '1',
+          product: 'Abacus',
+          class: '1',
+          category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
+          specs: 'Regular',
+          quantity: 1,
+          strength: 0,
+          level: 'L1',
+          term: 'Term 1',
+          unit_price: 0,
+        }])
+      } else if (existingDCForDeal && poProducts.length === 0) {
         // Load full DC details to get all fields
         try {
           const fullDC = await apiRequest<DC>(`/dc/${existingDCForDeal._id}`)
@@ -1257,7 +1305,7 @@ export default function ClosedSalesPage() {
       const finalDcCategory = String(dcCategory).trim()
       const finalDcNotes = dcNotes || dcRequestData.dcNotes || undefined
       
-      // Determine product details: use form data if available, otherwise request data, otherwise deal's products
+      // Determine product details: form rows first, then latest PO snapshot (incl. pending add).
       let finalProductDetails: any[] = []
       if (productRows.length > 0) {
         finalProductDetails = productRows.map(row => ({
@@ -1265,26 +1313,31 @@ export default function ClosedSalesPage() {
         class: row.class,
         category: row.category,
         productCategory: row.productCategory || undefined,
+        productName: row.productName || row.product || '',
         specs: row.specs || 'Regular',
         subject: row.subject || undefined,
           strength: Number(row.strength) || 0,
           quantity: Number(row.quantity) || 0,
-          level: row.level || getDefaultLevel(row.product || 'Abacus'),
+          level: row.level && String(row.level).trim() !== '-' ? String(row.level).trim() : '',
           term: row.term || 'Term 1',
         }))
-      } else if (dcRequestData.productDetails && Array.isArray(dcRequestData.productDetails) && dcRequestData.productDetails.length > 0) {
-        finalProductDetails = dcRequestData.productDetails
-      } else if (selectedDeal.products && Array.isArray(selectedDeal.products) && selectedDeal.products.length > 0) {
-        // Fallback to deal's products if no form data or request data
-        finalProductDetails = selectedDeal.products.map((p: any) => ({
-          product: p.product_name || p.product || 'Abacus', // Use original product name as entered
-          class: '1',
-          category: selectedDeal?.school_type === 'Existing' ? 'Old Students' : 'new Students',
-          productName: p.product_name || 'Abacus',
-          quantity: Number(p.quantity) || 1,
-          strength: Number(p.strength) || 0,
-          level: getDefaultLevel(p.product_name || 'Abacus'),
-        }))
+      } else {
+        const fallbackLines = resolveClosedSalesProductLines(selectedDeal, existingDC)
+        if (fallbackLines.length > 0) {
+          finalProductDetails = fallbackLines.map((p: any) => ({
+            product: p.product_name || p.product || p.productName || 'Abacus',
+            class: p.class || '1',
+            category: p.category || (selectedDeal?.school_type === 'Existing' ? 'Old Students' : 'new Students'),
+            productCategory: p.productCategory || undefined,
+            productName: p.product_name || p.product || p.productName || 'Abacus',
+            specs: p.specs || 'Regular',
+            subject: p.subject || undefined,
+            strength: Number(p.strength) || Number(p.quantity) || 0,
+            quantity: Number(p.quantity) || Number(p.strength) || 0,
+            level: p.level && String(p.level).trim() !== '-' ? String(p.level).trim() : '',
+            term: p.term || 'Term 1',
+          }))
+        }
       }
       
       const finalRequestedQuantity = finalProductDetails.length > 0
@@ -1334,12 +1387,13 @@ export default function ClosedSalesPage() {
         })
       }
 
-      // Update DcOrder status to 'saved' so it appears on Saved DC
-      // (Saved DC page loads GET /dc-orders?status=saved). Keep DC document as 'created'.
+      // Update DcOrder to Saved DC. Do not use status `saved` — that is My Clients.
+      // Saved DC page loads GET /dc-orders?status=dc_approved. Keep DC document as `created`.
       await apiRequest(`/dc-orders/${selectedDeal._id}`, {
           method: 'PUT',
           body: JSON.stringify({
-          status: 'saved',
+          status: 'dc_approved',
+          workflowStage: 'ClosedSales',
           ...closedSalesContact2Payload(),
           dcRequestData: {
             dcDate: finalDcDate,
@@ -1353,7 +1407,7 @@ export default function ClosedSalesPage() {
         }),
       })
 
-      alert('DC request accepted! DC has been created/updated. It will appear in Saved DC. You can update it later or submit to Senior Coordinator.')
+      alert('DC request accepted! It will appear in Saved DC. From there, send it to Senior Coordinator (Pending DC).')
       setOpenRaiseDCDialog(false)
       load()
     } catch (e: any) {
@@ -1500,23 +1554,19 @@ export default function ClosedSalesPage() {
 
   // Get products display string
   const getProductsDisplay = (deal: DcOrder) => {
-    // First, try to get products from associated DC's productDetails (most accurate for split DCs)
     const dc = dealDCs[deal._id] as any
-    if (dc?.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-      return dc.productDetails.map((p: any) => {
-        const productName = p.product || p.product_name || 'Unknown'
-        const qty = typeof p.quantity === 'number' ? p.quantity : Number(p.quantity) || 0
-        return `${productName}${qty ? ` - ${qty}` : ''}`
-      }).join(', ')
-    }
-    
-    // Fallback to deal.products (DcOrder products)
-    if (!deal.products || !Array.isArray(deal.products)) return '-'
-    return deal.products.map(p => {
-      // Handle both DcOrder format (product_name) and DC format (product)
-      const productName = (p as any).product_name || (p as any).product || 'Unknown'
-      const qty = typeof (p as any).quantity === 'number' ? (p as any).quantity : Number((p as any).quantity) || 0
-      return `${productName}${qty ? ` - ${qty}` : ''}`
+    const lines = resolveClosedSalesProductLines(deal, dc)
+    if (!lines.length) return '-'
+    return lines.map((p: any) => {
+      const productName = p.product_name || p.product || 'Unknown'
+      const qty = typeof p.quantity === 'number' ? p.quantity : Number(p.quantity) || 0
+      const subject = typeof p.subject === 'string' && p.subject.trim() && p.subject !== '-'
+        ? ` ${p.subject.trim()}`
+        : ''
+      const level = typeof p.level === 'string' && p.level.trim() && p.level !== '-'
+        ? ` ${p.level.trim()}`
+        : ''
+      return `${productName}${subject}${level}${qty ? ` - ${qty}` : ''}`
     }).join(', ')
   }
 

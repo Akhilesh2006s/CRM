@@ -280,7 +280,7 @@ const dcSchema = new mongoose.Schema({
     },
     level: {
       type: String,
-      default: 'L2',
+      default: '',
     },
     specs: {
       type: String,
@@ -298,6 +298,10 @@ const dcSchema = new mongoose.Schema({
     closeLeadDestination: {
       type: String,
       enum: ['MY_CLIENT', 'TERM_WISE_DC'],
+    },
+    lineId: {
+      type: String,
+      trim: true,
     },
   }],
   // Location tracking for mobile app
