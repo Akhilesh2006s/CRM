@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
 import { sanitizeMobileInput, validateContactMobile, validateContactPerson } from '@/lib/saleFormValidation'
+import { keepMyClientsOwnedProductRows } from '@/lib/clientDcProductRows'
+import { resolveExistingProductTerm } from '@/lib/productTerm'
 
 /** DcOrder statuses that belong on the Closed Sales page. */
 function isClosedSalesOrderStatus(status?: string) {
@@ -45,44 +47,26 @@ function productLineQty(p: any): number {
   return Number.isFinite(s) && s > 0 ? s : 0
 }
 
-function isRicherProductList(candidate?: any[], current?: any[]): boolean {
-  const a = Array.isArray(candidate) ? candidate : []
-  const b = Array.isArray(current) ? current : []
-  if (a.length === 0) return false
-  if (a.length > b.length) return true
-  if (a.length < b.length) return false
-  const qa = a.reduce((sum, p) => sum + productLineQty(p), 0)
-  const qb = b.reduce((sum, p) => sum + productLineQty(p), 0)
-  return qa > qb
-}
-
-/** Latest PO product list for Closed Sales / Raise DC. Prefer the richest snapshot (incl. pending add). */
+/**
+ * Once a DC exists, use THAT DC's product allocations.
+ * Never pick the longer unsplit lead/order/dcRequestData list.
+ */
 function resolveClosedSalesProductLines(deal?: any, dc?: any): any[] {
-  const candidates: any[][] = []
-  const pe = deal?.pendingEdit
-  if (Array.isArray(pe?.products) && pe.products.length > 0) {
-    candidates.push(pe.products)
-  }
-  if (Array.isArray(deal?.products) && deal.products.length > 0) {
-    candidates.push(deal.products)
-  }
   if (Array.isArray(dc?.productDetails) && dc.productDetails.length > 0) {
-    candidates.push(dc.productDetails)
+    return keepMyClientsOwnedProductRows(dc.productDetails)
   }
   const requested = deal?.dcRequestData?.productDetails
   if (Array.isArray(requested) && requested.length > 0) {
-    candidates.push(requested)
+    return keepMyClientsOwnedProductRows(requested)
   }
-  if (candidates.length === 0) return []
-  // If an approved PO list exists, start from it; then take any richer pending/committed snapshot.
-  let best =
-    pe?.status === 'approved' && Array.isArray(pe.products) && pe.products.length > 0
-      ? pe.products
-      : candidates[0]
-  for (const next of candidates) {
-    if (isRicherProductList(next, best)) best = next
+  const pe = deal?.pendingEdit
+  if (pe?.status === 'approved' && Array.isArray(pe.products) && pe.products.length > 0) {
+    return keepMyClientsOwnedProductRows(pe.products)
   }
-  return best
+  if (Array.isArray(deal?.products) && deal.products.length > 0) {
+    return keepMyClientsOwnedProductRows(deal.products)
+  }
+  return []
 }
 
 type DcOrder = {
@@ -288,7 +272,7 @@ export default function ClosedSalesPage() {
       quantity: Number.isFinite(quantityNum) && quantityNum >= 0 ? quantityNum : 1,
       strength: Number.isFinite(strengthNum) && strengthNum >= 0 ? strengthNum : 0,
       level: p.level || getDefaultLevel(originalProduct || 'Abacus'),
-      term: p.term || 'Term 1',
+      term: resolveExistingProductTerm(p),
       unit_price: Number(p.unit_price) || Number(p.price) || 0,
     }
   }
@@ -834,7 +818,26 @@ export default function ClosedSalesPage() {
       if (dcRequestData.dcCategory) setDcCategory(dcRequestData.dcCategory)
       if (dcRequestData.dcNotes) setDcNotes(dcRequestData.dcNotes)
 
-      const poProducts = resolveClosedSalesProductLines(fullDeal, existingDCForDeal)
+      let dcForProducts = existingDCForDeal
+      if (existingDCForDeal?._id) {
+        try {
+          dcForProducts = await apiRequest<DC>(`/dc/${existingDCForDeal._id}`)
+        } catch (e) {
+          console.warn('Could not load full DC for Closed Sales products:', e)
+        }
+      }
+      const poProducts = resolveClosedSalesProductLines(fullDeal, dcForProducts)
+      console.log('[DC-ASSOC] Closed Sales Raise products', {
+        dcId: dcForProducts?._id,
+        count: poProducts.length,
+        total: poProducts.reduce((s: number, p: any) => s + productLineQty(p), 0),
+        lines: poProducts.map((p: any) => ({
+          product: p.product || p.productName || p.product_name,
+          level: p.level,
+          term: p.term,
+          quantity: productLineQty(p),
+        })),
+      })
       if (poProducts.length > 0) {
         setProductRows(
           poProducts.map((p: any, idx: number) =>
@@ -1141,8 +1144,8 @@ export default function ClosedSalesPage() {
         subject: row.subject || undefined,
         strength: Number(row.strength) || 0,
         quantity: Number(row.quantity) || 0,
-        level: row.level || 'L2',
-        term: row.term || 'Term 1',
+        level: row.level,
+        term: resolveExistingProductTerm(row),
       }))
 
       // Set status to pending_dc when raising from Closed Sales

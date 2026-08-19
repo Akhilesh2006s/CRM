@@ -22,7 +22,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
-import { normalizeProductTerm, termFromLevelLabel } from '@/lib/productTerm'
+import { persistProductTerm, termFromLevelLabel } from '@/lib/productTerm'
 import { shortageParentRowKey } from '@/lib/shortageDcRowKey'
 import {
   buildClientDCProductRows,
@@ -33,13 +33,13 @@ import {
   lineMatchesTermWiseCompanion,
   displayProductLevel,
   collapseEmptyLevelDuplicateLines,
+  keepMyClientsOwnedProductRows,
   orderProductToClientDcDetail,
   appendMissingMyClientsOrderLines,
   resolveAddEditPoProduct,
   expandEditPoRowsBySubject,
   editPoProductIdentity,
   ensureProductLineId,
-  pickRicherProductRows,
   normalizeEditPoSubjectKey,
   type ResolveClientDCRowOpts,
 } from '@/lib/clientDcProductRows'
@@ -356,11 +356,9 @@ export default function ClientDCPage() {
             hasDcOrderId: true,
             dcOrderIdType: typeof dc.dcOrderId
           })
-          // Drop Term-Wise-only product rows if a mixed DC was saved incorrectly
-          if (Array.isArray(dc.productDetails) && dc.productDetails.some((p: any) => p.closeLeadDestination)) {
-            dc.productDetails = dc.productDetails.filter(
-              (p: any) => p.closeLeadDestination !== 'TERM_WISE_DC'
-            )
+          // Drop Term-Wise companion rows if a mixed DC was saved incorrectly
+          if (Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
+            dc.productDetails = keepMyClientsOwnedProductRows(dc.productDetails)
           }
           return true
         }
@@ -1161,11 +1159,30 @@ export default function ClientDCPage() {
         ? [...fullDC.productDetails]
         : []
 
-      // Flow: Edit PO approved by Executive Manager → Request DC shows that My Clients list (incl. P2).
+      // This DC's productDetails are the source of truth. Never replace them with
+      // the unsplit DcOrder.products list (that still holds both Term 1 and Term 2).
       const mappedApproved = (approvedProducts || [])
         .map((p: any) => orderProductToClientDcDetail(p))
         .filter((p: any) => p.product)
-      thisDetails = pickRicherProductRows(thisDetails, mappedApproved)
+      thisDetails = keepMyClientsOwnedProductRows(thisDetails, siblingRows)
+      console.log('[DC-ASSOC] Request DC this DC productDetails', {
+        dcId: fullDC._id,
+        count: thisDetails.length,
+        total: thisDetails.reduce(
+          (s, p) => s + (Number(p.quantity) || Number(p.strength) || 0),
+          0
+        ),
+        lines: thisDetails.map((p) => ({
+          product: p.product || p.productName,
+          productId: p.productId,
+          level: p.level,
+          term: p.term,
+          quantity: Number(p.quantity) || Number(p.strength) || 0,
+        })),
+      })
+      if (thisDetails.length === 0 && mappedApproved.length > 0) {
+        thisDetails = keepMyClientsOwnedProductRows(mappedApproved, siblingRows)
+      }
 
       const productsToShow = toRequestDcRows(thisDetails)
       setDcProductRows(productsToShow)
@@ -1177,13 +1194,10 @@ export default function ClientDCPage() {
       setDcPoPhotoUrl(fullDC.poPhotoUrl || '')
     } catch (e) {
       console.error('Failed to load DC details:', e)
-      const fallbackDetails = pickRicherProductRows(
-        [],
-        approvedProducts
-          ? approvedProducts.map((p: any) => orderProductToClientDcDetail(p)).filter((p: any) => p.product)
-          : []
-      )
-      setDcProductRows(toRequestDcRows(fallbackDetails))
+      const fallbackDetails = (approvedProducts || [])
+        .map((p: any) => orderProductToClientDcDetail(p))
+        .filter((p: any) => p.product)
+      setDcProductRows(toRequestDcRows(keepMyClientsOwnedProductRows(fallbackDetails, siblingRows)))
       setDcDate('')
       setDcRemarks('')
       setDcCategory('')
@@ -1425,31 +1439,27 @@ export default function ClientDCPage() {
         return v
       }
 
-      // Prepare product details
-      const productDetails = dcProductRows.map(row => ({
-        lineId: ensureProductLineId(row),
-        product: row.product || '',
-        class: row.class || '1',
-        category: normalizeStudentCategory(row.category) || defaultStudentCategory,
-        productCategory: row.productCategory || undefined,
-        specs: row.specs || 'Regular',
-        subject: row.subject || undefined,
-        quantity: Number(row.quantity) || 0,
-        strength: Number(row.strength) || 0,
-        level: row.level && row.level !== '-' ? row.level : '',
-        term: resolveClientDCRowTerm(row),
-      }))
+      // Prepare product details owned by THIS My Clients DC only.
+      const productDetails = keepMyClientsOwnedProductRows(
+        dcProductRows.map((row) => ({
+          lineId: ensureProductLineId(row),
+          product: row.product || '',
+          class: row.class || '1',
+          category: normalizeStudentCategory(row.category) || defaultStudentCategory,
+          productCategory: row.productCategory || undefined,
+          specs: row.specs || 'Regular',
+          subject: row.subject || undefined,
+          quantity: Number(row.quantity) || 0,
+          strength: Number(row.strength) || 0,
+          level: row.level && row.level !== '-' ? row.level : '',
+          term: resolveClientDCRowTerm(row),
+        }))
+      )
 
-      const totalQuantity = dcProductRows.reduce((sum, p) => sum + (p.quantity || 0), 0)
+      const totalQuantity = productDetails.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0)
 
       const { term1Products, term2Products, hasMixedTerms, term2Only, term1Only } =
-        partitionRowsByTerm(
-          productDetails.map((p, i) => ({
-            ...p,
-            term: p.term,
-            level: dcProductRows[i]?.level,
-          }))
-        )
+        partitionRowsByTerm(productDetails)
 
       if (hasMixedTerms && !requestDcTermRouting) {
         toast.error(
@@ -1763,6 +1773,18 @@ export default function ClientDCPage() {
           const quantityForDcOrder = splitTerm2
             ? term1Products.reduce((sum, p) => sum + (p.quantity || 0), 0)
             : totalQuantity
+          console.log('[DC-ASSOC] Request DC persist payload', {
+            dcId: selectedDC._id,
+            splitTerm2,
+            count: productsForDcOrder.length,
+            total: quantityForDcOrder,
+            lines: productsForDcOrder.map((p) => ({
+              product: p.product,
+              level: p.level,
+              term: p.term,
+              quantity: p.quantity,
+            })),
+          })
           
           console.log('🔄 Updating DcOrder status to dc_requested with request data:', dcOrderId)
           
@@ -2034,9 +2056,10 @@ export default function ClientDCPage() {
               const resolved = resolveClientDCRowFields(merged, name, rowOpts)
               const savedLevel = (merged.level && String(merged.level).trim()) || ''
               const level = savedLevel && savedLevel !== '-' ? savedLevel : '-'
-              const term = normalizeProductTerm(
-                merged.term ?? termFromLevelLabel(savedLevel) ?? termFromLevelLabel(level)
-              )
+              const term = persistProductTerm({
+                term: merged.term,
+                level: savedLevel || level,
+              })
               const lineId = ensureProductLineId(merged, idx)
               return {
                 id: lineId,
@@ -2139,11 +2162,7 @@ export default function ClientDCPage() {
             productCategory: row.productCategory || undefined,
             category: row.category || undefined,
             strength: qty,
-            term: normalizeProductTerm(
-              (row.term != null && String(row.term).trim() !== '')
-                ? row.term
-                : (termFromLevelLabel(level) ?? 'Term 1')
-            ),
+            term: persistProductTerm({ term: row.term, level }),
             level,
             subject: row.subject && String(row.subject).trim() !== '-' ? String(row.subject).trim() : undefined,
             selected_subjects:
@@ -2201,11 +2220,7 @@ export default function ClientDCPage() {
             quantity: qty,
             strength: qty,
             level,
-            term: normalizeProductTerm(
-              (row.term != null && String(row.term).trim() !== '')
-                ? row.term
-                : (termFromLevelLabel(level) ?? 'Term 1')
-            ),
+            term: persistProductTerm({ term: row.term, level }),
             subject: row.subject && String(row.subject).trim() !== '-' ? String(row.subject).trim() : undefined,
             selected_subjects:
               row.subject && String(row.subject).trim() !== '-'

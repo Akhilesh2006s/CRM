@@ -99,6 +99,13 @@ const startServer = async () => {
     await connectDB();
     dbConnected = true;
     console.log('✅ Database connection established. Starting server...');
+    try {
+      const { ensureDuplicatesConsolidated } = require('./utils/warehouseDuplicateConsolidate');
+      await ensureDuplicatesConsolidated();
+      console.log('✅ Warehouse duplicate inventory records consolidated');
+    } catch (mergeErr) {
+      console.warn('Warehouse duplicate consolidate on startup skipped:', mergeErr?.message || mergeErr);
+    }
     
     // Start server only after database is connected
     const PORT = process.env.PORT || 5000;

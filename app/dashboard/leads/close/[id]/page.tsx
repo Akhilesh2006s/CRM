@@ -12,7 +12,7 @@ import { toast } from 'sonner'
 import { ArrowLeft, CheckCircle2, X } from 'lucide-react'
 import Link from 'next/link'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { normalizeProductTerm, termFromLevelLabel } from '@/lib/productTerm'
+import { normalizeProductTerm, persistProductTerm, termFromLevelLabel } from '@/lib/productTerm'
 import { partitionProductsForCloseLeadRouting } from '@/lib/closeLeadTermRouting'
 import {
   type ProductDetailRow,
@@ -680,16 +680,10 @@ export default function CloseLeadPage() {
           specs: p.specs || 'Regular', // Include specs
           subject: p.subject || undefined, // Include subject if present
           deliverables,
-          // Do not force empty → Term 1 here; routing must see real Term 2 / no-term selections.
-          term: (() => {
-            const raw =
-              termFromLevel ||
-              (p as any).term ||
-              termFromLevelLabel((p as any).level) ||
-              (parentRow as any)?.term
-            if (raw == null || String(raw).trim() === '') return undefined
-            return normalizeProductTerm(raw)
-          })(),
+          term: persistProductTerm({
+            term: (p as any).term || (parentRow as any)?.term,
+            level: levelValue,
+          }),
         }
       })
       

@@ -1,160 +1,134 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Card } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import Link from 'next/link'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { apiRequest } from '@/lib/api'
-import { toast } from 'sonner'
+import { Pencil } from 'lucide-react'
 
-type StockItem = {
+type WarehouseItem = {
   _id: string
   productName: string
   category?: string
+  location?: string
   level?: string
+  specs?: string
+  subject?: string
   itemType?: string
+  supplier?: string
   currentStock?: number
 }
 
 export default function WarehouseStock() {
-  const [items, setItems] = useState<StockItem[]>([])
+  const [items, setItems] = useState<WarehouseItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-
-  // Add Qty modal state
-  const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState<StockItem | null>(null)
-  const [qty, setQty] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [category, setCategory] = useState('')
+  const [level, setLevel] = useState('')
 
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await apiRequest<StockItem[]>('/warehouse')
-        setItems(data)
-      } catch (err: any) {
-        toast.error(err?.message || 'Failed to load stock')
-      } finally {
-        setLoading(false)
-      }
+        const data = await apiRequest<WarehouseItem[]>('/warehouse')
+        setItems(Array.isArray(data) ? data : [])
+      } catch (_) {}
+      setLoading(false)
     })()
   }, [])
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return items
-    return items.filter((i) =>
-      [i.productName, i.category, i.level, i.itemType]
-        .filter(Boolean)
-        .some((v) => v!.toString().toLowerCase().includes(q))
-    )
-  }, [items, search])
-
-  function openAddQty(item: StockItem) {
-    setSelected(item)
-    setQty('')
-    setOpen(true)
-  }
-
-  async function submitAddQty() {
-    if (!selected) return
-    const amount = parseFloat(qty)
-    if (!amount || amount <= 0) {
-      toast.error('Enter a valid quantity')
-      return
-    }
-    setSaving(true)
-    try {
-      await apiRequest('/warehouse/stock', {
-        method: 'POST',
-        body: JSON.stringify({
-          productId: selected._id,
-          quantity: amount,
-          movementType: 'In',
-          reason: 'Manual add',
-        }),
-      })
-      toast.success('Quantity added')
-      // refresh list
-      const data = await apiRequest<StockItem[]>('/warehouse')
-      setItems(data)
-      setOpen(false)
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to add quantity')
-    } finally {
-      setSaving(false)
-    }
-  }
+    const lcCategory = category.trim().toLowerCase()
+    const lcLevel = level.trim().toLowerCase()
+    return items.filter((it) => {
+      const itemLevel = (it.level || it.location || '').toString().toLowerCase()
+      const itemCategory = (it.category || '').toString().toLowerCase()
+      const catOk = lcCategory ? itemCategory.includes(lcCategory) : true
+      const lvlOk = lcLevel ? itemLevel.includes(lcLevel) : true
+      return catOk && lvlOk
+    })
+  }, [items, category, level])
 
   return (
-    <div className="space-y-6 w-full -mx-6 md:-mx-8">
-      <div className="flex items-center justify-between px-6 md:px-8">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Inventory Qty List</h1>
-          <p className="text-neutral-500">Warehouse • Current stock</p>
+          <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Inventory List</h1>
+          <p className="text-neutral-500">Warehouse • Products</p>
         </div>
-        <Link href="/dashboard/warehouse/stock/add">
-          <Button>Add Item Qty</Button>
+        <Link href="/dashboard/warehouse/inventory-items/new">
+          <Button className="bg-blue-600 hover:bg-blue-700">Add New Item</Button>
         </Link>
       </div>
 
-      <Card className="p-4 mx-6 md:mx-8">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="text-sm text-neutral-600">Search</div>
-          <Input className="max-w-xs" placeholder="Search by product, category, level" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <Card className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div>
+            <div className="text-sm text-neutral-600 mb-1">Category</div>
+            <Input placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
+          </div>
+          <div>
+            <div className="text-sm text-neutral-600 mb-1">Level</div>
+            <Input placeholder="Level" value={level} onChange={(e) => setLevel(e.target.value)} />
+          </div>
+          <div className="self-end">
+            <Button onClick={() => { /* filters already apply live */ }} className="w-full md:w-auto">Search</Button>
+          </div>
         </div>
+      </Card>
 
-        <div className="overflow-x-auto w-full">
-          <Table className="w-full table-fixed">
-            <colgroup>
-              <col className="w-[10%]" />
-              <col className="w-[18%]" />
-              <col className="w-[14%]" />
-              <col className="w-[10%]" />
-              <col className="w-[12%]" />
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
-            </colgroup>
-            <TableHeader>
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-16">S.No</TableHead>
+              <TableHead>Product</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Level</TableHead>
+              <TableHead>Specs</TableHead>
+              <TableHead>Subject</TableHead>
+              <TableHead>Item Type</TableHead>
+              <TableHead>Vendor</TableHead>
+              <TableHead>Quantity</TableHead>
+              <TableHead className="w-40">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableHead>S.No</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Level</TableHead>
-                <TableHead className="whitespace-nowrap">Item Type</TableHead>
-                <TableHead className="text-right whitespace-nowrap">Available Qty</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableCell colSpan={10} className="text-center text-neutral-500">No items found.</TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {!loading && filtered.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center text-neutral-500">No items found.</TableCell>
-                </TableRow>
-              )}
-              {filtered.map((row, idx) => (
-                <TableRow key={row._id}>
-                  <TableCell>{idx + 1}</TableCell>
-                  <TableCell className="text-blue-600 hover:underline cursor-default truncate">{row.productName}</TableCell>
-                  <TableCell className="truncate">{row.category || '-'}</TableCell>
-                  <TableCell>{row.level || '-'}</TableCell>
-                  <TableCell className="whitespace-nowrap">{row.itemType || '-'}</TableCell>
-                  <TableCell className="text-right font-medium whitespace-nowrap">{row.currentStock ?? 0}</TableCell>
-                  <TableCell className="text-right">
-                    <Link href={`/dashboard/warehouse/stock/add?productId=${row._id}`}>
-                      <Button variant="destructive" size="sm">Add Item Qty</Button>
+            )}
+            {filtered.map((row, idx) => (
+              <TableRow key={row._id}>
+                <TableCell>{idx + 1}</TableCell>
+                <TableCell className="font-medium text-neutral-900">{row.productName}</TableCell>
+                <TableCell>{row.category || '-'}</TableCell>
+                <TableCell>{row.level || row.location || '-'}</TableCell>
+                <TableCell>{row.specs || 'Regular'}</TableCell>
+                <TableCell>{row.subject || '-'}</TableCell>
+                <TableCell>{row.itemType || '—'}</TableCell>
+                <TableCell>{row.supplier || '-'}</TableCell>
+                <TableCell>{row.currentStock !== undefined && row.currentStock !== null ? row.currentStock : 0}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <Link href={`/dashboard/warehouse/inventory-items/${row._id}`} aria-label="Edit">
+                      <Pencil size={16} className="text-neutral-500 hover:text-neutral-700" />
                     </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                    <Link
+                      href={`/dashboard/warehouse/stock/add?productId=${encodeURIComponent(row._id)}`}
+                      className="text-sm text-blue-600 hover:underline whitespace-nowrap"
+                    >
+                      Add Item Qty
+                    </Link>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Card>
     </div>
   )
 }
-

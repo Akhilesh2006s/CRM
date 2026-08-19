@@ -1,4 +1,4 @@
-const { getRowStageFlags } = require('./productTerm');
+const { getRowStageFlags, persistProductTerm, partitionProductsForCloseLeadRouting } = require('./productTerm');
 
 /** Identity for a product LINE (name + level + class + specs + category + subject + term). Never name-only. */
 function productLineIdentity(p) {
@@ -27,6 +27,15 @@ function displayLevelValue(level) {
   const s = String(level ?? '').trim();
   if (!s || s === '-') return '';
   return s;
+}
+
+function productClassBaseKey(p) {
+  const name = String(p?.product || p?.productName || p?.product_name || '')
+    .trim()
+    .toLowerCase();
+  const klass = String(p?.class ?? '').trim().toLowerCase();
+  const subject = String(p?.subject || '').trim().toLowerCase();
+  return [name, klass, subject].join('|');
 }
 
 function ensureLineId(p) {
@@ -91,7 +100,7 @@ function orderProductToDcDetail(p) {
     unit_price: price,
     total: Number.isFinite(storedTotal) && storedTotal > 0 ? storedTotal : qty * price,
     level,
-    term: p.term,
+    term: persistProductTerm({ ...p, level }),
     closeLeadDestination: p.closeLeadDestination,
     selected_subjects: Array.isArray(p.selected_subjects) ? p.selected_subjects : undefined,
     deliverables: Array.isArray(p.deliverables) ? p.deliverables : undefined,
@@ -116,7 +125,7 @@ function dcDetailToOrderProduct(p, existing = []) {
     category: p.category || prev?.category,
     strength: Number(p.strength) || qty || prev?.strength || 0,
     level: displayLevelValue(p.level || prev?.level),
-    term: p.term || prev?.term,
+    term: persistProductTerm({ ...prev, ...p }),
     subject: p.subject || prev?.subject,
     selected_subjects: Array.isArray(p.selected_subjects)
       ? p.selected_subjects
@@ -142,12 +151,21 @@ function lineMatchesTermWiseCompanion(row, siblingRows) {
   if ((siblingRows || []).some((s) => productLineIdentity(s) === key)) return true;
   const name = productNameKey(row);
   if (!name) return false;
-  const second = isSecondStageLine(row);
-  if (!second) return false;
-  return (siblingRows || []).some((s) => {
-    if (productNameKey(s) !== name) return false;
-    return isSecondStageLine(s);
-  });
+  if (isSecondStageLine(row)) {
+    return (siblingRows || []).some((s) => {
+      if (productNameKey(s) !== name) return false;
+      return isSecondStageLine(s);
+    });
+  }
+  // Grouped leftover with level dropped (Level "-") still belongs on Term-Wise
+  // when a sibling second-stage line has the same product+class.
+  if (!displayLevelValue(row?.level)) {
+    const classKey = productClassBaseKey(row);
+    return (siblingRows || []).some(
+      (s) => isSecondStageLine(s) && productClassBaseKey(s) === classKey
+    );
+  }
+  return false;
 }
 
 async function siblingTermWiseRows(DC, dcOrderId, excludeDcId) {
@@ -166,6 +184,36 @@ async function siblingTermWiseRows(DC, dcOrderId, excludeDcId) {
 
 function filterOutTermWiseCompanions(rows, siblingRows) {
   return (rows || []).filter((p) => !lineMatchesTermWiseCompanion(p, siblingRows));
+}
+
+/**
+ * Rows that belong on this My Clients / Term 1 DC.
+ * Strips sibling Term-Wise allocations and paired later-stage lines
+ * on the same list (Level 1+2 or Term 1+2 of the same product).
+ */
+function keepMyClientsOwnedProductRows(rows, siblingRows) {
+  const withoutSiblings = filterOutTermWiseCompanions(rows, siblingRows);
+  const { myClientsProducts } = partitionProductsForCloseLeadRouting(withoutSiblings);
+  return myClientsProducts;
+}
+
+function logDcProductAssoc(label, extra = {}) {
+  const rows = extra.rows || extra.productDetails || [];
+  console.log(`[DC-ASSOC] ${label}`, {
+    dcId: extra.dcId,
+    orderId: extra.orderId,
+    count: rows.length,
+    total: sumProductQuantities(rows),
+    lines: rows.map((p) => ({
+      product: p.product || p.productName || p.product_name,
+      productId: p.productId,
+      lineId: p.lineId,
+      level: p.level,
+      term: p.term,
+      quantity: rowQuantity(p),
+      closeLeadDestination: p.closeLeadDestination,
+    })),
+  });
 }
 
 /**
@@ -197,6 +245,35 @@ function mergeMyClientsProductsPreservingTermWise(
   return [...myClients, ...keptTw];
 }
 
+/**
+ * Term-Wise Edit PO must not replace My Clients lines on the shared DcOrder.
+ */
+function mergeTermWiseProductsPreservingMyClients(
+  incomingProducts,
+  existingProducts,
+  termWiseDetailRows
+) {
+  const incoming = Array.isArray(incomingProducts) ? incomingProducts : [];
+  const existing = Array.isArray(existingProducts) ? existingProducts : [];
+  const twDetails = Array.isArray(termWiseDetailRows) ? termWiseDetailRows : [];
+  const incomingAsDetails =
+    twDetails.length > 0 ? twDetails : incoming.map((p) => orderProductToDcDetail(p));
+
+  const incomingTw = incoming.map((p) => dcDetailToOrderProduct(p, existing));
+  const myClients = existing.filter((p) => {
+    const detail = orderProductToDcDetail(p);
+    return !lineMatchesTermWiseCompanion(detail, incomingAsDetails);
+  });
+  const keptTw =
+    incomingTw.length > 0
+      ? incomingTw
+      : existing.filter((p) =>
+          lineMatchesTermWiseCompanion(orderProductToDcDetail(p), incomingAsDetails)
+        );
+
+  return [...myClients, ...keptTw];
+}
+
 module.exports = {
   productLineIdentity,
   productNameKey,
@@ -207,8 +284,11 @@ module.exports = {
   siblingTermWiseRows,
   filterOutTermWiseCompanions,
   filterOutExactTermWiseLines,
+  keepMyClientsOwnedProductRows,
   mergeMyClientsProductsPreservingTermWise,
+  mergeTermWiseProductsPreservingMyClients,
   isSecondStageLine,
   sumProductQuantities,
   sumProductAmounts,
+  logDcProductAssoc,
 };

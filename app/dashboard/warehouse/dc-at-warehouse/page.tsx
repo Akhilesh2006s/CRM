@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import {
-  matchWarehouseItem,
+  availableStockForRow,
   requiredQtyFromDcRow,
   validateDcStockAgainstInventory,
 } from '@/lib/warehouseInventoryMatch'
@@ -33,6 +33,7 @@ type ProductDetail = {
   price?: number
   total?: number
   level?: string
+  term?: string
   availableQuantity?: number // Available quantity in warehouse (from inventory, auto-filled)
   deliverableQuantity?: number // Final deliverable quantity (calculated)
   remainingQuantity?: number // Remaining in warehouse after delivery (Available - Deliverable)
@@ -42,6 +43,7 @@ type WarehouseItem = {
   _id: string
   productName: string
   category?: string
+  class?: string
   level?: string
   specs?: string
   subject?: string
@@ -135,6 +137,7 @@ function toStockRow(p: Record<string, any>) {
     specs: p.specs,
     subject: p.subject,
     level: p.level,
+    term: p.term,
     quantity: p.quantity,
     strength: p.strength,
   }
@@ -258,8 +261,7 @@ export default function WarehouseDcAtWarehouse() {
           })
           const productName = stockRow.productName || stockRow.product
           const requestedQty = requiredQtyFromDcRow(stockRow)
-          const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
-          const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+          const availableQty = availableStockForRow(inventoryArray, stockRow)
           const deliverableQty = (p.deliverableQuantity !== undefined && p.deliverableQuantity !== null)
             ? Number(p.deliverableQuantity)
             : requestedQty
@@ -281,6 +283,7 @@ export default function WarehouseDcAtWarehouse() {
             price: p.price || 0,
             total: p.total || 0,
             level: p.level || '',
+            term: (p as any).term,
           }
         }))
       } else {
@@ -292,9 +295,8 @@ export default function WarehouseDcAtWarehouse() {
           specs: 'Regular',
           quantity: fullDC.requestedQuantity || 0,
         })
-        const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
         const requestedQty = requiredQtyFromDcRow(stockRow)
-        const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+        const availableQty = availableStockForRow(inventoryArray, stockRow)
         const deliverableQty = requestedQty
         const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
 
@@ -393,8 +395,7 @@ export default function WarehouseDcAtWarehouse() {
 
       const updatedProductRows = productRows.map(p => {
         const stockRow = toStockRow(p)
-        const inventoryItem = matchWarehouseItem(inventoryArray, stockRow)
-        const availableQty = inventoryItem ? Number(inventoryItem.currentStock) || 0 : 0
+        const availableQty = availableStockForRow(inventoryArray, stockRow)
         const requiredQty = requiredQtyFromDcRow(stockRow)
         const deliverableQty = p.deliverableQuantity != null ? Number(p.deliverableQuantity) : requiredQty
         const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
@@ -1051,7 +1052,7 @@ export default function WarehouseDcAtWarehouse() {
                           <span className="text-gray-700">Total:</span>
                         </td>
                         <td className="px-3 py-3 text-right font-bold text-lg">
-                          {productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0)}
+                          {productRows.reduce((sum, row) => sum + requiredQtyFromDcRow(row), 0)}
                         </td>
                         <td colSpan={4} className="px-3 py-3"></td>
                       </tr>

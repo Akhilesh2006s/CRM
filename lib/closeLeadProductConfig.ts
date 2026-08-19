@@ -295,6 +295,37 @@ export function computeSectionsDisplayQuantity(sections: CloseProductSection[]):
   )
 }
 
+/** Numeric class strength from a Product Details row (strength, then quantity). */
+export function getProductDetailRowStrength(row: ProductDetailRow): number {
+  const strength = Number(row.strength)
+  if (Number.isFinite(strength) && strength > 0) return strength
+  const quantity = Number(row.quantity)
+  if (Number.isFinite(quantity) && quantity > 0) return quantity
+  return 0
+}
+
+/**
+ * Product Details table / DC payload source of truth: every displayed product must
+ * have at least one class row with numeric strength greater than 0.
+ * Empty or leftover section lines that never expanded into table rows are ignored.
+ */
+export function productDetailsHaveValidClassStrengths(rows: ProductDetailRow[]): boolean {
+  const childRows = rows.filter((r) => !r.isParentRow)
+  const byProduct = new Map<string, ProductDetailRow[]>()
+  for (const row of childRows) {
+    const name = String(row.product || '').trim()
+    if (!name) continue
+    const list = byProduct.get(name)
+    if (list) list.push(row)
+    else byProduct.set(name, [row])
+  }
+  if (byProduct.size === 0) return false
+  for (const productRows of byProduct.values()) {
+    if (!productRows.some((r) => getProductDetailRowStrength(r) > 0)) return false
+  }
+  return true
+}
+
 /** Prefer Product Details rows as source of truth: sum each row quantity/strength. */
 export function computeProductDetailsDisplayQuantity(rows: ProductDetailRow[]): number {
   return rows
@@ -650,10 +681,11 @@ export function validateCloseLeadProductConfig(
     }
   }
 
-  const invalidSectionClasses = opts.productSections.some(
-    (sec) => !sectionHasValidClassSelections(sec)
-  )
-  if (invalidSectionClasses) {
+  // Validate class strength from Product Details rows (same structure the modal
+  // table displays and buildDcOrderProductsFromDetails submits). Do not require
+  // every productSections line to be valid: empty extra sections and leftover
+  // preloaded lines never expand into table rows and are not sent to the API.
+  if (!productDetailsHaveValidClassStrengths(opts.productDetails)) {
     return {
       ok: false,
       message: 'Each product must have at least one class with strength greater than 0.',

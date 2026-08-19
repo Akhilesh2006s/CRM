@@ -5,8 +5,11 @@ const {
   orderProductToDcDetail,
   dcDetailToOrderProduct,
   filterOutExactTermWiseLines,
+  filterOutTermWiseCompanions,
   sumProductQuantities,
   sumProductAmounts,
+  keepMyClientsOwnedProductRows,
+  isSecondStageLine,
 } = require('../utils/productLineIdentity');
 
 function line(product_name, klass, subject, quantity, unit_price = 10) {
@@ -82,4 +85,81 @@ test('term-wise filter does not drop P2 subject rows', () => {
   const kept = filterOutExactTermWiseLines(incoming, tw);
   assert.equal(kept.length, 7);
   assert.equal(sumProductQuantities(kept), 85);
+});
+
+test('empty-level grouped leftover is stripped when Term-Wise has Level 2 same class', () => {
+  const tw = [{ product: 'p3', class: '1', level: 'Level 2', term: 'Term 2', quantity: 10 }];
+  const incoming = [
+    { product: 'P1', class: '1', quantity: 20 },
+    { product: 'P1', class: '2', quantity: 20 },
+    { product: 'P2', class: '1', subject: 'math', quantity: 10 },
+    { product: 'P2', class: '1', subject: 'Phy', quantity: 10 },
+    { product: 'P2', class: '2', subject: 'math', quantity: 10 },
+    { product: 'P2', class: '2', subject: 'Phy', quantity: 10 },
+    { product: 'p3', class: '1', level: 'Level 1', term: 'Term 1', quantity: 10 },
+    { product: 'p3', class: '1', quantity: 10 },
+  ];
+  const kept = filterOutTermWiseCompanions(incoming, tw);
+  assert.equal(kept.length, 7);
+  assert.equal(sumProductQuantities(kept), 90);
+  assert.ok(kept.some((p) => String(p.level || '') === 'Level 1'));
+  assert.equal(
+    kept.filter((p) => String(p.product).toLowerCase() === 'p3').length,
+    1
+  );
+});
+
+test('empty-level P1 rows are kept when Term-Wise companion is a different product', () => {
+  const tw = [{ product: 'p3', class: '1', level: 'Level 2', quantity: 10 }];
+  const incoming = [
+    { product: 'P1', class: '1', quantity: 20 },
+    { product: 'P1', class: '2', quantity: 20 },
+    { product: 'p3', class: '1', level: 'Level 1', quantity: 10 },
+  ];
+  const kept = filterOutTermWiseCompanions(incoming, tw);
+  assert.equal(kept.length, 3);
+  assert.equal(sumProductQuantities(kept), 50);
+});
+
+const exampleMyClientsPlusTermWise = [
+  { product: 'P1', class: '1', quantity: 20, level: 'Class 1', term: 'Term 1' },
+  { product: 'P1', class: '2', quantity: 20, level: 'Class 2', term: 'Term 1' },
+  { product: 'P2', class: '1', subject: 'math', quantity: 10, term: 'Term 1' },
+  { product: 'P2', class: '1', subject: 'Phy', quantity: 10, term: 'Term 1' },
+  { product: 'P2', class: '2', subject: 'math', quantity: 10, term: 'Term 1' },
+  { product: 'P2', class: '2', subject: 'Phy', quantity: 10, term: 'Term 1' },
+  { product: 'p3', class: '1', level: 'Level 1', term: 'Term 1', quantity: 10 },
+  { product: 'p3', class: '1', level: 'Level 2', term: 'Term 2', quantity: 10 },
+];
+
+test('paired Level 2 is dropped from My Clients even without sibling rows', () => {
+  const kept = keepMyClientsOwnedProductRows(exampleMyClientsPlusTermWise, []);
+  assert.equal(kept.length, 7);
+  assert.equal(sumProductQuantities(kept), 90);
+  assert.equal(
+    kept.filter((p) => String(p.product).toLowerCase() === 'p3').length,
+    1
+  );
+  assert.ok(kept.some((p) => String(p.level || '') === 'Level 1'));
+  assert.equal(
+    kept.filter((p) => String(p.level || '') === 'Level 2').length,
+    0
+  );
+});
+
+test('sibling Term-Wise rows also strip the matching later-stage allocation', () => {
+  const tw = [{ product: 'p3', class: '1', level: 'Level 2', term: 'Term 2', quantity: 10 }];
+  const kept = keepMyClientsOwnedProductRows(exampleMyClientsPlusTermWise, tw);
+  assert.equal(kept.length, 7);
+  assert.equal(sumProductQuantities(kept), 90);
+});
+
+test('Term-2-only product on My Clients is kept when it has no Level 1 pair', () => {
+  const onlyLaterStage = [
+    { product: 'P4', class: '1', level: 'Level 2', term: 'Term 2', quantity: 10 },
+  ];
+  const kept = keepMyClientsOwnedProductRows(onlyLaterStage, []);
+  assert.equal(kept.length, 1);
+  assert.equal(sumProductQuantities(kept), 10);
+  assert.equal(isSecondStageLine(kept[0]), true);
 });

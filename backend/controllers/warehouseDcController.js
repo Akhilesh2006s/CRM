@@ -1,6 +1,7 @@
 const DcOrder = require('../models/DcOrder');
 const Lead = require('../models/Lead');
 const DC = require('../models/DC');
+const { persistProductTerm } = require('../utils/productTerm');
 
 // Helper to transform DcOrder/Lead to warehouse DC format
 function transformToWarehouseDC(doc) {
@@ -20,6 +21,10 @@ function transformToWarehouseDC(doc) {
         productName: prod.productName || prod.product_name || prod.product || '',
         qty: prod.qty || prod.quantity || 0,
         whQty: prod.whQty || prod.whQty || 0,
+        level: prod.level || '',
+        specs: prod.specs || 'Regular',
+        subject: prod.subject,
+        term: persistProductTerm(prod),
       };
     });
   }
@@ -361,10 +366,10 @@ const moveDcOrderToWarehouse = async (req, res) => {
             strength: q,
             price,
             total: price * q,
-            level: 'L2',
-            specs: 'Regular',
-            subject: undefined,
-            term: p.term || 'Term 1',
+            level: p.level || '',
+            specs: p.specs || 'Regular',
+            subject: p.subject,
+            term: persistProductTerm(p),
           };
         })
         : undefined;

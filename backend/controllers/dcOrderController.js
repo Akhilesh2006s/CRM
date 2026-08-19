@@ -6,7 +6,7 @@ const {
   ensureSchoolCode,
   isClientConversionUpdate,
 } = require('../utils/clientSchoolCode');
-const { normalizeProductTerm, normalizeDcOrderProductTermsInArray } = require('../utils/productTerm');
+const { normalizeProductTerm, persistProductTerm, normalizeDcOrderProductTermsInArray } = require('../utils/productTerm');
 const {
   productLineIdentity,
   orderProductToDcDetail,
@@ -14,6 +14,7 @@ const {
   siblingTermWiseRows,
   filterOutExactTermWiseLines,
   mergeMyClientsProductsPreservingTermWise,
+  mergeTermWiseProductsPreservingMyClients,
   sumProductQuantities,
   sumProductAmounts,
 } = require('../utils/productLineIdentity');
@@ -46,7 +47,7 @@ function plainProduct(p) {
     specs: row.specs || 'Regular',
     subject: row.subject,
     level: row.level || '',
-    term: row.term || 'Term 1',
+    term: persistProductTerm(row),
     productCategory: row.productCategory,
     category: row.category,
     selected_subjects: row.selected_subjects,
@@ -1044,13 +1045,24 @@ const update = async (req, res) => {
       }
     });
 
-    // Edit PO for My Clients must not overwrite Term-Wise product rows on this deal.
+    // Edit PO must not overwrite the other DC's product allocations on this shared deal.
     // Request DC only sends status + dcRequestData — never rewrite products on that path.
     if (Array.isArray(updateData.products) && req.body.status !== 'dc_requested') {
       try {
         const originId = req.body.originatingDcId || req.body.dcId;
         const twRows = await siblingTermWiseRows(DC, item._id, originId);
-        if (twRows.length > 0) {
+        let originIsTermWise = false;
+        if (originId) {
+          const originDc = await DC.findById(originId).select('status').lean();
+          originIsTermWise = originDc?.status === 'scheduled_for_later';
+        }
+        if (originIsTermWise) {
+          updateData.products = mergeTermWiseProductsPreservingMyClients(
+            updateData.products,
+            item.products,
+            twRows
+          );
+        } else if (twRows.length > 0) {
           updateData.products = mergeMyClientsProductsPreservingTermWise(
             updateData.products,
             item.products,

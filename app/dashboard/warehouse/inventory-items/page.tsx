@@ -13,12 +13,13 @@ type WarehouseItem = {
   _id: string
   productName: string
   category?: string
-  // Some deployments store level under location or a custom field; treat both as possible sources
+  class?: string
   location?: string
   level?: string
   specs?: string
   subject?: string
   itemType?: string
+  supplier?: string
   currentStock?: number
 }
 
@@ -84,11 +85,13 @@ export default function WarehouseInventoryItems() {
             <TableRow>
               <TableHead className="w-16">S.No</TableHead>
               <TableHead>Product</TableHead>
+              <TableHead>Class</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Level</TableHead>
               <TableHead>Specs</TableHead>
               <TableHead>Subject</TableHead>
               <TableHead>Item Type</TableHead>
+              <TableHead>Vendor</TableHead>
               <TableHead>Quantity</TableHead>
               <TableHead className="w-12"></TableHead>
             </TableRow>
@@ -96,18 +99,20 @@ export default function WarehouseInventoryItems() {
           <TableBody>
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-neutral-500">No items found.</TableCell>
+                <TableCell colSpan={11} className="text-center text-neutral-500">No items found.</TableCell>
               </TableRow>
             )}
             {filtered.map((row, idx) => (
               <TableRow key={row._id}>
                 <TableCell>{idx + 1}</TableCell>
                 <TableCell className="font-medium text-neutral-900">{row.productName}</TableCell>
+                <TableCell>{row.class || '-'}</TableCell>
                 <TableCell>{row.category || '-'}</TableCell>
                 <TableCell>{row.level || row.location || '-'}</TableCell>
                 <TableCell>{row.specs || 'Regular'}</TableCell>
                 <TableCell>{row.subject || '-'}</TableCell>
                 <TableCell>{row.itemType || '—'}</TableCell>
+                <TableCell>{row.supplier || '-'}</TableCell>
                 <TableCell>{row.currentStock !== undefined && row.currentStock !== null ? row.currentStock : 0}</TableCell>
                 <TableCell>
                   <Link href={`/dashboard/warehouse/inventory-items/${row._id}`} aria-label="Edit">

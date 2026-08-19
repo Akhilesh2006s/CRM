@@ -1,4 +1,5 @@
-import { normalizeProductTerm, termFromLevelLabel } from '@/lib/productTerm'
+import { persistProductTerm } from '@/lib/productTerm'
+import { partitionProductsForCloseLeadRouting } from '@/lib/closeLeadTermRouting'
 
 const STUDENT_ENROLLMENT_CATEGORIES = [
   'New Students',
@@ -95,22 +96,23 @@ export function pickRicherProductRows(primary: any[], secondary: any[]): any[] {
 export function collapseEmptyLevelDuplicateLines(rows: any[]): any[] {
   const result: any[] = []
   for (const row of rows || []) {
-    const rowLevel = String(row?.level ?? '').trim()
-    const rowEmpty = !rowLevel || rowLevel === '-'
-    const baseKey = productLineIdentityKey({ ...row, level: '' })
-    const existingIdx = result.findIndex(
-      (r) => productLineIdentityKey({ ...r, level: '' }) === baseKey
-    )
+    const rowEmpty = !hasUsableProductLevel(row?.level)
+    const classKey = productClassBaseKey(row)
+    const existingIdx = result.findIndex((r) => productClassBaseKey(r) === classKey)
     if (existingIdx < 0) {
       result.push(row)
       continue
     }
     const existing = result[existingIdx]
+    const existingEmpty = !hasUsableProductLevel(existing?.level)
     const existingLevel = String(existing?.level ?? '').trim()
-    const existingEmpty = !existingLevel || existingLevel === '-'
+    const rowLevel = String(row?.level ?? '').trim()
     if (!existingEmpty && !rowEmpty && existingLevel.toLowerCase() !== rowLevel.toLowerCase()) {
       result.push(row)
       continue
+    }
+    if (existingEmpty && !rowEmpty) {
+      result[existingIdx] = row
     }
   }
   return result
@@ -120,6 +122,22 @@ export function displayProductLevel(level?: unknown): string {
   const s = String(level ?? '').trim()
   if (!s || s === '-') return '-'
   return s
+}
+
+export function hasUsableProductLevel(level?: unknown): boolean {
+  return displayProductLevel(level) !== '-'
+}
+
+/** Product + class + subject. Ignores level/term/specs so grouped leftovers can match. */
+export function productClassBaseKey(p: Record<string, any>): string {
+  const product = String(p.product || p.productName || p.product_name || '')
+    .trim()
+    .toLowerCase()
+  const klass = String(p.class ?? '').trim().toLowerCase()
+  const subject = String(p.subject ?? '')
+    .trim()
+    .toLowerCase()
+  return [product, klass, subject].join('|')
 }
 
 /** Map approved Edit PO / DcOrder product lines onto this DC's Request DC table. */
@@ -146,6 +164,20 @@ export function orderProductToClientDcDetail(p: Record<string, any>) {
 }
 
 /**
+ * My Clients / Term 1 DC rows only.
+ * Drops sibling Term-Wise allocations and paired later-stage lines
+ * (same product with Level 1 + Level 2, or Term 1 + Term 2).
+ * Does not drop a later-stage product that stands alone on this DC.
+ */
+export function keepMyClientsOwnedProductRows(rows: any[], siblingRows: any[] = []): any[] {
+  const withoutSiblings = (Array.isArray(rows) ? rows : []).filter(
+    (p) => !lineMatchesTermWiseCompanion(p, siblingRows || [])
+  )
+  const { myClientsProducts } = partitionProductsForCloseLeadRouting(withoutSiblings)
+  return myClientsProducts
+}
+
+/**
  * After Edit PO is approved, new lines (e.g. P2) live on DcOrder.products.
  * Add those onto this DC without pulling Term-Wise companion lines (P3 L2).
  */
@@ -156,22 +188,40 @@ export function appendMissingMyClientsOrderLines(
 ): any[] {
   const rows = Array.isArray(dcDetails) ? [...dcDetails] : []
   const seen = new Set(rows.map((r) => productLineIdentityKey(r)))
-  const seenBase = new Set(rows.map((r) => productLineIdentityKey({ ...r, level: '' })))
+  const seenClassBase = new Set(rows.map((r) => productClassBaseKey(r)))
+  const namesWithFirstStage = new Set(
+    rows
+      .filter((r) => r && !isSecondStageLine(r))
+      .map((r) =>
+        String(r.product || r.productName || r.product_name || '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
+  )
 
   for (const p of Array.isArray(orderProducts) ? orderProducts : []) {
     const mapped = orderProductToClientDcDetail(p)
     if (!mapped.product) continue
     if (lineMatchesTermWiseCompanion(mapped, siblingRows)) continue
+    const mappedName = String(mapped.product || '')
+      .trim()
+      .toLowerCase()
+    // Paired later-stage of a product already on this DC belongs on Term-Wise,
+    // even if the sibling DC query failed.
+    if (isSecondStageLine(mapped) && namesWithFirstStage.has(mappedName)) continue
     const key = productLineIdentityKey(mapped)
     if (seen.has(key)) continue
-    const baseKey = productLineIdentityKey({ ...mapped, level: '' })
-    const mappedEmpty = !String(mapped.level ?? '').trim() || String(mapped.level).trim() === '-'
-    if (mappedEmpty && seenBase.has(baseKey)) continue
+    const classKey = productClassBaseKey(mapped)
+    const mappedEmpty = !hasUsableProductLevel(mapped.level)
+    // Grouped DcOrder lines drop Level 1/2 onto one class row with level "-".
+    // That leftover must not be added when this DC already has the class, or Term-Wise owns it.
+    if (mappedEmpty && seenClassBase.has(classKey)) continue
     seen.add(key)
-    seenBase.add(baseKey)
+    seenClassBase.add(classKey)
     rows.push(mapped)
   }
-  return rows
+  return keepMyClientsOwnedProductRows(rows, siblingRows)
 }
 
 export function isSecondStageLine(row: Record<string, any>): boolean {
@@ -204,13 +254,23 @@ export function lineMatchesTermWiseCompanion(
     .trim()
     .toLowerCase()
   if (!name) return false
-  if (!isSecondStageLine(row)) return false
-  return (siblingRows || []).some((s) => {
-    const sn = String(s.product || s.productName || s.product_name || '')
-      .trim()
-      .toLowerCase()
-    return sn === name && isSecondStageLine(s)
-  })
+  if (isSecondStageLine(row)) {
+    return (siblingRows || []).some((s) => {
+      const sn = String(s.product || s.productName || s.product_name || '')
+        .trim()
+        .toLowerCase()
+      return sn === name && isSecondStageLine(s)
+    })
+  }
+  // Level/term was lost on a grouped leftover (UI shows Level "-") but Term-Wise
+  // still owns this product+class as a later-stage allocation.
+  if (!hasUsableProductLevel(row.level)) {
+    const classKey = productClassBaseKey(row)
+    return (siblingRows || []).some(
+      (s) => isSecondStageLine(s) && productClassBaseKey(s) === classKey
+    )
+  }
+  return false
 }
 
 /** Stable key for duplicate product lines (Request DC / Edit PO). */
@@ -347,12 +407,9 @@ export function findMatchingOrderProduct(
   return null
 }
 
-/** Term for Request DC / My Clients tables (explicit term wins over level label). */
+/** Term for Request DC / My Clients tables. Recovers Term 2 from Level 2 when schema defaulted term to Term 1. */
 export function resolveClientDCRowTerm(raw: { term?: unknown; level?: unknown }): string {
-  if (raw.term != null && String(raw.term).trim() !== '') {
-    return normalizeProductTerm(raw.term)
-  }
-  return termFromLevelLabel(raw.level) ?? 'Term 1'
+  return persistProductTerm(raw)
 }
 
 function mapToClientDCProductRow(

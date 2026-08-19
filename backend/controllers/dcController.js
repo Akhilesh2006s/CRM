@@ -17,13 +17,15 @@ const path = require('path');
 const fs = require('fs');
 const { validateSetPendingDc } = require('../utils/dcStatusFlow');
 const { validateRaiseDcDetails, validatePendingDcDetails } = require('../utils/raiseDcDetailsValidation');
-const { partitionProductsForCloseLeadRouting } = require('../utils/productTerm');
+const { partitionProductsForCloseLeadRouting, resolveExistingProductTerm, persistProductTerm } = require('../utils/productTerm');
 const {
   siblingTermWiseRows,
-  filterOutTermWiseCompanions,
+  keepMyClientsOwnedProductRows,
   displayLevelValue,
+  logDcProductAssoc,
 } = require('../utils/productLineIdentity');
 const { validateDcStockAgainstInventory } = require('../utils/warehouseInventoryMatch');
+const { ensureDuplicatesConsolidated } = require('../utils/warehouseDuplicateConsolidate');
 
 /** Closed Sales → Saved DC → Pending DC. Do not re-run Close Lead Term-Wise split/strip. */
 const CLOSED_SALES_PIPELINE_ORDER_STATUSES = new Set([
@@ -156,7 +158,7 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       level: displayLevelValue(p.level),
       specs,
       subject: p.subject || undefined,
-      term: p.term || 'Term 1',
+      term: persistProductTerm(p),
       ...(p.closeLeadDestination === 'MY_CLIENT' || p.closeLeadDestination === 'TERM_WISE_DC'
         ? { closeLeadDestination: p.closeLeadDestination }
         : {}),
@@ -175,15 +177,9 @@ async function repairSaleCloseLeadRouting(dcOrderId) {
   if (!dcOrderId) return null;
 
   const order = await DcOrder.findById(dcOrderId).select('status').lean();
-  if (isClosedSalesPipelineOrder(order?.status)) {
-    return null;
-  }
+  const isPipeline = isClosedSalesPipelineOrder(order?.status);
 
-  const sourceStatuses = ['created', 'po_submitted', 'scheduled_for_later'];
-  const sourceDcs = await DC.find({
-    dcOrderId,
-    status: { $in: sourceStatuses },
-  }).sort({ createdAt: 1 });
+  const sourceDcs = await DC.find({ dcOrderId }).sort({ createdAt: 1 });
 
   if (!sourceDcs.length) return null;
 
@@ -201,17 +197,26 @@ async function repairSaleCloseLeadRouting(dcOrderId) {
   }
 
   // Each DC is the source of truth. Never pool sibling lines back onto My Clients.
-  // Only strip Term-Wise companions that leaked onto a My Clients DC.
+  // Always strip Term-Wise companions that leaked onto a My Clients DC — including
+  // after Request DC (order is already in the Closed Sales pipeline).
   for (const mainDc of mainDcs) {
     const rows = (mainDc.productDetails || []).map(toPlain);
-    const kept = filterOutTermWiseCompanions(rows, twRows);
+    const kept = keepMyClientsOwnedProductRows(rows, twRows);
     if (kept.length !== rows.length) {
+      logDcProductAssoc('repairSale stripped Term-Wise companions from My Clients DC', {
+        dcId: mainDc._id,
+        orderId: dcOrderId,
+        rows: kept,
+      });
       mainDc.productDetails = normalizeProductDetails(kept);
       mainDc.requestedQuantity = qty(kept);
       mainDc.product = nameOf(kept, mainDc.product);
       await mainDc.save();
     }
   }
+
+  // Do not create a new Term-Wise split once the sale is already in Closed Sales.
+  if (isPipeline) return null;
 
   // Legacy only: Term-Wise DC is missing while My Clients still holds both stages.
   if (twDcs.length === 0 && mainDcs.length > 0) {
@@ -792,19 +797,19 @@ const getDC = async (req, res) => {
       return res.status(404).json({ message: 'DC not found' });
     }
 
-    let orderStatusForGet = dc.dcOrderId && typeof dc.dcOrderId === 'object' ? dc.dcOrderId.status : null;
-    if (!orderStatusForGet && dc.dcOrderId) {
-      const linked = await DcOrder.findById(dc.dcOrderId._id || dc.dcOrderId).select('status').lean();
-      orderStatusForGet = linked?.status;
-    }
     if (
       dc.status !== 'scheduled_for_later' &&
       dc.dcOrderId &&
-      Array.isArray(dc.productDetails) &&
-      !isClosedSalesPipelineOrder(orderStatusForGet)
+      Array.isArray(dc.productDetails)
     ) {
       const twRows = await siblingTermWiseRows(DC, dc.dcOrderId._id || dc.dcOrderId, dc._id);
-      dc.productDetails = filterOutTermWiseCompanions(dc.productDetails, twRows);
+      const owned = keepMyClientsOwnedProductRows(dc.productDetails, twRows);
+      logDcProductAssoc('GET /dc/:id My Clients owned rows', {
+        dcId: dc._id,
+        orderId: dc.dcOrderId._id || dc.dcOrderId,
+        rows: owned,
+      });
+      dc.productDetails = owned;
     }
 
     // Ensure productDetails always have specs and subject fields
@@ -814,6 +819,7 @@ const getDC = async (req, res) => {
         ...p,
         specs: (p.specs !== undefined && p.specs !== null && p.specs !== '') ? p.specs : 'Regular',
         subject: (p.subject !== undefined && p.subject !== null && p.subject !== '') ? p.subject : undefined,
+        term: persistProductTerm(p),
       }));
     }
 
@@ -873,6 +879,14 @@ const raiseDC = async (req, res) => {
               quantity: Number(p.quantity) || Number(p.strength) || 1,
               unit_price: Number(p.price) || 0,
               class: p.class ? String(p.class).trim() : '1',
+              strength: Number(p.strength) || Number(p.quantity) || 0,
+              level: p.level,
+              term: persistProductTerm(p),
+              specs: p.specs,
+              subject: p.subject,
+              selected_subjects: Array.isArray(p.selected_subjects) ? p.selected_subjects : undefined,
+              closeLeadDestination: p.closeLeadDestination,
+              lineId: p.lineId,
             }))
           : (lead.products && lead.products.length) ? lead.products : [{ product_name: 'Abacus', quantity: 1, unit_price: 0 }];
         const { ensureSchoolCode } = require('../utils/clientSchoolCode');
@@ -1083,6 +1097,17 @@ const raiseDC = async (req, res) => {
     const keepClosedSalesProducts = isClosedSalesPipelineOrder(dcOrder.status);
     const needsTermWiseSplit = keepClosedSalesProducts ? false : closeLeadNeedsSplit;
     const mainStatus = req.body.status || 'pending_dc';
+
+    // Closed Sales Raise must not re-split, but must not keep leaked sibling Term-Wise rows.
+    if (keepClosedSalesProducts && productDetailsFromBody && mainStatus !== 'scheduled_for_later') {
+      const twRows = await siblingTermWiseRows(DC, dcOrder._id);
+      productDetailsFromBody = keepMyClientsOwnedProductRows(productDetailsFromBody, twRows);
+      req.body.productDetails = productDetailsFromBody;
+      logDcProductAssoc('raiseDC Closed Sales payload after DC-owned filter', {
+        orderId: dcOrder._id,
+        rows: productDetailsFromBody,
+      });
+    }
 
     const buildDcPayload = (details, status, qty) => {
       const productName = (details && details[0] && (details[0].product || details[0].productName)) || (dcOrder.products && dcOrder.products[0] && dcOrder.products[0].product_name) || 'Abacus';
@@ -2061,6 +2086,11 @@ const warehouseProcess = async (req, res) => {
     const rows = (Array.isArray(dc.productDetails) ? dc.productDetails : []).map((r) =>
       r && typeof r.toObject === 'function' ? r.toObject() : r
     );
+    try {
+      await ensureDuplicatesConsolidated();
+    } catch (mergeErr) {
+      console.warn('Warehouse duplicate consolidate skipped:', mergeErr?.message || mergeErr);
+    }
     const inventory = await Warehouse.find({});
     const stockCheck = validateDcStockAgainstInventory(rows, inventory);
     if (!stockCheck.ok) {
@@ -2071,25 +2101,33 @@ const warehouseProcess = async (req, res) => {
     }
 
     for (const alloc of stockCheck.allocations) {
-      if (!alloc.item || alloc.requiredQty <= 0) continue;
-      const warehouseItem =
-        inventory.find((i) => String(i._id) === String(alloc.item._id)) || alloc.item;
-      const before = Number(warehouseItem.currentStock) || 0;
-      if (before < alloc.requiredQty) {
-        return res.status(400).json({
-          message: stockCheck.message || 'Insufficient stock. Please ensure sufficient stock before processing this DC.',
-          insufficient: stockCheck.insufficient,
+      const splits =
+        Array.isArray(alloc.splits) && alloc.splits.length > 0
+          ? alloc.splits
+          : alloc.item && alloc.requiredQty > 0
+            ? [{ item: alloc.item, qty: alloc.requiredQty }]
+            : [];
+      for (const split of splits) {
+        if (!split.item || split.qty <= 0) continue;
+        const warehouseItem =
+          inventory.find((i) => String(i._id) === String(split.item._id)) || split.item;
+        const before = Number(warehouseItem.currentStock) || 0;
+        if (before < split.qty) {
+          return res.status(400).json({
+            message: stockCheck.message || 'Insufficient stock. Please ensure sufficient stock before processing this DC.',
+            insufficient: stockCheck.insufficient,
+          });
+        }
+        warehouseItem.currentStock = before - split.qty;
+        await warehouseItem.save();
+        await StockMovement.create({
+          productId: warehouseItem._id,
+          movementType: 'Out',
+          quantity: split.qty,
+          reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
+          createdBy: req.user._id,
         });
       }
-      warehouseItem.currentStock = before - alloc.requiredQty;
-      await warehouseItem.save();
-      await StockMovement.create({
-        productId: warehouseItem._id,
-        movementType: 'Out',
-        quantity: alloc.requiredQty,
-        reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
-        createdBy: req.user._id,
-      });
     }
 
     if (availableQuantity !== undefined) dc.availableQuantity = availableQuantity;
@@ -2438,7 +2476,7 @@ const getMyDCs = async (req, res) => {
           strength: p.strength,
           price: p.unit_price,
           level: p.level,
-          term: p.term,
+          term: persistProductTerm(p),
           specs: p.specs,
           subject: p.subject,
         }))
@@ -2478,7 +2516,7 @@ const getMyDCs = async (req, res) => {
           price: p.price || p.unit_price || 0,
           total: (p.quantity || 1) * (p.price || p.unit_price || 0),
           level: displayLevelValue(p.level),
-          term: p.term || 'Term 1',
+          term: persistProductTerm(p),
         })),
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
@@ -2681,11 +2719,13 @@ const updateDC = async (req, res) => {
       if (Array.isArray(req.body.productDetails)) {
         let incoming = req.body.productDetails;
         if (dc.status !== 'scheduled_for_later' && dc.dcOrderId) {
-          const linkedOrder = await DcOrder.findById(dc.dcOrderId).select('status').lean();
-          if (!isClosedSalesPipelineOrder(linkedOrder?.status)) {
-            const twRows = await siblingTermWiseRows(DC, dc.dcOrderId, dc._id);
-            incoming = filterOutTermWiseCompanions(incoming, twRows);
-          }
+          const twRows = await siblingTermWiseRows(DC, dc.dcOrderId, dc._id);
+          incoming = keepMyClientsOwnedProductRows(incoming, twRows);
+          logDcProductAssoc('PUT /dc/:id My Clients owned rows', {
+            dcId: dc._id,
+            orderId: dc.dcOrderId,
+            rows: incoming,
+          });
         }
         dc.productDetails = normalizeProductDetails(incoming, { isShortage: dc.dcType === 'shortage' });
         // Also update requestedQuantity if productDetails are provided

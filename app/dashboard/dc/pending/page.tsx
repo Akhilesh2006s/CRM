@@ -13,6 +13,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
+import { keepMyClientsOwnedProductRows } from '@/lib/clientDcProductRows'
+import { resolveExistingProductTerm } from '@/lib/productTerm'
 
 type DcOrderData = {
   _id?: string
@@ -276,30 +278,31 @@ export default function PendingDCPage() {
 
       const isShortageDc = fullDC.dcType === 'shortage'
       
-      // Populate product rows - prioritize DC.productDetails, then DcOrder.products
-      // Filter out empty or invalid productDetails entries
+      // Open must display THIS DC's requested products. Never reconstruct from the
+      // original lead / unsplit DcOrder.products / a longer dcRequestData snapshot.
+      const dcProductDetails = Array.isArray(mergedDC.productDetails) ? mergedDC.productDetails : []
       const requestProductDetails = Array.isArray(dcOrderData?.dcRequestData?.productDetails)
         ? dcOrderData.dcRequestData.productDetails
         : []
-      const dcProductDetails = Array.isArray(mergedDC.productDetails) ? mergedDC.productDetails : []
-      const requestQty = requestProductDetails.reduce((s: number, p: any) => s + (Number(p?.quantity) || Number(p?.strength) || 0), 0)
-      const dcQty = dcProductDetails.reduce((s: number, p: any) => s + (Number(p?.quantity) || Number(p?.strength) || 0), 0)
-      const sourceDetails =
-        requestProductDetails.length > dcProductDetails.length ||
-        (requestProductDetails.length === dcProductDetails.length && requestQty > dcQty)
-          ? requestProductDetails
-          : dcProductDetails
-      const validProductDetails = sourceDetails.filter((p: any) => p && (p.product || p.productName) && (p.quantity > 0 || p.strength > 0))
+      const sourceDetails = dcProductDetails.length > 0 ? dcProductDetails : requestProductDetails
+      const ownedDetails = keepMyClientsOwnedProductRows(sourceDetails)
+      const validProductDetails = ownedDetails.filter((p: any) => p && (p.product || p.productName) && (p.quantity > 0 || p.strength > 0))
       
-      console.log('📦 Loading products for Pending DC:', {
+      console.log('[DC-ASSOC] Pending DC Open products', {
         dcId: mergedDC._id,
-        hasProductDetails: !!mergedDC.productDetails,
-        productDetailsLength: mergedDC.productDetails?.length || 0,
-        validProductDetailsLength: validProductDetails.length,
-        hasDcOrderData: !!dcOrderData,
-        dcOrderProductsLength: dcOrderData?.products?.length || 0,
-        fullDC: fullDC,
-        mergedDC: mergedDC
+        dcCount: dcProductDetails.length,
+        requestCount: requestProductDetails.length,
+        ownedCount: validProductDetails.length,
+        total: validProductDetails.reduce(
+          (s: number, p: any) => s + (Number(p.quantity) || Number(p.strength) || 0),
+          0
+        ),
+        lines: validProductDetails.map((p: any) => ({
+          product: p.product || p.productName,
+          level: p.level,
+          term: p.term,
+          quantity: Number(p.quantity) || Number(p.strength) || 0,
+        })),
       })
       
       if (validProductDetails.length > 0) {
@@ -378,27 +381,18 @@ export default function PendingDCPage() {
             subject: p.subject || undefined,
             price: Number(p.price) || 0,
             total: Number(p.total) || 0,
-            term: p.term || 'Term 1',
+            term: resolveExistingProductTerm(p),
           }
         })
         
         setProductRows(mappedProductRows)
       } else if (dcOrderData?.products && Array.isArray(dcOrderData.products) && dcOrderData.products.length > 0) {
-        // Import from DcOrder.products (like closed sales page)
-        // Filter to only Term 1 products (since this is Pending DC, which should only have Term 1)
-        const term1DcOrderProducts = dcOrderData.products.filter((p: any) => {
-          const term = p.term || 'Term 1'
-          return term === 'Term 1' || term === 'Both'
-        })
+        const ownedOrderProducts = keepMyClientsOwnedProductRows(dcOrderData.products)
+        const productsToUse = ownedOrderProducts.length > 0 ? ownedOrderProducts : []
         
-        // If no Term 1 products found, use all products (fallback)
-        const productsToUse = term1DcOrderProducts.length > 0 ? term1DcOrderProducts : dcOrderData.products
-        
-        console.log('✅ Using DcOrder.products as fallback:', {
+        console.log('[DC-ASSOC] Pending DC Open fallback to DcOrder.products', {
           allProducts: dcOrderData.products.length,
-          term1Products: term1DcOrderProducts.length,
-          using: productsToUse.length,
-          products: productsToUse
+          owned: productsToUse.length,
         })
         
         if (productsToUse.length === 0) {
@@ -465,7 +459,7 @@ export default function PendingDCPage() {
                 total:
                   Number(p.total) ||
                   (Number(p.unit_price) || 0) * (Number(p.quantity) || 0),
-                term: p.term || 'Term 1',
+                term: resolveExistingProductTerm(p),
               }
             })
           )

@@ -4,7 +4,7 @@ const ExcelJS = require('exceljs');
 const mongoose = require('mongoose');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
 const { ensureSchoolCode, isClientConversionUpdate } = require('../utils/clientSchoolCode');
-const { normalizeProductTerm } = require('../utils/productTerm');
+const { persistProductTerm } = require('../utils/productTerm');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
 const { parseFollowUpDateOnly } = require('../utils/followUpDate');
 const { closeOpenLeadsForConvertedOrder } = require('../utils/closeOpenLeadsForClient');
@@ -17,7 +17,7 @@ function mapProductsFromInterested(productsInput) {
       product_name: String(p.product_name || p.product || '').trim(),
       quantity: Math.max(0, Number(p.quantity ?? p.strength) || 1),
       unit_price: Number(p.unit_price) || 0,
-      term: normalizeProductTerm(p.term),
+      term: persistProductTerm(p),
       deliverables: Array.isArray(p.deliverables) ? p.deliverables : [],
     }));
 }
@@ -27,7 +27,7 @@ function normalizeLeadProducts(products) {
 
   return products.map((p) => {
     const product = { ...p };
-    product.term = normalizeProductTerm(product.term);
+    product.term = persistProductTerm(product);
     return product;
   });
 }
@@ -469,7 +469,7 @@ const updateLead = async (req, res) => {
         .filter((row) => row && (row.product_name || row.product))
         .map((row) => ({
           product_name: String(row.product_name || row.product || '').trim(),
-          term: normalizeProductTerm(row.term),
+          term: persistProductTerm(row),
           status: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'].includes(row.status)
             ? row.status
             : 'Warm',
@@ -756,13 +756,24 @@ const convertToClient = async (req, res) => {
           product_name: p.product_name || p.product || 'Abacus',
           quantity: Number(p.quantity) || 1,
           unit_price: Number(p.unit_price) || 0,
-          term: normalizeProductTerm(p.term),
+          term: persistProductTerm(p),
+          level: p.level,
+          class: p.class,
+          specs: p.specs,
+          subject: p.subject,
+          productCategory: p.productCategory,
+          category: p.category,
         }))
       : (lead.products && lead.products.length > 0
           ? lead.products.map((p) => ({
               product_name: p.product_name || p.product || 'Abacus',
               quantity: Number(p.quantity) || 1,
               unit_price: Number(p.unit_price) || 0,
+              term: persistProductTerm(p),
+              level: p.level,
+              class: p.class,
+              specs: p.specs,
+              subject: p.subject,
             }))
           : [{ product_name: 'Abacus', quantity: 1, unit_price: 0 }]);
 
@@ -790,7 +801,7 @@ const convertToClient = async (req, res) => {
             product_name: p.product_name,
             quantity: Number(p.quantity) || 1,
             unit_price: Number(p.unit_price) || 0,
-            term: normalizeProductTerm(p.term),
+            term: persistProductTerm(p),
           });
         }
       }

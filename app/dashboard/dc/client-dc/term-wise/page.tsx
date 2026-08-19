@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation'
 import { useProducts } from '@/hooks/useProducts'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
 import { displayProductLevel } from '@/lib/clientDcProductRows'
+import { persistProductTerm } from '@/lib/productTerm'
 
 type DC = {
   _id: string
@@ -50,14 +51,19 @@ type DC = {
   createdAt?: string
   productDetails?: Array<{
     product?: string
+    productName?: string
     term?: string
     class?: string
     category?: string
+    productCategory?: string
     specs?: string
     subject?: string
     quantity?: number
     strength?: number
     level?: string
+    price?: number
+    unit_price?: number
+    closeLeadDestination?: string
   }>
 }
 
@@ -124,6 +130,12 @@ export default function TermWiseDCPage() {
     quantity: number
     unit_price: number
     term: string
+    level?: string
+    class?: string
+    specs?: string
+    subject?: string
+    category?: string
+    productCategory?: string
   }>>([])
   const [editFormData, setEditFormData] = useState({
     school_name: '',
@@ -173,6 +185,12 @@ export default function TermWiseDCPage() {
     quantity: number
     unit_price: number
     term: string
+    level?: string
+    class?: string
+    specs?: string
+    subject?: string
+    category?: string
+    productCategory?: string
   }>>([])
   const [savingDC, setSavingDC] = useState(false)
 
@@ -309,7 +327,7 @@ export default function TermWiseDCPage() {
             const total = unitPrice * strength
             totalAmount += total
             
-            const term = matchingProduct?.term || pd.term || 'Term 1'
+            const term = persistProductTerm({ term: pd.term, level: pd.level })
             
             return {
               product: pd.product || '',
@@ -343,7 +361,7 @@ export default function TermWiseDCPage() {
               level: displayProductLevel(p.level),
               unitPrice: price,
               total: total,
-              term: p.term || 'Term 1',
+              term: persistProductTerm(p),
             }
           })
         }
@@ -372,7 +390,7 @@ export default function TermWiseDCPage() {
               level: displayProductLevel(pd.level),
               unitPrice: estimatedUnitPrice,
               total: total,
-              term: pd.term || 'Term 1',
+              term: persistProductTerm(pd),
             }
           })
         }
@@ -429,8 +447,11 @@ export default function TermWiseDCPage() {
     }
 
     try {
-      const dcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
-      setSelectedDC(dc)
+      const [dcOrder, fullDC] = await Promise.all([
+        apiRequest<any>(`/dc-orders/${dcOrderId}`),
+        apiRequest<any>(`/dc/${dc._id}`).catch(() => dc),
+      ])
+      setSelectedDC(fullDC?._id ? fullDC : dc)
       setSelectedDcOrder(dcOrder)
       
       // Populate form with current data
@@ -457,21 +478,30 @@ export default function TermWiseDCPage() {
       
       setEditFormData(formData)
       
-      // Load products from THIS Term-Wise DC only. Never fall back to the full DcOrder.
+      // Load products from THIS Term-Wise DC only. Never fall back to the full DcOrder
+      // (that list still contains the Term 1 p3 allocation matched by product name).
+      const sourceDetails = Array.isArray(fullDC?.productDetails) && fullDC.productDetails.length > 0
+        ? fullDC.productDetails
+        : Array.isArray(dc.productDetails)
+          ? dc.productDetails
+          : []
       let productsToShow: any[] = []
       
-      if (dc.productDetails && Array.isArray(dc.productDetails) && dc.productDetails.length > 0) {
-        const routedRows = dc.productDetails.some((p: any) => p.closeLeadDestination)
-          ? dc.productDetails.filter((p: any) => p.closeLeadDestination === 'TERM_WISE_DC')
-          : dc.productDetails
+      if (sourceDetails.length > 0) {
+        const routedRows = sourceDetails.some((p: any) => p.closeLeadDestination)
+          ? sourceDetails.filter((p: any) => p.closeLeadDestination === 'TERM_WISE_DC')
+          : sourceDetails
         productsToShow = routedRows.map((p: any) => {
+          const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
+          const dcLevel = String(p.level || '').trim().toLowerCase()
+          const dcClass = String(p.class ?? '').trim().toLowerCase()
           const matchingDcOrderProduct = (dcOrder.products || []).find((op: any) => {
             const orderProductName = (op.product_name || '').toLowerCase().trim()
-            const dcProductName = (p.product || p.product_name || '').toLowerCase().trim()
             if (orderProductName !== dcProductName) return false
             const orderLevel = String(op.level || '').trim().toLowerCase()
-            const dcLevel = String(p.level || '').trim().toLowerCase()
             if (dcLevel && orderLevel && dcLevel !== orderLevel) return false
+            const orderClass = String(op.class ?? '').trim().toLowerCase()
+            if (dcClass && orderClass && dcClass !== orderClass) return false
             return true
           })
           
@@ -479,8 +509,13 @@ export default function TermWiseDCPage() {
             product_name: p.product || p.product_name || '',
             quantity: Number(p.quantity) || Number(p.strength) || 0,
             unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
-            term: p.term || p.level || 'Term 1',
+            term: persistProductTerm(p),
             level: p.level,
+            class: p.class,
+            specs: p.specs,
+            subject: p.subject,
+            category: p.category,
+            productCategory: p.productCategory,
           }
         })
       }
@@ -491,7 +526,13 @@ export default function TermWiseDCPage() {
           product_name: p.product_name || '',
           quantity: p.quantity || 0,
           unit_price: p.unit_price || 0,
-          term: p.term || 'Term 1',
+          level: p.level,
+          class: p.class,
+          specs: p.specs,
+          subject: p.subject,
+          category: p.category,
+          productCategory: p.productCategory,
+          term: persistProductTerm(p),
         }))
       )
       
@@ -510,7 +551,13 @@ export default function TermWiseDCPage() {
         product_name: row.product_name,
         quantity: row.quantity,
         unit_price: row.unit_price,
-        term: row.term || 'Term 1',
+        level: row.level,
+        class: row.class,
+        specs: row.specs,
+        subject: row.subject,
+        category: row.category,
+        productCategory: row.productCategory,
+        term: persistProductTerm(row),
       }))
 
       const totalAmount = products.reduce((sum, p) => sum + (p.quantity * p.unit_price), 0)
@@ -524,12 +571,40 @@ export default function TermWiseDCPage() {
         transport_location: editFormData.transport_location || '',
         transportation_landmark: editFormData.transportation_landmark || '',
         pincode: editFormData.pincode || '',
+        originatingDcId: selectedDC?._id,
       }
 
       await apiRequest(`/dc-orders/${selectedDcOrder._id}`, {
         method: 'PUT',
         body: JSON.stringify(payload),
       })
+
+      if (selectedDC?._id) {
+        const existing = Array.isArray(selectedDC.productDetails) ? selectedDC.productDetails : []
+        const productDetails = editProductRows.map((row, idx) => {
+          const prev = existing[idx] || {}
+          return {
+            ...prev,
+            product: row.product_name || prev.product,
+            productName: row.product_name || prev.productName,
+            quantity: row.quantity,
+            strength: Number(prev.strength) || row.quantity,
+            price: row.unit_price ?? prev.price,
+            unit_price: row.unit_price,
+            level: row.level || prev.level,
+            class: row.class || prev.class,
+            specs: row.specs || prev.specs,
+            subject: row.subject ?? prev.subject,
+            category: row.category || prev.category,
+            productCategory: row.productCategory || prev.productCategory,
+            term: persistProductTerm({ ...prev, ...row }),
+          }
+        })
+        await apiRequest('/dc/' + selectedDC._id, {
+          method: 'PUT',
+          body: JSON.stringify({ productDetails }),
+        })
+      }
 
       toast.success('PO updated successfully!')
       setEditPODialogOpen(false)
@@ -620,8 +695,13 @@ export default function TermWiseDCPage() {
             product_name: p.product || p.product_name || '',
             quantity: Number(p.quantity) || Number(p.strength) || 0,
             unit_price: matchingDcOrderProduct?.unit_price || p.unit_price || p.price || 0,
-            term: p.term || p.level || '',
+            term: persistProductTerm(p),
             level: p.level,
+            class: p.class,
+            specs: p.specs,
+            subject: p.subject,
+            category: p.category,
+            productCategory: p.productCategory,
             closeLeadDestination: p.closeLeadDestination || 'TERM_WISE_DC',
           }
         })
@@ -639,7 +719,13 @@ export default function TermWiseDCPage() {
           product_name: p.product_name || '',
           quantity: p.quantity || 0,
           unit_price: p.unit_price || 0,
-          term: p.term || '',
+          level: p.level,
+          class: p.class,
+          specs: p.specs,
+          subject: p.subject,
+          category: p.category,
+          productCategory: p.productCategory,
+          term: persistProductTerm(p),
         }))
       )
       
@@ -668,22 +754,35 @@ export default function TermWiseDCPage() {
       }
 
       // Convert product rows already on this Term-Wise DC (do not require term === Term 2)
+      const existingDetails = Array.isArray(selectedDC.productDetails) ? selectedDC.productDetails : []
       const productDetails = requestDCProductRows
-        .map(row => ({
-          product: row.product_name,
-          class: '1',
-          category: requestDCFormData.school_type === 'Existing' ? 'Existing School' : 'New School',
-          specs: 'Regular',
-          subject: undefined,
-          quantity: row.quantity,
-          strength: row.quantity,
-          price: row.unit_price,
-          total: (row.quantity || 0) * (row.unit_price || 0),
-          level: row.term || 'L2',
-          term: row.term || 'Term 1',
-          closeLeadDestination: 'TERM_WISE_DC',
-          unit_price: row.unit_price || 0,
-        }))
+        .map((row, idx) => {
+          const prev = existingDetails[idx] || existingDetails.find((p: any) => {
+            const name = String(p.product || p.product_name || '').toLowerCase().trim()
+            const rowName = String(row.product_name || '').toLowerCase().trim()
+            if (name !== rowName) return false
+            const pl = String(p.level || '').toLowerCase().trim()
+            const rl = String(row.level || '').toLowerCase().trim()
+            return !pl || !rl || pl === rl
+          }) || {}
+          return {
+            ...prev,
+            product: row.product_name,
+            class: row.class || prev.class || '1',
+            category: row.category || prev.category || (requestDCFormData.school_type === 'Existing' ? 'Existing School' : 'New School'),
+            specs: row.specs || prev.specs || 'Regular',
+            subject: row.subject ?? prev.subject,
+            productCategory: row.productCategory || prev.productCategory,
+            quantity: row.quantity,
+            strength: row.quantity,
+            price: row.unit_price,
+            total: (row.quantity || 0) * (row.unit_price || 0),
+            level: row.level || prev.level,
+            term: persistProductTerm({ ...prev, ...row }),
+            closeLeadDestination: 'TERM_WISE_DC',
+            unit_price: row.unit_price || 0,
+          }
+        })
 
       // Update DC - keep status as 'scheduled_for_later' so it still appears in Term-Wise DC
       const dcPayload = {
@@ -1021,7 +1120,7 @@ export default function TermWiseDCPage() {
                       {invoiceData.paymentBreakdown.map((item, idx) => (
                         <tr key={idx} className="border-b hover:bg-neutral-50">
                           <td className="py-3 px-4 font-medium">{item.product}</td>
-                          <td className="py-3 px-4">{item.term || 'Term 1'}</td>
+                          <td className="py-3 px-4">{persistProductTerm(item)}</td>
                           <td className="py-3 px-4">{item.class}</td>
                           <td className="py-3 px-4">{item.category}</td>
                           <td className="py-3 px-4">{item.specs}</td>
@@ -1233,6 +1332,7 @@ export default function TermWiseDCPage() {
                     <TableRow>
                       <TableHead>Product Name</TableHead>
                       <TableHead>Term</TableHead>
+                      <TableHead>Level</TableHead>
                       <TableHead>Quantity</TableHead>
                       <TableHead>Unit Price</TableHead>
                       <TableHead>Total</TableHead>
@@ -1257,7 +1357,15 @@ export default function TermWiseDCPage() {
                           </TableCell>
                           <TableCell>
                             <Input
-                              value={row.term || 'Term 1'}
+                              value={persistProductTerm(row)}
+                              readOnly
+                              disabled
+                              className="h-9 bg-neutral-50"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={row.level || ''}
                               readOnly
                               disabled
                               className="h-9 bg-neutral-50"
@@ -1477,6 +1585,7 @@ export default function TermWiseDCPage() {
                     <TableRow>
                       <TableHead>Product Name</TableHead>
                       <TableHead>Term</TableHead>
+                      <TableHead>Level</TableHead>
                       <TableHead>Strength</TableHead>
                       <TableHead>Unit Price</TableHead>
                       <TableHead>Total</TableHead>
@@ -1496,7 +1605,15 @@ export default function TermWiseDCPage() {
                           </TableCell>
                           <TableCell>
                             <Input
-                              value={row.term || 'Term 1'}
+                              value={persistProductTerm(row)}
+                              readOnly
+                              disabled
+                              className="h-9 bg-neutral-50"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={row.level || ''}
                               readOnly
                               disabled
                               className="h-9 bg-neutral-50"

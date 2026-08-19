@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,66 +8,283 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
+import { useProducts } from '@/hooks/useProducts'
 
-type Options = { products: string[]; uoms: string[]; itemTypes: string[]; vendors?: string[] }
-type Item = { _id: string; productName: string; category?: string; level?: string }
+const EMPTY = '__none__'
+
+type InventoryOptions = { itemTypes?: string[] }
+type WarehouseItem = {
+  _id: string
+  productName: string
+  category?: string
+  specs?: string
+  level?: string
+  itemType?: string
+  class?: string
+  subject?: string
+  currentStock?: number
+}
+
+function blank(value: unknown): string {
+  const s = String(value ?? '').trim()
+  if (!s || s === '-' || s === 'n/a' || s === 'na') return ''
+  return s
+}
+
+function selectValue(value: string): string {
+  return value ? value : EMPTY
+}
+
+function fromSelect(value: string): string {
+  return !value || value === EMPTY ? '' : value
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return blank(a).toLowerCase() === blank(b).toLowerCase()
+}
+
+function uniqueValues(values: Array<string | undefined | null>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of values) {
+    const v = blank(raw)
+    if (!v) continue
+    const key = v.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(v)
+  }
+  return out
+}
+
+function itemMatchesFields(
+  item: WarehouseItem,
+  fields: { productName: string; itemType: string; category: string; specs: string; level: string }
+) {
+  return (
+    same(item.productName, fields.productName) &&
+    same(item.itemType, fields.itemType) &&
+    same(item.category, fields.category) &&
+    same(item.specs, fields.specs) &&
+    same(item.level, fields.level)
+  )
+}
 
 export default function StockAddPage() {
   const router = useRouter()
   const params = useSearchParams()
   const productId = params?.get('productId') || ''
+  const originalItemIdRef = useRef(productId)
 
-  const [products, setProducts] = useState<Item[]>([])
-  const [vendors, setVendors] = useState<string[]>([])
+  const {
+    productNames: catalogProducts,
+    getProductLevels,
+    getProductSpecs,
+    getProductCategories,
+  } = useProducts()
 
-  const [selectedProductLabel, setSelectedProductLabel] = useState<string>('')
-  const [selectedProductId, setSelectedProductId] = useState<string>('')
-  const [qty, setQty] = useState<string>('')
-  const [comments, setComments] = useState<string>('')
-  const [vendor, setVendor] = useState<string>('')
+  const [loadingItem, setLoadingItem] = useState(true)
+  const [itemMissing, setItemMissing] = useState(false)
+  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
+  const [itemTypes, setItemTypes] = useState<string[]>([])
+  const [selectedItemId, setSelectedItemId] = useState(productId)
+
+  const [productName, setProductName] = useState('')
+  const [itemType, setItemType] = useState('')
+  const [category, setCategory] = useState('')
+  const [specs, setSpecs] = useState('')
+  const [level, setLevel] = useState('')
+  const [qty, setQty] = useState('')
   const [saving, setSaving] = useState(false)
 
+  function upsertWarehouseItem(item: WarehouseItem) {
+    setWarehouseItems((prev) => {
+      const idx = prev.findIndex((w) => w._id === item._id)
+      if (idx === -1) return [item, ...prev]
+      const next = [...prev]
+      next[idx] = { ...next[idx], ...item }
+      return next
+    })
+  }
+
+  function applyItem(item: WarehouseItem) {
+    setSelectedItemId(item._id)
+    setProductName(item.productName || '')
+    setItemType(blank(item.itemType))
+    setCategory(blank(item.category))
+    setSpecs(blank(item.specs))
+    setLevel(blank(item.level))
+    upsertWarehouseItem(item)
+  }
+
+  function resolveExistingItemId(fields: {
+    productName: string
+    itemType: string
+    category: string
+    specs: string
+    level: string
+  }): string {
+    const originalId = originalItemIdRef.current
+    const original = originalId ? warehouseItems.find((w) => w._id === originalId) : null
+    if (original && itemMatchesFields(original, fields)) return original._id
+
+    const matches = warehouseItems.filter((w) => itemMatchesFields(w, fields))
+    if (matches.length === 1) return matches[0]._id
+    if (selectedItemId && matches.some((w) => w._id === selectedItemId)) return selectedItemId
+    return matches[0]?._id || ''
+  }
+
   useEffect(() => {
+    originalItemIdRef.current = productId
     ;(async () => {
       try {
-        const opts = await apiRequest<Options>('/metadata/inventory-options')
-        if (opts?.vendors) setVendors(opts.vendors)
+        const [opts, list] = await Promise.all([
+          apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({})),
+          apiRequest<WarehouseItem[]>('/warehouse').catch(() => []),
+        ])
+        if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
+        const rows = Array.isArray(list) ? list : []
+        setWarehouseItems(rows)
 
         if (productId) {
-          const item = await apiRequest<Item>(`/warehouse/${productId}`)
-          setSelectedProductLabel(`${item.productName} — ${item.category || ''} ${item.level || ''}`.trim())
-          setSelectedProductId(item._id)
-        } else {
-          // Load products from DB so we have ids to submit
-          const list = await apiRequest<Item[]>('/warehouse')
-          setProducts(list)
+          try {
+            const item = await apiRequest<WarehouseItem>(`/warehouse/${productId}`)
+            applyItem(item)
+            setItemMissing(false)
+          } catch (err: any) {
+            const fromList = rows.find((w) => w._id === productId)
+            if (fromList) {
+              applyItem(fromList)
+              setItemMissing(false)
+            } else {
+              setItemMissing(true)
+              toast.error(err?.message || 'Inventory item not found')
+            }
+          }
         }
-      } catch (_) {}
+      } catch (err: any) {
+        toast.error(err?.message || 'Failed to load inventory')
+      } finally {
+        setLoadingItem(false)
+      }
     })()
   }, [productId])
 
+  const productOptions = useMemo(() => {
+    return uniqueValues([...catalogProducts, ...warehouseItems.map((w) => w.productName), productName])
+  }, [catalogProducts, warehouseItems, productName])
+
+  const itemsForProduct = useMemo(() => {
+    if (!productName) return []
+    return warehouseItems.filter((w) => same(w.productName, productName))
+  }, [warehouseItems, productName])
+
+  const itemTypeOptions = useMemo(() => {
+    return uniqueValues([...itemTypes, ...itemsForProduct.map((w) => w.itemType), itemType])
+  }, [itemTypes, itemsForProduct, itemType])
+
+  const categoryOptions = useMemo(() => {
+    return uniqueValues([
+      ...(productName ? getProductCategories(productName) : []),
+      ...itemsForProduct.map((w) => w.category),
+      category,
+    ])
+  }, [productName, getProductCategories, itemsForProduct, category])
+
+  const specsOptions = useMemo(() => {
+    return uniqueValues([
+      ...(productName ? getProductSpecs(productName) : []),
+      ...itemsForProduct.map((w) => w.specs),
+      specs,
+    ])
+  }, [productName, getProductSpecs, itemsForProduct, specs])
+
+  const levelOptions = useMemo(() => {
+    const catalogLevels = productName ? getProductLevels(productName) : []
+    const catalogWithoutDummy =
+      catalogLevels.length === 1 && catalogLevels[0] === 'L1' && itemsForProduct.some((w) => blank(w.level))
+        ? catalogLevels.filter((lvl) => itemsForProduct.some((w) => same(w.level, lvl)))
+        : catalogLevels
+    return uniqueValues([...catalogWithoutDummy, ...itemsForProduct.map((w) => w.level), level])
+  }, [productName, getProductLevels, itemsForProduct, level])
+
+  function onProductChange(value: string) {
+    setProductName(value)
+    setItemType('')
+    setCategory('')
+    setSpecs('')
+    setLevel('')
+    setSelectedItemId('')
+  }
+
+  function onIdentityChange(
+    patch: Partial<{ itemType: string; category: string; specs: string; level: string }>
+  ) {
+    const next = {
+      productName,
+      itemType,
+      category,
+      specs,
+      level,
+      ...patch,
+    }
+    if (patch.itemType !== undefined) setItemType(patch.itemType)
+    if (patch.category !== undefined) setCategory(patch.category)
+    if (patch.specs !== undefined) setSpecs(patch.specs)
+    if (patch.level !== undefined) setLevel(patch.level)
+    const id = resolveExistingItemId(next)
+    setSelectedItemId(id)
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const amount = parseFloat(qty)
-    if (!amount || amount <= 0) {
-      toast.error('Enter a valid inventory quantity')
+    if (itemMissing) {
+      toast.error('This inventory item no longer exists')
       return
     }
+    if (!productName) {
+      toast.error('Product is required')
+      return
+    }
+    if (!itemType) {
+      toast.error('Item Type is required')
+      return
+    }
+    if (!category) {
+      toast.error('Category is required')
+      return
+    }
+
+    const amount = Number(qty)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error('Enter a positive quantity')
+      return
+    }
+
+    const targetId =
+      selectedItemId ||
+      resolveExistingItemId({ productName, itemType, category, specs, level })
+
+    if (!targetId) {
+      toast.error('No matching inventory item found. Create it from Inventory Items first.')
+      return
+    }
+
     try {
       setSaving(true)
       await apiRequest('/warehouse/stock', {
         method: 'POST',
         body: JSON.stringify({
-          productId: productId || selectedProductId, // row id or selected from dropdown
+          productId: targetId,
           quantity: amount,
           movementType: 'In',
-          reason: comments || 'Manual add',
+          reason: 'Manual add',
         }),
       })
-      toast.success('Quantity updated')
+      toast.success('Quantity added')
       router.push('/dashboard/warehouse/stock')
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to update quantity')
+      toast.error(err?.message || 'Failed to add quantity')
     } finally {
       setSaving(false)
     }
@@ -76,65 +293,142 @@ export default function StockAddPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Inventory Qty Add</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Add Item Details</h1>
+        <p className="text-neutral-500">Add quantity to an existing inventory item</p>
       </div>
       <Card className="p-6">
-        <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-2 md:col-span-2">
-            <div className="text-sm font-medium">Product Type *</div>
-            {productId ? (
-              <Input value={selectedProductLabel || 'Loading…'} disabled />
-            ) : (
-              <Select value={selectedProductId} onValueChange={(val) => setSelectedProductId(val)}>
+        {loadingItem ? (
+          <div className="text-sm text-neutral-500">Loading item…</div>
+        ) : itemMissing ? (
+          <div className="space-y-4">
+            <p className="text-sm text-red-600">This inventory item was not found. It may have been deleted.</p>
+            <Button type="button" variant="destructive" onClick={() => router.push('/dashboard/warehouse/stock')}>
+              Back to Stock
+            </Button>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Product *</div>
+              <Select value={productName || undefined} onValueChange={onProductChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select Inventory Item" />
+                  <SelectValue placeholder="Select Product" />
                 </SelectTrigger>
                 <SelectContent>
-                  {products.map((p) => {
-                    const label = `${p.productName} — ${p.category || ''} ${p.level || ''}`.trim()
-                    return (
-                      <SelectItem key={p._id} value={p._id}>
-                        {label}
-                      </SelectItem>
-                    )
-                  })}
+                  {productOptions.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            )}
-          </div>
+            </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <div className="text-sm font-medium">Inventory Qty *</div>
-            <Input type="number" step="1" placeholder="Inventory Qty" value={qty} onChange={(e) => setQty(e.target.value)} />
-          </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Item Type *</div>
+              <Select
+                value={itemType || undefined}
+                onValueChange={(v) => onIdentityChange({ itemType: v })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Item Type' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {itemTypeOptions.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <div className="text-sm font-medium">Comments *</div>
-            <Input placeholder="Remarks" value={comments} onChange={(e) => setComments(e.target.value)} />
-          </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Category *</div>
+              <Select
+                value={category || undefined}
+                onValueChange={(v) => onIdentityChange({ category: v })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Category' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {categoryOptions.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="space-y-2 md:col-span-2">
-            <div className="text-sm font-medium">Vendor</div>
-            <Select value={vendor} onValueChange={setVendor}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select Vendor" />
-              </SelectTrigger>
-              <SelectContent>
-                {vendors.map((v) => (
-                  <SelectItem key={v} value={v}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Specs</div>
+              <Select
+                value={selectValue(specs)}
+                onValueChange={(v) => onIdentityChange({ specs: fromSelect(v) })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY}>-</SelectItem>
+                  {specsOptions.map((spec) => (
+                    <SelectItem key={spec} value={spec}>
+                      {spec}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="md:col-span-2 flex gap-3">
-            <Button type="submit" disabled={saving || (!selectedProductId && !productId) || !qty}>{saving ? 'Saving…' : 'Add Item'}</Button>
-            <Button type="button" variant="destructive" onClick={() => router.push('/dashboard/warehouse/stock')}>Cancel</Button>
-          </div>
-        </form>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Level</div>
+              <Select
+                value={selectValue(level)}
+                onValueChange={(v) => onIdentityChange({ level: fromSelect(v) })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Level' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY}>-</SelectItem>
+                  {levelOptions.map((lvl) => (
+                    <SelectItem key={lvl} value={lvl}>
+                      {lvl}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Quantity *</div>
+              <Input
+                type="number"
+                step="1"
+                min="1"
+                placeholder="Quantity to add"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+              />
+            </div>
+
+            <div className="md:col-span-2 flex gap-3">
+              <Button type="submit" disabled={saving || !productName || !itemType || !category || !qty}>
+                {saving ? 'Adding…' : 'Add Item'}
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => router.push('/dashboard/warehouse/stock')}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
       </Card>
     </div>
   )
 }
-
-

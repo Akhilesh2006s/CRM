@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
+import { keepMyClientsOwnedProductRows } from '@/lib/clientDcProductRows'
+import { resolveExistingProductTerm } from '@/lib/productTerm'
 
 type DcOrder = {
   _id: string
@@ -99,22 +101,17 @@ function mapToSavedProductRow(p: any, idx: number) {
     specs: p.specs,
     subject: p.subject,
     level: p.level,
-    term: p.term || 'Term 1',
+    term: resolveExistingProductTerm(p),
   }
 }
 
-function pickRichestProductSource(...sources: any[][]) {
-  let best: any[] = []
-  let bestQty = -1
+function resolveSavedDcProductLines(...sources: any[][]) {
   for (const src of sources) {
-    if (!Array.isArray(src) || src.length === 0) continue
-    const qty = src.reduce((sum, p) => sum + quantityOfProduct(p), 0)
-    if (src.length > best.length || (src.length === best.length && qty > bestQty)) {
-      best = src
-      bestQty = qty
+    if (Array.isArray(src) && src.length > 0) {
+      return keepMyClientsOwnedProductRows(src)
     }
   }
-  return best
+  return []
 }
 
 function pickSavedPipelineDc(dcs: DC[]): DC | null {
@@ -125,9 +122,6 @@ function pickSavedPipelineDc(dcs: DC[]): DC | null {
     ['created', 'po_submitted', 'pending_dc'].includes(String(d.status || ''))
   )
   const ranked = (preferred.length > 0 ? preferred : pool).slice().sort((a, b) => {
-    const aQty = (a.productDetails || []).reduce((s, p) => s + quantityOfProduct(p), 0)
-    const bQty = (b.productDetails || []).reduce((s, p) => s + quantityOfProduct(p), 0)
-    if (bQty !== aQty) return bQty - aQty
     return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()
   })
   return ranked[0] || null
@@ -302,10 +296,10 @@ export default function SavedDCPage() {
       }
       const dcRequestData = (fullDeal as any).dcRequestData || (normalizedDeal as any).dcRequestData || {}
       const applyProductRows = (fullDC?: DC | null) => {
-        const richest = pickRichestProductSource(
-          dcRequestData.productDetails,
+        const richest = resolveSavedDcProductLines(
           fullDC?.productDetails,
           existingDCForDeal?.productDetails,
+          dcRequestData.productDetails,
           normalizedDeal.products
         )
         if (richest.length > 0) {

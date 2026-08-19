@@ -13,6 +13,9 @@ const warehouseSchema = new mongoose.Schema({
   category: {
     type: String,
   },
+  class: {
+    type: String,
+  },
   level: {
     type: String,
   },

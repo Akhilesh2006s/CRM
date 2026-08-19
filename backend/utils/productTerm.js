@@ -4,17 +4,68 @@ const CLOSE_LEAD_DESTINATION = {
   TERM_WISE_DC: 'TERM_WISE_DC',
 };
 
+function collapseTermKey(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+function parseProductTerm(term) {
+  if (term == null || String(term).trim() === '') return null;
+  const t = String(term).trim();
+  if (ALLOWED_PRODUCT_TERMS.includes(t)) return t;
+  const collapsed = collapseTermKey(t);
+  if (collapsed === 'term1' || collapsed === 't1') return 'Term 1';
+  if (collapsed === 'term2' || collapsed === 't2') return 'Term 2';
+  if (collapsed === 'both') return 'Both';
+  const numbered = collapsed.match(/^term(\d+)$/);
+  if (numbered) return `Term ${Number(numbered[1])}`;
+  return null;
+}
+
 /**
  * Maps UI / legacy values (e.g. "Term1", "term_2") to DcOrder / Lead enum values.
  */
 function normalizeProductTerm(term) {
-  if (term == null || term === '') return 'Term 1';
-  const t = String(term).trim();
-  if (ALLOWED_PRODUCT_TERMS.includes(t)) return t;
-  const collapsed = t.toLowerCase().replace(/[\s_-]+/g, '');
-  if (collapsed === 'term1' || collapsed === 't1') return 'Term 1';
-  if (collapsed === 'term2' || collapsed === 't2') return 'Term 2';
-  if (collapsed === 'both') return 'Both';
+  const parsed = parseProductTerm(term);
+  if (parsed === 'Term 1' || parsed === 'Term 2' || parsed === 'Both') return parsed;
+  return 'Term 1';
+}
+
+function termFromLevelLabel(value) {
+  const levelKey = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (levelKey.startsWith('term2')) return 'Term 2';
+  if (levelKey.startsWith('term1')) return 'Term 1';
+  if (levelKey.includes('both')) return 'Both';
+  return null;
+}
+
+function termFromLevelStage(level) {
+  const fromLabel = termFromLevelLabel(level);
+  if (fromLabel) return fromLabel;
+  const key = collapseTermKey(level);
+  const match = key.match(/^(?:level|lvl|l)(\d+)$/);
+  if (match) return `Term ${Number(match[1])}`;
+  return null;
+}
+
+function resolveExistingProductTerm(row = {}) {
+  const fromLevel = termFromLevelStage(row.level);
+  const explicit = parseProductTerm(row.term);
+  if (fromLevel && (!explicit || explicit === 'Term 1')) return fromLevel;
+  if (explicit) return String(explicit);
+  if (fromLevel) return fromLevel;
+  return 'Term 1';
+}
+
+/** Persist term onto a product row. Recovers Term 2 from Level 2 before schema default Term 1. */
+function persistProductTerm(row = {}) {
+  const resolved = resolveExistingProductTerm(row);
+  if (resolved === 'Term 1' || resolved === 'Term 2' || resolved === 'Both') return resolved;
   return 'Term 1';
 }
 
@@ -22,7 +73,7 @@ function normalizeDcOrderProductTermsInArray(products) {
   if (!Array.isArray(products)) return products;
   return products.map((p) => {
     if (!p || typeof p !== 'object') return p;
-    return { ...p, term: normalizeProductTerm(p.term) };
+    return { ...p, term: persistProductTerm(p) };
   });
 }
 
@@ -130,6 +181,11 @@ module.exports = {
   ALLOWED_PRODUCT_TERMS,
   CLOSE_LEAD_DESTINATION,
   normalizeProductTerm,
+  parseProductTerm,
+  termFromLevelLabel,
+  termFromLevelStage,
+  resolveExistingProductTerm,
+  persistProductTerm,
   normalizeDcOrderProductTermsInArray,
   getRowStageFlags,
   partitionProductsForCloseLeadRouting,
