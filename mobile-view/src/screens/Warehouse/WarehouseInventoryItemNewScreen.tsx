@@ -12,7 +12,7 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
     productName: '',
     category: '',
     level: '',
-    specs: 'Regular',
+    specs: '',
     subject: '',
     quantity: '',
   });
@@ -20,7 +20,11 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
   const [productLevels, setProductLevels] = useState<string[]>([]);
   const [productSpecs, setProductSpecs] = useState<string[]>([]);
   const [productSubjects, setProductSubjects] = useState<string[]>([]);
+  const [productCategories, setProductCategories] = useState<string[]>([]);
   const [hasSubjects, setHasSubjects] = useState(false);
+  const [hasCategories, setHasCategories] = useState(false);
+  const [hasSpecs, setHasSpecs] = useState(false);
+  const [hasLevels, setHasLevels] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -52,23 +56,32 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
   const updateProductOptions = () => {
     const product = products.find((p) => p.productName === form.productName);
     if (product) {
-      setProductLevels(product.productLevels || []);
-      setProductSpecs(Array.isArray(product.specs) ? product.specs : product.specs ? [product.specs] : ['Regular']);
-      setProductSubjects(product.subjects || []);
-      setHasSubjects(product.hasSubjects || false);
-      
-      if (product.productLevels && product.productLevels.length > 0 && !product.productLevels.includes(form.level)) {
-        setForm((f) => ({ ...f, level: product.productLevels[0] }));
-      }
-      if (product.specs) {
-        const specs = Array.isArray(product.specs) ? product.specs : [product.specs];
-        if (specs.length > 0 && !specs.includes(form.specs)) {
-          setForm((f) => ({ ...f, specs: specs[0] }));
-        }
-      }
-      if (!product.hasSubjects) {
-        setForm((f) => ({ ...f, subject: '' }));
-      }
+      const levels = Array.isArray(product.productLevels) ? product.productLevels.filter(Boolean) : [];
+      const specs =
+        product.hasSpecs && Array.isArray(product.specs)
+          ? product.specs.filter(Boolean)
+          : product.hasSpecs && product.specs
+            ? [product.specs]
+            : [];
+      const subjects = product.hasSubjects && Array.isArray(product.subjects) ? product.subjects.filter(Boolean) : [];
+      const categories =
+        product.hasCategory && Array.isArray(product.categories) ? product.categories.filter(Boolean) : [];
+      setProductLevels(levels);
+      setProductSpecs(specs);
+      setProductSubjects(subjects);
+      setProductCategories(categories);
+      setHasLevels(levels.length > 0);
+      setHasSpecs(specs.length > 0);
+      setHasSubjects(subjects.length > 0);
+      setHasCategories(categories.length > 0);
+
+      setForm((f) => ({
+        ...f,
+        level: levels.includes(f.level) ? f.level : levels[0] || '',
+        specs: specs.includes(f.specs) ? f.specs : specs[0] || '',
+        category: categories.includes(f.category) ? f.category : categories[0] || '',
+        subject: subjects.includes(f.subject) ? f.subject : '',
+      }));
     }
   };
 
@@ -84,8 +97,18 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
-    if (!form.category?.trim()) {
-      setErrorMessage('Category is required');
+    if (hasCategories && !form.category?.trim()) {
+      setErrorMessage('Product Category is required for this product');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    if (hasLevels && !form.level?.trim()) {
+      setErrorMessage('Level is required for this product');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    if (hasSpecs && !form.specs?.trim()) {
+      setErrorMessage('Specs is required for this product');
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
@@ -99,10 +122,10 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
     try {
       const payload = {
         productName: form.productName,
-        category: form.category,
-        level: form.level || undefined,
-        specs: form.specs || 'Regular',
-        subject: form.subject || undefined,
+        category: hasCategories ? form.category : '',
+        level: hasLevels ? form.level : '',
+        specs: hasSpecs ? form.specs : '',
+        subject: hasSubjects ? form.subject : '',
         currentStock: parseFloat(form.quantity) || 0,
       };
       await apiService.post('/warehouse', payload);
@@ -160,10 +183,27 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
             ))}
           </ScrollView>
         </View>
-        <FormField label="Category *" value={form.category} onChangeText={(text: string) => setForm((f) => ({ ...f, category: text }))} placeholder="Enter category name" />
-        {form.productName && productLevels.length > 0 && (
+        {form.productName && hasCategories && (
           <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Level</Text>
+            <Text style={styles.label}>Product Category *</Text>
+            <ScrollView style={styles.optionsContainer}>
+              {productCategories.map((cat) => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[styles.option, form.category === cat && styles.optionSelected]}
+                  onPress={() => setForm((f) => ({ ...f, category: cat }))}
+                >
+                  <Text style={[styles.optionText, form.category === cat && styles.optionTextSelected]}>
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+        {form.productName && hasLevels && (
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Level *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalOptions}>
               {productLevels.map((level) => (
                 <TouchableOpacity
@@ -179,9 +219,9 @@ export default function WarehouseInventoryItemNewScreen({ navigation }: any) {
             </ScrollView>
           </View>
         )}
-        {form.productName && productSpecs.length > 0 && (
+        {form.productName && hasSpecs && (
           <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Specs</Text>
+            <Text style={styles.label}>Specs *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalOptions}>
               {productSpecs.map((spec) => (
                 <TouchableOpacity

@@ -10,8 +10,6 @@ import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 
-const EMPTY = '__none__'
-
 type InventoryOptions = { itemTypes?: string[] }
 type WarehouseItem = {
   _id: string
@@ -29,14 +27,6 @@ function blank(value: unknown): string {
   const s = String(value ?? '').trim()
   if (!s || s === '-' || s === 'n/a' || s === 'na') return ''
   return s
-}
-
-function selectValue(value: string): string {
-  return value ? value : EMPTY
-}
-
-function fromSelect(value: string): string {
-  return !value || value === EMPTY ? '' : value
 }
 
 function same(a: unknown, b: unknown): boolean {
@@ -59,14 +49,15 @@ function uniqueValues(values: Array<string | undefined | null>): string[] {
 
 function itemMatchesFields(
   item: WarehouseItem,
-  fields: { productName: string; itemType: string; category: string; specs: string; level: string }
+  fields: { productName: string; itemType: string; category: string; specs: string; level: string; subject: string }
 ) {
   return (
     same(item.productName, fields.productName) &&
     same(item.itemType, fields.itemType) &&
     same(item.category, fields.category) &&
     same(item.specs, fields.specs) &&
-    same(item.level, fields.level)
+    same(item.level, fields.level) &&
+    same(item.subject, fields.subject)
   )
 }
 
@@ -81,6 +72,11 @@ export default function StockAddPage() {
     getProductLevels,
     getProductSpecs,
     getProductCategories,
+    hasProductCategories,
+    hasProductLevels,
+    hasProductSpecs,
+    hasProductSubjects,
+    getProductSubjects,
   } = useProducts()
 
   const [loadingItem, setLoadingItem] = useState(true)
@@ -94,6 +90,7 @@ export default function StockAddPage() {
   const [category, setCategory] = useState('')
   const [specs, setSpecs] = useState('')
   const [level, setLevel] = useState('')
+  const [subject, setSubject] = useState('')
   const [qty, setQty] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -114,6 +111,7 @@ export default function StockAddPage() {
     setCategory(blank(item.category))
     setSpecs(blank(item.specs))
     setLevel(blank(item.level))
+    setSubject(blank(item.subject))
     upsertWarehouseItem(item)
   }
 
@@ -123,6 +121,7 @@ export default function StockAddPage() {
     category: string
     specs: string
     level: string
+    subject: string
   }): string {
     const originalId = originalItemIdRef.current
     const original = originalId ? warehouseItems.find((w) => w._id === originalId) : null
@@ -170,9 +169,14 @@ export default function StockAddPage() {
     })()
   }, [productId])
 
+  const showCategory = Boolean(productName && hasProductCategories(productName))
+  const showLevel = Boolean(productName && hasProductLevels(productName))
+  const showSpecs = Boolean(productName && hasProductSpecs(productName))
+  const showSubject = Boolean(productName && hasProductSubjects(productName))
+
   const productOptions = useMemo(() => {
-    return uniqueValues([...catalogProducts, ...warehouseItems.map((w) => w.productName), productName])
-  }, [catalogProducts, warehouseItems, productName])
+    return uniqueValues([...catalogProducts, productName])
+  }, [catalogProducts, productName])
 
   const itemsForProduct = useMemo(() => {
     if (!productName) return []
@@ -184,29 +188,24 @@ export default function StockAddPage() {
   }, [itemTypes, itemsForProduct, itemType])
 
   const categoryOptions = useMemo(() => {
-    return uniqueValues([
-      ...(productName ? getProductCategories(productName) : []),
-      ...itemsForProduct.map((w) => w.category),
-      category,
-    ])
-  }, [productName, getProductCategories, itemsForProduct, category])
+    if (!showCategory) return []
+    return uniqueValues([...(productName ? getProductCategories(productName) : []), category])
+  }, [showCategory, productName, getProductCategories, category])
 
   const specsOptions = useMemo(() => {
-    return uniqueValues([
-      ...(productName ? getProductSpecs(productName) : []),
-      ...itemsForProduct.map((w) => w.specs),
-      specs,
-    ])
-  }, [productName, getProductSpecs, itemsForProduct, specs])
+    if (!showSpecs) return []
+    return uniqueValues([...(productName ? getProductSpecs(productName) : []), specs])
+  }, [showSpecs, productName, getProductSpecs, specs])
 
   const levelOptions = useMemo(() => {
-    const catalogLevels = productName ? getProductLevels(productName) : []
-    const catalogWithoutDummy =
-      catalogLevels.length === 1 && catalogLevels[0] === 'L1' && itemsForProduct.some((w) => blank(w.level))
-        ? catalogLevels.filter((lvl) => itemsForProduct.some((w) => same(w.level, lvl)))
-        : catalogLevels
-    return uniqueValues([...catalogWithoutDummy, ...itemsForProduct.map((w) => w.level), level])
-  }, [productName, getProductLevels, itemsForProduct, level])
+    if (!showLevel) return []
+    return uniqueValues([...(productName ? getProductLevels(productName) : []), level])
+  }, [showLevel, productName, getProductLevels, level])
+
+  const subjectOptions = useMemo(() => {
+    if (!showSubject) return []
+    return uniqueValues([...(productName ? getProductSubjects(productName) : []), subject])
+  }, [showSubject, productName, getProductSubjects, subject])
 
   function onProductChange(value: string) {
     setProductName(value)
@@ -214,11 +213,12 @@ export default function StockAddPage() {
     setCategory('')
     setSpecs('')
     setLevel('')
+    setSubject('')
     setSelectedItemId('')
   }
 
   function onIdentityChange(
-    patch: Partial<{ itemType: string; category: string; specs: string; level: string }>
+    patch: Partial<{ itemType: string; category: string; specs: string; level: string; subject: string }>
   ) {
     const next = {
       productName,
@@ -226,12 +226,14 @@ export default function StockAddPage() {
       category,
       specs,
       level,
+      subject,
       ...patch,
     }
     if (patch.itemType !== undefined) setItemType(patch.itemType)
     if (patch.category !== undefined) setCategory(patch.category)
     if (patch.specs !== undefined) setSpecs(patch.specs)
     if (patch.level !== undefined) setLevel(patch.level)
+    if (patch.subject !== undefined) setSubject(patch.subject)
     const id = resolveExistingItemId(next)
     setSelectedItemId(id)
   }
@@ -250,8 +252,20 @@ export default function StockAddPage() {
       toast.error('Item Type is required')
       return
     }
-    if (!category) {
-      toast.error('Category is required')
+    if (showCategory && !category) {
+      toast.error('Product Category is required for this product')
+      return
+    }
+    if (showLevel && !level) {
+      toast.error('Level is required for this product')
+      return
+    }
+    if (showSpecs && !specs) {
+      toast.error('Specs is required for this product')
+      return
+    }
+    if (showSubject && !subject) {
+      toast.error('Subject is required for this product')
       return
     }
 
@@ -263,7 +277,7 @@ export default function StockAddPage() {
 
     const targetId =
       selectedItemId ||
-      resolveExistingItemId({ productName, itemType, category, specs, level })
+      resolveExistingItemId({ productName, itemType, category, specs, level, subject })
 
     if (!targetId) {
       toast.error('No matching inventory item found. Create it from Inventory Items first.')
@@ -344,15 +358,16 @@ export default function StockAddPage() {
               </Select>
             </div>
 
+            {showCategory && (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Category *</div>
+              <div className="text-sm font-medium">Product Category *</div>
               <Select
                 value={category || undefined}
                 onValueChange={(v) => onIdentityChange({ category: v })}
                 disabled={!productName}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Category' : 'Select Product first'} />
+                  <SelectValue placeholder={productName ? 'Select Product Category' : 'Select Product first'} />
                 </SelectTrigger>
                 <SelectContent>
                   {categoryOptions.map((c) => (
@@ -363,19 +378,20 @@ export default function StockAddPage() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
+            {showSpecs && (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Specs</div>
+              <div className="text-sm font-medium">Specs *</div>
               <Select
-                value={selectValue(specs)}
-                onValueChange={(v) => onIdentityChange({ specs: fromSelect(v) })}
+                value={specs || undefined}
+                onValueChange={(v) => onIdentityChange({ specs: v })}
                 disabled={!productName}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={EMPTY}>-</SelectItem>
                   {specsOptions.map((spec) => (
                     <SelectItem key={spec} value={spec}>
                       {spec}
@@ -384,19 +400,20 @@ export default function StockAddPage() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
+            {showLevel && (
             <div className="space-y-2">
-              <div className="text-sm font-medium">Level</div>
+              <div className="text-sm font-medium">Level *</div>
               <Select
-                value={selectValue(level)}
-                onValueChange={(v) => onIdentityChange({ level: fromSelect(v) })}
+                value={level || undefined}
+                onValueChange={(v) => onIdentityChange({ level: v })}
                 disabled={!productName}
               >
                 <SelectTrigger>
                   <SelectValue placeholder={productName ? 'Select Level' : 'Select Product first'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={EMPTY}>-</SelectItem>
                   {levelOptions.map((lvl) => (
                     <SelectItem key={lvl} value={lvl}>
                       {lvl}
@@ -405,6 +422,29 @@ export default function StockAddPage() {
                 </SelectContent>
               </Select>
             </div>
+            )}
+
+            {showSubject && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Subject *</div>
+              <Select
+                value={subject || undefined}
+                onValueChange={(v) => onIdentityChange({ subject: v })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Subject' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {subjectOptions.map((subj) => (
+                    <SelectItem key={subj} value={subj}>
+                      {subj}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            )}
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Quantity *</div>
@@ -419,7 +459,7 @@ export default function StockAddPage() {
             </div>
 
             <div className="md:col-span-2 flex gap-3">
-              <Button type="submit" disabled={saving || !productName || !itemType || !category || !qty}>
+              <Button type="submit" disabled={saving || !productName || !itemType || !qty || (showCategory && !category) || (showLevel && !level) || (showSpecs && !specs) || (showSubject && !subject)}>
                 {saving ? 'Adding…' : 'Add Item'}
               </Button>
               <Button type="button" variant="destructive" onClick={() => router.push('/dashboard/warehouse/stock')}>

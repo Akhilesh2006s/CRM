@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -10,10 +10,7 @@ import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 
-type WarehouseRow = { productName?: string; category?: string }
 type InventoryOptions = { itemTypes?: string[]; vendors?: string[] }
-
-const CLASS_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'NA']
 
 export default function InventoryNewItemPage() {
   const router = useRouter()
@@ -25,12 +22,13 @@ export default function InventoryNewItemPage() {
     hasProductSubjects,
     getProductCategories,
     hasProductCategories,
+    hasProductSpecs,
+    hasProductLevels,
   } = useProducts()
   const [productName, setProductName] = useState<string>('')
-  const [klass, setKlass] = useState<string>('')
   const [category, setCategory] = useState<string>('')
   const [level, setLevel] = useState<string>('')
-  const [specs, setSpecs] = useState<string>('Regular')
+  const [specs, setSpecs] = useState<string>('')
   const [subject, setSubject] = useState<string>('')
   const [itemType, setItemType] = useState<string>('')
   const [vendor, setVendor] = useState<string>('')
@@ -38,71 +36,62 @@ export default function InventoryNewItemPage() {
   const [saving, setSaving] = useState(false)
   const [itemTypes, setItemTypes] = useState<string[]>([])
   const [vendors, setVendors] = useState<string[]>([])
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseRow[]>([])
+
+  const showCategory = Boolean(productName && hasProductCategories(productName))
+  const showLevel = Boolean(productName && hasProductLevels(productName))
+  const showSpecs = Boolean(productName && hasProductSpecs(productName))
+  const showSubject = Boolean(productName && hasProductSubjects(productName))
+  const categoryOptions = showCategory ? getProductCategories(productName) : []
+  const levelOptions = showLevel ? getProductLevels(productName) : []
+  const specsOptions = showSpecs ? getProductSpecs(productName) : []
+  const subjectOptions = showSubject ? getProductSubjects(productName) : []
 
   useEffect(() => {
     ;(async () => {
       try {
-        const [opts, list] = await Promise.all([
-          apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({})),
-          apiRequest<WarehouseRow[]>('/warehouse').catch(() => []),
-        ])
+        const opts = await apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({}))
         if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
         if (opts?.vendors?.length) setVendors(opts.vendors)
-        setWarehouseItems(Array.isArray(list) ? list : [])
       } catch (_) {}
     })()
   }, [])
 
-  const categoryOptions = useMemo(() => {
-    if (!productName) return []
-    const fromCatalog = getProductCategories(productName)
-    if (fromCatalog.length > 0) return fromCatalog
-    const fromWarehouse = [
-      ...new Set(
-        warehouseItems
-          .filter((w) => w.productName === productName && w.category)
-          .map((w) => w.category as string)
-      ),
-    ]
-    return fromWarehouse
-  }, [productName, getProductCategories, warehouseItems])
-
-  useEffect(() => {
-    if (productName) {
-      const levels = getProductLevels(productName)
-      if (levels.length > 0 && !levels.includes(level)) {
-        setLevel(levels[0])
-      }
-      const availableSpecs = getProductSpecs(productName)
-      if (availableSpecs.length > 0 && !availableSpecs.includes(specs)) {
-        setSpecs(availableSpecs[0])
-      }
-      if (!hasProductSubjects(productName)) {
-        setSubject('')
-      }
-      const cats = getProductCategories(productName)
-      if (cats.length > 0 && !cats.includes(category)) {
-        setCategory(cats[0])
-      } else if (categoryOptions.length > 0 && !categoryOptions.includes(category)) {
-        setCategory(categoryOptions[0])
-      }
-    }
-  }, [productName, getProductLevels, getProductSpecs, hasProductSubjects, getProductCategories, categoryOptions])
+  function applyProduct(value: string) {
+    setProductName(value)
+    const cats = hasProductCategories(value) ? getProductCategories(value) : []
+    const levels = hasProductLevels(value) ? getProductLevels(value) : []
+    const specList = hasProductSpecs(value) ? getProductSpecs(value) : []
+    setCategory(cats[0] || '')
+    setLevel(levels[0] || '')
+    setSpecs(specList[0] || '')
+    setSubject('')
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (productName && hasProductSubjects(productName) && !subject) {
+    if (!productName) {
+      toast.error('Product is required')
+      return
+    }
+    if (showCategory && !category) {
+      toast.error('Product Category is required for this product')
+      return
+    }
+    if (showLevel && !level) {
+      toast.error('Level is required for this product')
+      return
+    }
+    if (showSpecs && !specs) {
+      toast.error('Specs is required for this product')
+      return
+    }
+    if (showSubject && !subject) {
       toast.error('Subject is required for this product')
       return
     }
     if (!itemType) {
       toast.error('Item Type is required')
-      return
-    }
-    if (!category) {
-      toast.error('Category is required')
       return
     }
 
@@ -113,11 +102,11 @@ export default function InventoryNewItemPage() {
         method: 'POST',
         body: JSON.stringify({
           productName,
-          class: klass || undefined,
-          category,
-          level: level || undefined,
-          specs: specs || 'Regular',
-          subject: subject || undefined,
+          class: '',
+          category: showCategory ? category : '',
+          level: showLevel ? level : '',
+          specs: showSpecs ? specs : '',
+          subject: showSubject ? subject : '',
           itemType,
           vendor: vendor || undefined,
           currentStock: qty,
@@ -132,31 +121,26 @@ export default function InventoryNewItemPage() {
     }
   }
 
-  const categoryIsSelect =
-    productName && (hasProductCategories(productName) || categoryOptions.length > 0)
+  const canSubmit =
+    Boolean(productName) &&
+    Boolean(itemType) &&
+    Boolean(quantity) &&
+    (!showCategory || Boolean(category)) &&
+    (!showLevel || Boolean(level)) &&
+    (!showSpecs || Boolean(specs)) &&
+    (!showSubject || Boolean(subject))
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Add Item Details</h1>
+        <p className="text-neutral-500">Fields come from Product Master for the selected product.</p>
       </div>
       <Card className="p-6">
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <div className="text-sm font-medium">Product *</div>
-            <Select
-              onValueChange={(value) => {
-                setProductName(value)
-                const availableLevels = getProductLevels(value)
-                setLevel(availableLevels.length > 0 ? availableLevels[0] : '')
-                const availableSpecs = getProductSpecs(value)
-                setSpecs(availableSpecs.length > 0 ? availableSpecs[0] : 'Regular')
-                const cats = getProductCategories(value)
-                setCategory(cats.length > 0 ? cats[0] : '')
-                if (!hasProductSubjects(value)) setSubject('')
-              }}
-              value={productName}
-            >
+            <Select onValueChange={applyProduct} value={productName}>
               <SelectTrigger>
                 <SelectValue placeholder="Select Product" />
               </SelectTrigger>
@@ -170,28 +154,12 @@ export default function InventoryNewItemPage() {
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Class</div>
-            <Select value={klass || undefined} onValueChange={setKlass}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select Class" />
-              </SelectTrigger>
-              <SelectContent>
-                {CLASS_OPTIONS.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Category *</div>
-            {categoryIsSelect ? (
-              <Select value={category} onValueChange={setCategory} disabled={!productName}>
+          {showCategory && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Product Category *</div>
+              <Select value={category || undefined} onValueChange={setCategory}>
                 <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Category' : 'Select Product first'} />
+                  <SelectValue placeholder="Select Product Category" />
                 </SelectTrigger>
                 <SelectContent>
                   {categoryOptions.map((c) => (
@@ -201,59 +169,54 @@ export default function InventoryNewItemPage() {
                   ))}
                 </SelectContent>
               </Select>
-            ) : (
-              <Input
-                placeholder="Category Name"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                disabled={!productName}
-              />
-            )}
-          </div>
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Level</div>
-            <Select onValueChange={setLevel} value={level} disabled={!productName}>
-              <SelectTrigger>
-                <SelectValue placeholder={productName ? 'Select Level' : 'Select Product first'} />
-              </SelectTrigger>
-              <SelectContent>
-                {productName &&
-                  getProductLevels(productName).map((lvl) => (
+          {showLevel && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Level *</div>
+              <Select onValueChange={setLevel} value={level || undefined}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {levelOptions.map((lvl) => (
                     <SelectItem key={lvl} value={lvl}>
                       {lvl}
                     </SelectItem>
                   ))}
-              </SelectContent>
-            </Select>
-          </div>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Specs</div>
-            <Select onValueChange={setSpecs} value={specs} disabled={!productName}>
-              <SelectTrigger>
-                <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
-              </SelectTrigger>
-              <SelectContent>
-                {productName &&
-                  getProductSpecs(productName).map((spec) => (
+          {showSpecs && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Specs *</div>
+              <Select onValueChange={setSpecs} value={specs || undefined}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Specs" />
+                </SelectTrigger>
+                <SelectContent>
+                  {specsOptions.map((spec) => (
                     <SelectItem key={spec} value={spec}>
                       {spec}
                     </SelectItem>
                   ))}
-              </SelectContent>
-            </Select>
-          </div>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
-          {productName && hasProductSubjects(productName) && (
+          {showSubject && (
             <div className="space-y-2">
               <div className="text-sm font-medium">Subject *</div>
-              <Select onValueChange={setSubject} value={subject || undefined} required>
+              <Select onValueChange={setSubject} value={subject || undefined}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select Subject *" />
+                  <SelectValue placeholder="Select Subject" />
                 </SelectTrigger>
                 <SelectContent>
-                  {getProductSubjects(productName).map((subj) => (
+                  {subjectOptions.map((subj) => (
                     <SelectItem key={subj} value={subj}>
                       {subj}
                     </SelectItem>
@@ -265,9 +228,9 @@ export default function InventoryNewItemPage() {
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Item Type *</div>
-            <Select value={itemType || undefined} onValueChange={setItemType}>
+            <Select value={itemType || undefined} onValueChange={setItemType} disabled={!productName}>
               <SelectTrigger>
-                <SelectValue placeholder="Select Item Type" />
+                <SelectValue placeholder={productName ? 'Select Item Type' : 'Select Product first'} />
               </SelectTrigger>
               <SelectContent>
                 {itemTypes.map((t) => (
@@ -281,9 +244,9 @@ export default function InventoryNewItemPage() {
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Vendor</div>
-            <Select value={vendor || undefined} onValueChange={setVendor}>
+            <Select value={vendor || undefined} onValueChange={setVendor} disabled={!productName}>
               <SelectTrigger>
-                <SelectValue placeholder="Select Vendor" />
+                <SelectValue placeholder={productName ? 'Select Vendor' : 'Select Product first'} />
               </SelectTrigger>
               <SelectContent>
                 {vendors.map((v) => (
@@ -303,21 +266,12 @@ export default function InventoryNewItemPage() {
               placeholder="Item Quantity"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
+              disabled={!productName}
             />
           </div>
 
           <div className="md:col-span-2">
-            <Button
-              type="submit"
-              disabled={
-                saving ||
-                !productName ||
-                !category ||
-                !itemType ||
-                !quantity ||
-                (hasProductSubjects(productName) && !subject)
-              }
-            >
+            <Button type="submit" disabled={saving || !canSubmit}>
               {saving ? 'Adding…' : 'Add Item'}
             </Button>
           </div>

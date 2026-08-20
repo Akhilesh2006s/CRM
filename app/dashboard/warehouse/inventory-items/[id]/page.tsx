@@ -24,10 +24,7 @@ type Item = {
   currentStock?: number
 }
 
-type WarehouseRow = { productName?: string; category?: string }
 type InventoryOptions = { itemTypes?: string[]; vendors?: string[] }
-
-const CLASS_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', 'NA']
 
 export default function InventoryEditItemPage() {
   const params = useParams<{ id: string }>()
@@ -41,59 +38,42 @@ export default function InventoryEditItemPage() {
     hasProductSubjects,
     getProductCategories,
     hasProductCategories,
+    hasProductSpecs,
+    hasProductLevels,
   } = useProducts()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [itemTypes, setItemTypes] = useState<string[]>([])
   const [vendors, setVendors] = useState<string[]>([])
-  const [warehouseItems, setWarehouseItems] = useState<WarehouseRow[]>([])
 
   const [productName, setProductName] = useState('')
-  const [klass, setKlass] = useState('')
   const [category, setCategory] = useState('')
   const [level, setLevel] = useState('')
-  const [specs, setSpecs] = useState('Regular')
+  const [specs, setSpecs] = useState('')
   const [subject, setSubject] = useState('')
   const [itemType, setItemType] = useState('')
   const [vendor, setVendor] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [updateQty, setUpdateQty] = useState('')
 
+  const showCategory = Boolean(productName && hasProductCategories(productName))
+  const showLevel = Boolean(productName && hasProductLevels(productName))
+  const showSpecs = Boolean(productName && hasProductSpecs(productName))
+  const showSubject = Boolean(productName && hasProductSubjects(productName))
+  const categoryOptions = showCategory ? getProductCategories(productName) : []
+  const levelOptions = showLevel ? getProductLevels(productName) : []
+  const specsOptions = showSpecs ? getProductSpecs(productName) : []
+  const subjectOptions = showSubject ? getProductSubjects(productName) : []
+
   useEffect(() => {
     ;(async () => {
       try {
-        const [opts, list] = await Promise.all([
-          apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({})),
-          apiRequest<WarehouseRow[]>('/warehouse').catch(() => []),
-        ])
+        const opts = await apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({}))
         if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
         if (opts?.vendors?.length) setVendors(opts.vendors)
-        setWarehouseItems(Array.isArray(list) ? list : [])
       } catch (_) {}
     })()
   }, [])
-
-  const categoryOptions = useMemo(() => {
-    if (!productName) return []
-    const fromCatalog = getProductCategories(productName)
-    if (fromCatalog.length > 0) {
-      return category && !fromCatalog.includes(category) ? [category, ...fromCatalog] : fromCatalog
-    }
-    const fromWarehouse = [
-      ...new Set(
-        warehouseItems
-          .filter((w) => w.productName === productName && w.category)
-          .map((w) => w.category as string)
-      ),
-    ]
-    if (category && !fromWarehouse.includes(category)) fromWarehouse.unshift(category)
-    return fromWarehouse
-  }, [productName, getProductCategories, warehouseItems, category])
-
-  const classOptions = useMemo(() => {
-    if (klass && !CLASS_OPTIONS.includes(klass)) return [klass, ...CLASS_OPTIONS]
-    return CLASS_OPTIONS
-  }, [klass])
 
   const itemTypeOptions = useMemo(() => {
     if (itemType && !itemTypes.includes(itemType)) return [itemType, ...itemTypes]
@@ -105,21 +85,17 @@ export default function InventoryEditItemPage() {
     return vendors
   }, [vendor, vendors])
 
-  useEffect(() => {
-    if (productName) {
-      const levels = getProductLevels(productName)
-      if (levels.length > 0 && level && !levels.includes(level)) {
-        setLevel(levels[0])
-      }
-      const availableSpecs = getProductSpecs(productName)
-      if (availableSpecs.length > 0 && !availableSpecs.includes(specs)) {
-        setSpecs(availableSpecs[0])
-      }
-      if (!hasProductSubjects(productName)) {
-        setSubject('')
-      }
-    }
-  }, [productName, getProductLevels, getProductSpecs, hasProductSubjects])
+  function applyProduct(value: string) {
+    setProductName(value)
+    const cats = hasProductCategories(value) ? getProductCategories(value) : []
+    const levels = hasProductLevels(value) ? getProductLevels(value) : []
+    const specList = hasProductSpecs(value) ? getProductSpecs(value) : []
+    setCategory(cats.includes(category) ? category : cats[0] || '')
+    setLevel(levels.includes(level) ? level : levels[0] || '')
+    setSpecs(specList.includes(specs) ? specs : specList[0] || '')
+    if (!hasProductSubjects(value)) setSubject('')
+    else if (!getProductSubjects(value).includes(subject)) setSubject('')
+  }
 
   useEffect(() => {
     if (!id) return
@@ -127,10 +103,9 @@ export default function InventoryEditItemPage() {
       try {
         const item = await apiRequest<Item>(`/warehouse/${id}`)
         setProductName(item.productName || '')
-        setKlass(item.class || '')
         setCategory(item.category || '')
         setLevel(item.level || '')
-        setSpecs(item.specs || 'Regular')
+        setSpecs(item.specs || '')
         setSubject(item.subject || '')
         setItemType(item.itemType || '')
         setVendor(item.supplier || '')
@@ -147,12 +122,24 @@ export default function InventoryEditItemPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (productName && hasProductSubjects(productName) && !subject) {
-      toast.error('Subject is required for this product')
+    if (!productName) {
+      toast.error('Product is required')
       return
     }
-    if (!category) {
-      toast.error('Category is required')
+    if (showCategory && !category) {
+      toast.error('Product Category is required for this product')
+      return
+    }
+    if (showLevel && !level) {
+      toast.error('Level is required for this product')
+      return
+    }
+    if (showSpecs && !specs) {
+      toast.error('Specs is required for this product')
+      return
+    }
+    if (showSubject && !subject) {
+      toast.error('Subject is required for this product')
       return
     }
 
@@ -169,11 +156,11 @@ export default function InventoryEditItemPage() {
         method: 'PUT',
         body: JSON.stringify({
           productName,
-          class: klass || undefined,
-          category,
-          level: level || undefined,
-          specs: specs || 'Regular',
-          subject: subject || undefined,
+          class: '',
+          category: showCategory ? category : '',
+          level: showLevel ? level : '',
+          specs: showSpecs ? specs : '',
+          subject: showSubject ? subject : '',
           itemType: itemType || undefined,
           vendor: vendor || undefined,
           unitPrice: price,
@@ -189,8 +176,13 @@ export default function InventoryEditItemPage() {
     }
   }
 
-  const categoryIsSelect =
-    productName && (hasProductCategories(productName) || categoryOptions.length > 0)
+  const canSubmit =
+    Boolean(productName) &&
+    Boolean(updateQty) &&
+    (!showCategory || Boolean(category)) &&
+    (!showLevel || Boolean(level)) &&
+    (!showSpecs || Boolean(specs)) &&
+    (!showSubject || Boolean(subject))
 
   return (
     <div className="space-y-6">
@@ -202,23 +194,7 @@ export default function InventoryEditItemPage() {
           <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <div className="text-sm font-medium">Product *</div>
-              <Select
-                onValueChange={(value) => {
-                  setProductName(value)
-                  const availableLevels = getProductLevels(value)
-                  if (!availableLevels.includes(level)) {
-                    setLevel(availableLevels.length > 0 ? availableLevels[0] : '')
-                  }
-                  const availableSpecs = getProductSpecs(value)
-                  if (availableSpecs.length > 0 && !availableSpecs.includes(specs)) {
-                    setSpecs(availableSpecs[0])
-                  }
-                  const cats = getProductCategories(value)
-                  if (cats.length > 0) setCategory(cats[0])
-                  if (!hasProductSubjects(value)) setSubject('')
-                }}
-                value={productName}
-              >
+              <Select onValueChange={applyProduct} value={productName}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select Product" />
                 </SelectTrigger>
@@ -232,28 +208,12 @@ export default function InventoryEditItemPage() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Class</div>
-              <Select value={klass || undefined} onValueChange={setKlass}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Class" />
-                </SelectTrigger>
-                <SelectContent>
-                  {classOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Category *</div>
-              {categoryIsSelect ? (
-                <Select value={category} onValueChange={setCategory} disabled={!productName}>
+            {showCategory && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Product Category *</div>
+                <Select value={category || undefined} onValueChange={setCategory}>
                   <SelectTrigger>
-                    <SelectValue placeholder={productName ? 'Select Category' : 'Select Product first'} />
+                    <SelectValue placeholder="Select Product Category" />
                   </SelectTrigger>
                   <SelectContent>
                     {categoryOptions.map((c) => (
@@ -263,58 +223,54 @@ export default function InventoryEditItemPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              ) : (
-                <Input
-                  placeholder="Category Name"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                />
-              )}
-            </div>
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Level</div>
-              <Select onValueChange={setLevel} value={level || undefined} disabled={!productName}>
-                <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Level' : 'Select Product first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {productName &&
-                    getProductLevels(productName).map((lvl) => (
+            {showLevel && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Level *</div>
+                <Select onValueChange={setLevel} value={level || undefined}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {levelOptions.map((lvl) => (
                       <SelectItem key={lvl} value={lvl}>
                         {lvl}
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Specs</div>
-              <Select onValueChange={setSpecs} value={specs} disabled={!productName}>
-                <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {productName &&
-                    getProductSpecs(productName).map((spec) => (
+            {showSpecs && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Specs *</div>
+                <Select onValueChange={setSpecs} value={specs || undefined}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Specs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {specsOptions.map((spec) => (
                       <SelectItem key={spec} value={spec}>
                         {spec}
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            {productName && hasProductSubjects(productName) && (
+            {showSubject && (
               <div className="space-y-2">
                 <div className="text-sm font-medium">Subject *</div>
-                <Select onValueChange={setSubject} value={subject || undefined} required>
+                <Select onValueChange={setSubject} value={subject || undefined}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select Subject *" />
+                    <SelectValue placeholder="Select Subject" />
                   </SelectTrigger>
                   <SelectContent>
-                    {getProductSubjects(productName).map((subj) => (
+                    {subjectOptions.map((subj) => (
                       <SelectItem key={subj} value={subj}>
                         {subj}
                       </SelectItem>
@@ -380,16 +336,7 @@ export default function InventoryEditItemPage() {
             </div>
 
             <div className="md:col-span-2">
-              <Button
-                type="submit"
-                disabled={
-                  saving ||
-                  !productName ||
-                  !category ||
-                  !updateQty ||
-                  (hasProductSubjects(productName) && !subject)
-                }
-              >
+              <Button type="submit" disabled={saving || !canSubmit}>
                 {saving ? 'Saving…' : 'Save Changes'}
               </Button>
             </div>

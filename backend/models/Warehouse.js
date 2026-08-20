@@ -21,7 +21,7 @@ const warehouseSchema = new mongoose.Schema({
   },
   specs: {
     type: String,
-    default: 'Regular',
+    default: '',
   },
   subject: {
     type: String,

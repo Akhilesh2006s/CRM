@@ -4,10 +4,15 @@ const StockMovement = require('../models/StockMovement');
 const {
   findIdentityMatches,
   mergeIdentityDuplicates,
-  ensureDuplicatesConsolidated,
   addQuantityToExistingIdentity,
   aggregatedWarehouseList,
 } = require('../utils/warehouseDuplicateConsolidate');
+const {
+  ensureWarehouseInventoryIntegrity,
+  sanitizeWarehousePayload,
+  loadProductIndex,
+  filterWarehouseItemsToProductMaster,
+} = require('../utils/warehouseProductMaster');
 
 // @desc    Get distinct warehouse locations (for return form dropdown)
 // @route   GET /api/warehouse/locations
@@ -32,12 +37,17 @@ const getWarehouse = async (req, res) => {
     if (category) filter.category = category;
 
     try {
-      await ensureDuplicatesConsolidated();
+      await ensureWarehouseInventoryIntegrity();
     } catch (mergeErr) {
-      console.warn('Warehouse duplicate consolidate skipped:', mergeErr?.message || mergeErr);
+      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
     }
     const items = await Warehouse.find(filter).sort({ createdAt: -1 });
-    res.json(aggregatedWarehouseList(items));
+    let list = aggregatedWarehouseList(items);
+    try {
+      const { byName } = await loadProductIndex();
+      list = filterWarehouseItemsToProductMaster(list, byName);
+    } catch (_) {}
+    res.json(list);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -120,9 +130,9 @@ const updateStock = async (req, res) => {
 const getWarehouseReports = async (req, res) => {
   try {
     try {
-      await ensureDuplicatesConsolidated();
+      await ensureWarehouseInventoryIntegrity();
     } catch (mergeErr) {
-      console.warn('Warehouse duplicate consolidate skipped:', mergeErr?.message || mergeErr);
+      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
     }
     const lowStockItems = await Warehouse.find({
       status: 'Low Stock',
@@ -165,9 +175,9 @@ const getWarehouseItem = async (req, res) => {
   try {
     const existing = await Warehouse.findById(req.params.id);
     try {
-      await ensureDuplicatesConsolidated();
+      await ensureWarehouseInventoryIntegrity();
     } catch (mergeErr) {
-      console.warn('Warehouse duplicate consolidate skipped:', mergeErr?.message || mergeErr);
+      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
     }
     const item = await Warehouse.findById(req.params.id);
     if (item) {
@@ -191,6 +201,12 @@ const createWarehouseItem = async (req, res) => {
     const body = { ...(req.body || {}) };
     if (body.vendor && !body.supplier) body.supplier = body.vendor;
     delete body.vendor;
+
+    const sanitized = await sanitizeWarehousePayload(body);
+    if (!sanitized.ok) {
+      return res.status(400).json({ message: sanitized.message });
+    }
+    Object.assign(body, sanitized.payload);
 
     const qty = Number(body.currentStock);
     const addQty = Number.isFinite(qty) && qty > 0 ? qty : 0;
@@ -242,6 +258,11 @@ const updateWarehouseItem = async (req, res) => {
     const body = { ...(req.body || {}) };
     if (body.vendor && !body.supplier) body.supplier = body.vendor;
     delete body.vendor;
+    const sanitized = await sanitizeWarehousePayload(body);
+    if (!sanitized.ok) {
+      return res.status(400).json({ message: sanitized.message });
+    }
+    Object.assign(body, sanitized.payload);
     const item = await Warehouse.findByIdAndUpdate(
       req.params.id,
       body,

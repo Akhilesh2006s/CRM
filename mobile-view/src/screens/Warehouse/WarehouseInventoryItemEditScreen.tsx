@@ -34,10 +34,6 @@ export default function WarehouseInventoryItemEditScreen({ navigation, route }: 
       Alert.alert('Error', 'Product is required');
       return;
     }
-    if (!form.category?.trim()) {
-      Alert.alert('Error', 'Category is required');
-      return;
-    }
 
     setSubmitting(true);
     try {

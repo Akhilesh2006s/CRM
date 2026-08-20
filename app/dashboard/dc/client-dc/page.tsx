@@ -35,12 +35,13 @@ import {
   collapseEmptyLevelDuplicateLines,
   keepMyClientsOwnedProductRows,
   orderProductToClientDcDetail,
-  appendMissingMyClientsOrderLines,
   resolveAddEditPoProduct,
   expandEditPoRowsBySubject,
   editPoProductIdentity,
   ensureProductLineId,
   normalizeEditPoSubjectKey,
+  dedupeSavedPoRows,
+  requestDcRowQuantity,
   type ResolveClientDCRowOpts,
 } from '@/lib/clientDcProductRows'
 import {
@@ -1112,40 +1113,21 @@ export default function ClientDCPage() {
       Array.isArray(dcOrderDoc?.products) && dcOrderDoc.products.length > 0
         ? dcOrderDoc.products
         : null
-    const pendingQty = (pendingProducts || []).reduce(
-      (s: number, p: any) => s + (Number(p.quantity) || Number(p.strength) || 0),
-      0
-    )
-    const committedQty = (committedProducts || []).reduce(
-      (s: number, p: any) => s + (Number(p.quantity) || Number(p.strength) || 0),
-      0
-    )
-    const pendingIsRicher =
-      !!pendingProducts &&
-      (!committedProducts ||
-        pendingProducts.length > committedProducts.length ||
-        pendingQty > committedQty)
-    const approvedProducts =
-      (dcOrderDoc?.pendingEdit?.status === 'approved' && pendingProducts) ||
-      pendingIsRicher
-        ? pendingProducts
-        : committedProducts
-    if (approvedProducts && approvedProducts.length > 0) {
-      dcOrderProducts = approvedProducts
+    const pendingSnapshot =
+      dcOrderDoc?.pendingEdit?.status === 'pending' && pendingProducts ? pendingProducts : null
+    // Same source Edit PO uses: last saved pending snapshot, else committed PO, else this DC.
+    const savedPoProducts = pendingSnapshot || committedProducts || []
+    if (savedPoProducts.length > 0) {
+      dcOrderProducts = savedPoProducts
     }
 
     const rowOpts: ResolveClientDCRowOpts = { hasProductCategories, getProductCategories }
     const toRequestDcRows = (details: any[]) =>
       buildClientDCProductRows(
-        collapseEmptyLevelDuplicateLines(
-          dedupeProductDetailLines(
-            appendMissingMyClientsOrderLines(
-              (details || []).filter(
-                (p) => !lineMatchesTermWiseCompanion(p, siblingRows)
-              ),
-              dcOrderProducts,
-              siblingRows
-            )
+        dedupeSavedPoRows(
+          keepMyClientsOwnedProductRows(
+            collapseEmptyLevelDuplicateLines(details || []),
+            siblingRows
           )
         ),
         dcOrderProducts,
@@ -1159,30 +1141,23 @@ export default function ClientDCPage() {
         ? [...fullDC.productDetails]
         : []
 
-      // This DC's productDetails are the source of truth. Never replace them with
-      // the unsplit DcOrder.products list (that still holds both Term 1 and Term 2).
-      const mappedApproved = (approvedProducts || [])
-        .map((p: any) => orderProductToClientDcDetail(p))
-        .filter((p: any) => p.product)
       thisDetails = keepMyClientsOwnedProductRows(thisDetails, siblingRows)
-      console.log('[DC-ASSOC] Request DC this DC productDetails', {
-        dcId: fullDC._id,
-        count: thisDetails.length,
-        total: thisDetails.reduce(
-          (s, p) => s + (Number(p.quantity) || Number(p.strength) || 0),
-          0
-        ),
-        lines: thisDetails.map((p) => ({
-          product: p.product || p.productName,
-          productId: p.productId,
-          level: p.level,
-          term: p.term,
-          quantity: Number(p.quantity) || Number(p.strength) || 0,
-        })),
-      })
-      if (thisDetails.length === 0 && mappedApproved.length > 0) {
-        thisDetails = keepMyClientsOwnedProductRows(mappedApproved, siblingRows)
-      }
+      const mappedSavedPo = keepMyClientsOwnedProductRows(
+        (savedPoProducts || [])
+          .map((p: any) => orderProductToClientDcDetail(p))
+          .filter((p: any) => p.product),
+        siblingRows
+      )
+      const poDeduped = dedupeSavedPoRows(mappedSavedPo)
+      const dcDeduped = dedupeSavedPoRows(thisDetails)
+      // Saved Edit PO rows win when they are at least as complete as this DC snapshot.
+      // Close Lead still stores grouped P2 on the order (fewer rows) — keep the split DC lines.
+      thisDetails =
+        poDeduped.length > 0 && poDeduped.length >= dcDeduped.length
+          ? poDeduped
+          : dcDeduped.length > 0
+            ? dcDeduped
+            : poDeduped
 
       const productsToShow = toRequestDcRows(thisDetails)
       setDcProductRows(productsToShow)
@@ -1194,7 +1169,7 @@ export default function ClientDCPage() {
       setDcPoPhotoUrl(fullDC.poPhotoUrl || '')
     } catch (e) {
       console.error('Failed to load DC details:', e)
-      const fallbackDetails = (approvedProducts || [])
+      const fallbackDetails = (savedPoProducts || [])
         .map((p: any) => orderProductToClientDcDetail(p))
         .filter((p: any) => p.product)
       setDcProductRows(toRequestDcRows(keepMyClientsOwnedProductRows(fallbackDetails, siblingRows)))
@@ -3479,7 +3454,7 @@ export default function ClientDCPage() {
                           </td>
                           <td className="px-3 py-3 text-right">
                             {dcProductRows.reduce(
-                              (sum, row) => sum + (Number(row.strength) || 0),
+                              (sum, row) => sum + requestDcRowQuantity(row),
                               0
                             )}
                           </td>
@@ -3528,7 +3503,7 @@ export default function ClientDCPage() {
                                 </td>
                                 <td className="px-3 py-3 text-right">
                                   {term1Products.reduce(
-                                    (sum, row) => sum + (Number(row.strength) || 0),
+                                    (sum, row) => sum + requestDcRowQuantity(row),
                                     0
                                   )}
                                 </td>
@@ -3565,7 +3540,7 @@ export default function ClientDCPage() {
                                 </td>
                                 <td className="px-3 py-3 text-right">
                                   {term2Products.reduce(
-                                    (sum, row) => sum + (Number(row.strength) || 0),
+                                    (sum, row) => sum + requestDcRowQuantity(row),
                                     0
                                   )}
                                 </td>

@@ -188,7 +188,11 @@ export function appendMissingMyClientsOrderLines(
 ): any[] {
   const rows = Array.isArray(dcDetails) ? [...dcDetails] : []
   const seen = new Set(rows.map((r) => productLineIdentityKey(r)))
+  const seenComposite = new Set(rows.map((r) => poRowCompositeKey(r)))
   const seenClassBase = new Set(rows.map((r) => productClassBaseKey(r)))
+  const seenSplitSubject = new Set(
+    rows.filter((r) => blankPoPart(r.subject)).map((r) => productClassLevelKey(r))
+  )
   const namesWithFirstStage = new Set(
     rows
       .filter((r) => r && !isSecondStageLine(r))
@@ -207,18 +211,19 @@ export function appendMissingMyClientsOrderLines(
     const mappedName = String(mapped.product || '')
       .trim()
       .toLowerCase()
-    // Paired later-stage of a product already on this DC belongs on Term-Wise,
-    // even if the sibling DC query failed.
     if (isSecondStageLine(mapped) && namesWithFirstStage.has(mappedName)) continue
+    const composite = poRowCompositeKey(mapped)
+    if (seenComposite.has(composite)) continue
     const key = productLineIdentityKey(mapped)
     if (seen.has(key)) continue
     const classKey = productClassBaseKey(mapped)
     const mappedEmpty = !hasUsableProductLevel(mapped.level)
-    // Grouped DcOrder lines drop Level 1/2 onto one class row with level "-".
-    // That leftover must not be added when this DC already has the class, or Term-Wise owns it.
     if (mappedEmpty && seenClassBase.has(classKey)) continue
+    if (!blankPoPart(mapped.subject) && seenSplitSubject.has(productClassLevelKey(mapped))) continue
     seen.add(key)
+    seenComposite.add(composite)
     seenClassBase.add(classKey)
+    if (blankPoPart(mapped.subject)) seenSplitSubject.add(productClassLevelKey(mapped))
     rows.push(mapped)
   }
   return keepMyClientsOwnedProductRows(rows, siblingRows)
@@ -273,23 +278,72 @@ export function lineMatchesTermWiseCompanion(
   return false
 }
 
+function blankPoPart(value: unknown): string {
+  const s = String(value ?? '').trim().toLowerCase()
+  if (!s || s === '-' || s === 'n/a' || s === 'na') return ''
+  return s
+}
+
+/** Edit PO / Request DC unique row: productName + class + subject + level. */
+export function poRowCompositeKey(p: Record<string, any>): string {
+  const product = blankPoPart(p.product || p.productName || p.product_name)
+  const klass = blankPoPart(p.class)
+  const subject = blankPoPart(p.subject)
+  const level = blankPoPart(p.level)
+  return [product, klass, subject, level].join('|')
+}
+
+function productClassLevelKey(p: Record<string, any>): string {
+  return [blankPoPart(p.product || p.productName || p.product_name), blankPoPart(p.class), blankPoPart(p.level)].join(
+    '|'
+  )
+}
+
+/**
+ * Keep saved PO lines as-is. Drop grouped leftovers (empty subject/level) when a
+ * split row already exists, then dedupe by productName + class + subject + level.
+ * Does not explode subjects or levels from Product Master.
+ */
+export function dedupeSavedPoRows(rows: any[]): any[] {
+  const list = (Array.isArray(rows) ? rows : []).filter(
+    (p) => p && (p.product || p.productName || p.product_name)
+  )
+
+  const hasSplitSubject = new Set<string>()
+  const hasFilledLevel = new Set<string>()
+  for (const row of list) {
+    if (blankPoPart(row.subject)) hasSplitSubject.add(productClassLevelKey(row))
+    if (hasUsableProductLevel(row.level)) hasFilledLevel.add(productClassBaseKey(row))
+  }
+
+  const filtered = list.filter((row) => {
+    if (!blankPoPart(row.subject) && hasSplitSubject.has(productClassLevelKey(row))) return false
+    if (!hasUsableProductLevel(row.level) && hasFilledLevel.has(productClassBaseKey(row))) return false
+    return true
+  })
+
+  const seen = new Set<string>()
+  const out: any[] = []
+  for (const row of filtered) {
+    const key = poRowCompositeKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
+}
+
+export function requestDcRowQuantity(row: { strength?: unknown; quantity?: unknown }): number {
+  return Number(row?.strength) || Number(row?.quantity) || 0
+}
+
 /** Stable key for duplicate product lines (Request DC / Edit PO). */
 export function productDetailLineKey(p: Record<string, any>): string {
-  const qty = String(p.quantity ?? p.strength ?? '')
-  return `${productLineIdentityKey(p)}|${qty}`
+  return poRowCompositeKey(p)
 }
 
 export function dedupeProductDetailLines(lines: any[]): any[] {
-  const seen = new Set<string>()
-  const out: any[] = []
-  for (const p of Array.isArray(lines) ? lines : []) {
-    if (!p || !(p.product || p.productName)) continue
-    const key = productDetailLineKey(p)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(p)
-  }
-  return out
+  return dedupeSavedPoRows(lines)
 }
 
 /** Current DC lines only. Sibling DCs on the same order must never be merged in. */

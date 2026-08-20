@@ -5,6 +5,7 @@ const DC = require('../models/DC');
 const Sale = require('../models/Sale');
 const Warehouse = require('../models/Warehouse');
 const StockReturn = require('../models/StockReturn');
+const { ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
 
 // Ensure user is Partner role
 const ensurePartner = (req, res, next) => {
@@ -77,6 +78,9 @@ const getPartnerDashboard = async (req, res) => {
       .lean();
 
     // 3. Warehouse stock (for product names)
+    try {
+      await ensureWarehouseInventoryIntegrity();
+    } catch (_) {}
     const warehouseItems = await Warehouse.find({
       productName: { $in: productNames },
     })
@@ -273,6 +277,9 @@ const getPartnerStocks = async (req, res) => {
       return res.json([]);
     }
 
+    try {
+      await ensureWarehouseInventoryIntegrity();
+    } catch (_) {}
     const items = await Warehouse.find({
       productName: { $in: productNames },
     })

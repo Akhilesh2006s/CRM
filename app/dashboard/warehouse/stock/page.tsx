@@ -106,7 +106,7 @@ export default function WarehouseStock() {
                 <TableCell className="font-medium text-neutral-900">{row.productName}</TableCell>
                 <TableCell>{row.category || '-'}</TableCell>
                 <TableCell>{row.level || row.location || '-'}</TableCell>
-                <TableCell>{row.specs || 'Regular'}</TableCell>
+                <TableCell>{row.specs || '-'}</TableCell>
                 <TableCell>{row.subject || '-'}</TableCell>
                 <TableCell>{row.itemType || '—'}</TableCell>
                 <TableCell>{row.supplier || '-'}</TableCell>

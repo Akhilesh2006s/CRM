@@ -85,7 +85,6 @@ export default function WarehouseInventoryItems() {
             <TableRow>
               <TableHead className="w-16">S.No</TableHead>
               <TableHead>Product</TableHead>
-              <TableHead>Class</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Level</TableHead>
               <TableHead>Specs</TableHead>
@@ -99,17 +98,16 @@ export default function WarehouseInventoryItems() {
           <TableBody>
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-neutral-500">No items found.</TableCell>
+                <TableCell colSpan={10} className="text-center text-neutral-500">No items found.</TableCell>
               </TableRow>
             )}
             {filtered.map((row, idx) => (
               <TableRow key={row._id}>
                 <TableCell>{idx + 1}</TableCell>
                 <TableCell className="font-medium text-neutral-900">{row.productName}</TableCell>
-                <TableCell>{row.class || '-'}</TableCell>
                 <TableCell>{row.category || '-'}</TableCell>
                 <TableCell>{row.level || row.location || '-'}</TableCell>
-                <TableCell>{row.specs || 'Regular'}</TableCell>
+                <TableCell>{row.specs || '-'}</TableCell>
                 <TableCell>{row.subject || '-'}</TableCell>
                 <TableCell>{row.itemType || '—'}</TableCell>
                 <TableCell>{row.supplier || '-'}</TableCell>

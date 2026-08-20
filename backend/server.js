@@ -100,11 +100,15 @@ const startServer = async () => {
     dbConnected = true;
     console.log('✅ Database connection established. Starting server...');
     try {
-      const { ensureDuplicatesConsolidated } = require('./utils/warehouseDuplicateConsolidate');
-      await ensureDuplicatesConsolidated();
-      console.log('✅ Warehouse duplicate inventory records consolidated');
+      const { ensureWarehouseInventoryIntegrity } = require('./utils/warehouseProductMaster');
+      const cleanup = await ensureWarehouseInventoryIntegrity();
+      if (cleanup && !cleanup.skipped) {
+        console.log(
+          `✅ Warehouse inventory aligned to Product Master (deleted ${cleanup.deleted}, updated ${cleanup.updated})`
+        );
+      }
     } catch (mergeErr) {
-      console.warn('Warehouse duplicate consolidate on startup skipped:', mergeErr?.message || mergeErr);
+      console.warn('Warehouse Product Master align on startup skipped:', mergeErr?.message || mergeErr);
     }
     
     // Start server only after database is connected

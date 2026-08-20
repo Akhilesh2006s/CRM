@@ -49,7 +49,15 @@ export function useProducts() {
   // Get product levels for a specific product
   const getProductLevels = (productName: string): string[] => {
     const product = products.find(p => p.productName === productName)
-    return product?.productLevels || ['L1'] // Default to L1 if not found
+    if (!product) return ['L1']
+    return Array.isArray(product.productLevels)
+      ? product.productLevels.map((l) => String(l || '').trim()).filter(Boolean)
+      : []
+  }
+
+  const hasProductLevels = (productName: string): boolean => {
+    const product = products.find(p => p.productName === productName)
+    return Array.isArray(product?.productLevels) && product.productLevels.some((l) => String(l || '').trim())
   }
 
   // Get default level for a product
@@ -69,6 +77,7 @@ export function useProducts() {
     loading,
     error,
     getProductLevels,
+    hasProductLevels,
     getDefaultLevel,
     isProductActive,
     refetch: loadProducts,
@@ -76,7 +85,7 @@ export function useProducts() {
     getProductSpecs: (productName: string): string[] => {
       const product = products.find(p => p.productName === productName)
       if (product && product.hasSpecs && product.specs && Array.isArray(product.specs)) {
-        return product.specs
+        return product.specs.map((s) => String(s || '').trim()).filter(Boolean)
       }
       return ['Regular', 'Single Level only', 'Class WorkBooks Only'] // Default specs
     },

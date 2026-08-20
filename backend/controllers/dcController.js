@@ -25,7 +25,7 @@ const {
   logDcProductAssoc,
 } = require('../utils/productLineIdentity');
 const { validateDcStockAgainstInventory } = require('../utils/warehouseInventoryMatch');
-const { ensureDuplicatesConsolidated } = require('../utils/warehouseDuplicateConsolidate');
+const { ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
 
 /** Closed Sales → Saved DC → Pending DC. Do not re-run Close Lead Term-Wise split/strip. */
 const CLOSED_SALES_PIPELINE_ORDER_STATUSES = new Set([
@@ -2087,9 +2087,9 @@ const warehouseProcess = async (req, res) => {
       r && typeof r.toObject === 'function' ? r.toObject() : r
     );
     try {
-      await ensureDuplicatesConsolidated();
+      await ensureWarehouseInventoryIntegrity();
     } catch (mergeErr) {
-      console.warn('Warehouse duplicate consolidate skipped:', mergeErr?.message || mergeErr);
+      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
     }
     const inventory = await Warehouse.find({});
     const stockCheck = validateDcStockAgainstInventory(rows, inventory);
