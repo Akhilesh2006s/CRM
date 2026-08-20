@@ -182,7 +182,7 @@ export default function PendingDCPage() {
     'Excess-OldStudents',
     'Excess NewStudents',
   ]
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories, hasProductSpecs } = useProducts()
   const availableDCCategories = ['Term 1', 'Term 2', 'Term 3', 'Full Year']
 
   const load = async () => {
@@ -497,7 +497,7 @@ export default function PendingDCPage() {
           quantity: fallbackQuantity,
           strength: fallbackQuantity,
           level: getDefaultLevel(matchedProduct),
-          specs: 'Regular',
+          specs: getProductSpecs(matchedProduct)[0] || '',
           subject: undefined,
           price: 0,
           total: 0,
@@ -603,7 +603,7 @@ export default function PendingDCPage() {
             quantity: pendingRowQty(row),
             strength: pendingRowQty(row),
             level: row.level,
-            specs: row.specs || 'Regular',
+            specs: row.specs || '',
             subject: row.subject || undefined,
             term: row.term || 'Term 1',
           })),
@@ -671,7 +671,7 @@ export default function PendingDCPage() {
             quantity: pendingRowQty(row),
             strength: pendingRowQty(row),
             level: row.level,
-            specs: row.specs || 'Regular',
+            specs: row.specs || '',
             subject: row.subject || undefined,
             term: row.term || 'Term 1',
           })),
@@ -1071,7 +1071,7 @@ export default function PendingDCPage() {
                           }
                           // Default specs
                           const specs = getProductSpecs(v)
-                          updated[idx].specs = specs[0] || 'Regular'
+                          updated[idx].specs = specs[0] || ''
                           // Default subject if product has subjects
                           const subjects = getProductSubjects(v)
                           updated[idx].subject = subjects.length > 0 ? subjects[0] : undefined
@@ -1145,13 +1145,14 @@ export default function PendingDCPage() {
                         )}
                       </td>
                       <td className="py-2 px-3 border-r">
-                        <Select value={row.specs || 'Regular'} onValueChange={(v) => {
+                        {hasProductSpecs(row.product) ? (
+                        <Select value={row.specs || undefined} onValueChange={(v) => {
                           const updated = [...productRows]
                           updated[idx].specs = v
                           setProductRows(updated)
                         }}>
                           <SelectTrigger className="h-8 text-xs bg-white">
-                            <SelectValue />
+                            <SelectValue placeholder="Select Specs" />
                           </SelectTrigger>
                           <SelectContent>
                             {getProductSpecs(row.product).map(spec => (
@@ -1159,6 +1160,9 @@ export default function PendingDCPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                        ) : (
+                          <span className="text-neutral-400 text-xs">-</span>
+                        )}
                       </td>
                       <td className="py-2 px-3 border-r">
                         {getProductSubjects(row.product).length > 0 ? (

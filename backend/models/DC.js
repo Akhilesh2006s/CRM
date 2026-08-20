@@ -289,6 +289,9 @@ const dcSchema = new mongoose.Schema({
     subject: {
       type: String,
     },
+    itemType: {
+      type: String,
+    },
     term: {
       type: String,
       enum: ['Term 1', 'Term 2', 'Both'],
@@ -302,6 +305,15 @@ const dcSchema = new mongoose.Schema({
     lineId: {
       type: String,
       trim: true,
+    },
+    availableQuantity: {
+      type: Number,
+    },
+    deliverableQuantity: {
+      type: Number,
+    },
+    remainingQuantity: {
+      type: Number,
     },
   }],
   // Location tracking for mobile app

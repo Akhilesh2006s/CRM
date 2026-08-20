@@ -10,17 +10,32 @@ import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 
-type InventoryOptions = { itemTypes?: string[] }
 type WarehouseItem = {
   _id: string
   productName: string
   category?: string
   specs?: string
   level?: string
-  itemType?: string
   class?: string
   subject?: string
+  supplier?: string
+  vendor?: string
   currentStock?: number
+}
+
+type IdentityFields = {
+  productName: string
+  category: string
+  specs: string
+  level: string
+  subject: string
+  vendor: string
+}
+
+type VendorMaster = {
+  _id?: string
+  name?: string
+  isActive?: boolean
 }
 
 function blank(value: unknown): string {
@@ -31,6 +46,10 @@ function blank(value: unknown): string {
 
 function same(a: unknown, b: unknown): boolean {
   return blank(a).toLowerCase() === blank(b).toLowerCase()
+}
+
+function vendorOf(item: WarehouseItem): string {
+  return blank(item.supplier || item.vendor)
 }
 
 function uniqueValues(values: Array<string | undefined | null>): string[] {
@@ -47,13 +66,12 @@ function uniqueValues(values: Array<string | undefined | null>): string[] {
   return out
 }
 
-function itemMatchesFields(
+function itemMatchesProductIdentity(
   item: WarehouseItem,
-  fields: { productName: string; itemType: string; category: string; specs: string; level: string; subject: string }
+  fields: Omit<IdentityFields, 'vendor'>
 ) {
   return (
     same(item.productName, fields.productName) &&
-    same(item.itemType, fields.itemType) &&
     same(item.category, fields.category) &&
     same(item.specs, fields.specs) &&
     same(item.level, fields.level) &&
@@ -61,10 +79,19 @@ function itemMatchesFields(
   )
 }
 
+function itemMatchesFields(item: WarehouseItem, fields: IdentityFields) {
+  return itemMatchesProductIdentity(item, fields) && same(vendorOf(item), fields.vendor)
+}
+
 export default function StockAddPage() {
   const router = useRouter()
   const params = useSearchParams()
   const productId = params?.get('productId') || ''
+  const productNameParam = params?.get('productName') || ''
+  const categoryParam = params?.get('category') || ''
+  const levelParam = params?.get('level') || ''
+  const specsParam = params?.get('specs') || ''
+  const subjectParam = params?.get('subject') || ''
   const originalItemIdRef = useRef(productId)
 
   const {
@@ -82,15 +109,15 @@ export default function StockAddPage() {
   const [loadingItem, setLoadingItem] = useState(true)
   const [itemMissing, setItemMissing] = useState(false)
   const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
-  const [itemTypes, setItemTypes] = useState<string[]>([])
+  const [masterVendors, setMasterVendors] = useState<string[]>([])
   const [selectedItemId, setSelectedItemId] = useState(productId)
 
   const [productName, setProductName] = useState('')
-  const [itemType, setItemType] = useState('')
   const [category, setCategory] = useState('')
   const [specs, setSpecs] = useState('')
   const [level, setLevel] = useState('')
   const [subject, setSubject] = useState('')
+  const [vendor, setVendor] = useState('')
   const [qty, setQty] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -107,22 +134,15 @@ export default function StockAddPage() {
   function applyItem(item: WarehouseItem) {
     setSelectedItemId(item._id)
     setProductName(item.productName || '')
-    setItemType(blank(item.itemType))
     setCategory(blank(item.category))
     setSpecs(blank(item.specs))
     setLevel(blank(item.level))
     setSubject(blank(item.subject))
+    setVendor(vendorOf(item))
     upsertWarehouseItem(item)
   }
 
-  function resolveExistingItemId(fields: {
-    productName: string
-    itemType: string
-    category: string
-    specs: string
-    level: string
-    subject: string
-  }): string {
+  function resolveExistingItemId(fields: IdentityFields): string {
     const originalId = originalItemIdRef.current
     const original = originalId ? warehouseItems.find((w) => w._id === originalId) : null
     if (original && itemMatchesFields(original, fields)) return original._id
@@ -137,13 +157,23 @@ export default function StockAddPage() {
     originalItemIdRef.current = productId
     ;(async () => {
       try {
-        const [opts, list] = await Promise.all([
-          apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({})),
+        const [list, partners, options] = await Promise.all([
           apiRequest<WarehouseItem[]>('/warehouse').catch(() => []),
+          apiRequest<VendorMaster[]>('/partners').catch(() => []),
+          apiRequest<{ vendors?: string[] }>('/metadata/inventory-options').catch(() => ({ vendors: [] })),
         ])
-        if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
         const rows = Array.isArray(list) ? list : []
         setWarehouseItems(rows)
+
+        const fromMaster = uniqueValues(
+          (Array.isArray(partners) ? partners : []).map((p) => p?.name)
+        )
+        const fromOptions = uniqueValues(options?.vendors || [])
+        setMasterVendors(
+          (fromMaster.length ? fromMaster : fromOptions).sort((a, b) =>
+            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+          )
+        )
 
         if (productId) {
           try {
@@ -160,6 +190,15 @@ export default function StockAddPage() {
               toast.error(err?.message || 'Inventory item not found')
             }
           }
+        } else if (productNameParam) {
+          setProductName(productNameParam)
+          setCategory(blank(categoryParam))
+          setLevel(blank(levelParam))
+          setSpecs(blank(specsParam))
+          setSubject(blank(subjectParam))
+          setVendor('')
+          setSelectedItemId('')
+          setItemMissing(false)
         }
       } catch (err: any) {
         toast.error(err?.message || 'Failed to load inventory')
@@ -167,49 +206,62 @@ export default function StockAddPage() {
         setLoadingItem(false)
       }
     })()
-  }, [productId])
+  }, [productId, productNameParam, categoryParam, levelParam, specsParam, subjectParam])
 
   const showCategory = Boolean(productName && hasProductCategories(productName))
   const showLevel = Boolean(productName && hasProductLevels(productName))
   const showSpecs = Boolean(productName && hasProductSpecs(productName))
   const showSubject = Boolean(productName && hasProductSubjects(productName))
+  const identityReady = Boolean(
+    productName &&
+    (!showCategory || category) &&
+    (!showLevel || level) &&
+    (!showSpecs || specs) &&
+    (!showSubject || subject)
+  )
 
   const productOptions = useMemo(() => {
     return uniqueValues([...catalogProducts, productName])
   }, [catalogProducts, productName])
-
-  const itemsForProduct = useMemo(() => {
-    if (!productName) return []
-    return warehouseItems.filter((w) => same(w.productName, productName))
-  }, [warehouseItems, productName])
-
-  const itemTypeOptions = useMemo(() => {
-    return uniqueValues([...itemTypes, ...itemsForProduct.map((w) => w.itemType), itemType])
-  }, [itemTypes, itemsForProduct, itemType])
 
   const categoryOptions = useMemo(() => {
     if (!showCategory) return []
     return uniqueValues([...(productName ? getProductCategories(productName) : []), category])
   }, [showCategory, productName, getProductCategories, category])
 
-  const specsOptions = useMemo(() => {
-    if (!showSpecs) return []
-    return uniqueValues([...(productName ? getProductSpecs(productName) : []), specs])
-  }, [showSpecs, productName, getProductSpecs, specs])
-
   const levelOptions = useMemo(() => {
     if (!showLevel) return []
     return uniqueValues([...(productName ? getProductLevels(productName) : []), level])
   }, [showLevel, productName, getProductLevels, level])
+
+  const specsOptions = useMemo(() => {
+    if (!showSpecs) return []
+    return uniqueValues([...(productName ? getProductSpecs(productName) : []), specs])
+  }, [showSpecs, productName, getProductSpecs, specs])
 
   const subjectOptions = useMemo(() => {
     if (!showSubject) return []
     return uniqueValues([...(productName ? getProductSubjects(productName) : []), subject])
   }, [showSubject, productName, getProductSubjects, subject])
 
+  const vendorOptions = useMemo(() => {
+    return uniqueValues([...masterVendors, vendor]).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    )
+  }, [masterVendors, vendor])
+
+  useEffect(() => {
+    if (!identityReady || !vendor) {
+      setSelectedItemId('')
+      return
+    }
+    setSelectedItemId(
+      resolveExistingItemId({ productName, category, specs, level, subject, vendor })
+    )
+  }, [identityReady, productName, category, specs, level, subject, vendor, warehouseItems])
+
   function onProductChange(value: string) {
     setProductName(value)
-    setItemType('')
     setCategory('')
     setSpecs('')
     setLevel('')
@@ -218,22 +270,22 @@ export default function StockAddPage() {
   }
 
   function onIdentityChange(
-    patch: Partial<{ itemType: string; category: string; specs: string; level: string; subject: string }>
+    patch: Partial<{ category: string; specs: string; level: string; subject: string; vendor: string }>
   ) {
-    const next = {
+    const next: IdentityFields = {
       productName,
-      itemType,
       category,
       specs,
       level,
       subject,
+      vendor,
       ...patch,
     }
-    if (patch.itemType !== undefined) setItemType(patch.itemType)
     if (patch.category !== undefined) setCategory(patch.category)
     if (patch.specs !== undefined) setSpecs(patch.specs)
     if (patch.level !== undefined) setLevel(patch.level)
     if (patch.subject !== undefined) setSubject(patch.subject)
+    if (patch.vendor !== undefined) setVendor(patch.vendor)
     const id = resolveExistingItemId(next)
     setSelectedItemId(id)
   }
@@ -246,10 +298,6 @@ export default function StockAddPage() {
     }
     if (!productName) {
       toast.error('Product is required')
-      return
-    }
-    if (!itemType) {
-      toast.error('Item Type is required')
       return
     }
     if (showCategory && !category) {
@@ -268,6 +316,10 @@ export default function StockAddPage() {
       toast.error('Subject is required for this product')
       return
     }
+    if (!vendor) {
+      toast.error('Vendor is required.')
+      return
+    }
 
     const amount = Number(qty)
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -275,26 +327,36 @@ export default function StockAddPage() {
       return
     }
 
-    const targetId =
-      selectedItemId ||
-      resolveExistingItemId({ productName, itemType, category, specs, level, subject })
-
-    if (!targetId) {
-      toast.error('No matching inventory item found. Create it from Inventory Items first.')
-      return
-    }
+    const fields = { productName, category, specs, level, subject, vendor }
+    const targetId = selectedItemId || resolveExistingItemId(fields)
 
     try {
       setSaving(true)
-      await apiRequest('/warehouse/stock', {
-        method: 'POST',
-        body: JSON.stringify({
-          productId: targetId,
-          quantity: amount,
-          movementType: 'In',
-          reason: 'Manual add',
-        }),
-      })
+      if (targetId) {
+        await apiRequest('/warehouse/stock', {
+          method: 'POST',
+          body: JSON.stringify({
+            productId: targetId,
+            quantity: amount,
+            movementType: 'In',
+            reason: 'Manual add',
+          }),
+        })
+      } else {
+        await apiRequest('/warehouse', {
+          method: 'POST',
+          body: JSON.stringify({
+            productName,
+            class: '',
+            category: showCategory ? category : '',
+            level: showLevel ? level : '',
+            specs: showSpecs ? specs : '',
+            subject: showSubject ? subject : '',
+            vendor,
+            currentStock: amount,
+          }),
+        })
+      }
       toast.success('Quantity added')
       router.push('/dashboard/warehouse/stock')
     } catch (err: any) {
@@ -303,6 +365,15 @@ export default function StockAddPage() {
       setSaving(false)
     }
   }
+
+  const canSubmit =
+    Boolean(productName) &&
+    Boolean(vendor) &&
+    Boolean(qty) &&
+    (!showCategory || Boolean(category)) &&
+    (!showLevel || Boolean(level)) &&
+    (!showSpecs || Boolean(specs)) &&
+    (!showSubject || Boolean(subject))
 
   return (
     <div className="space-y-6">
@@ -338,26 +409,6 @@ export default function StockAddPage() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Item Type *</div>
-              <Select
-                value={itemType || undefined}
-                onValueChange={(v) => onIdentityChange({ itemType: v })}
-                disabled={!productName}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Item Type' : 'Select Product first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {itemTypeOptions.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
             {showCategory && (
             <div className="space-y-2">
               <div className="text-sm font-medium">Product Category *</div>
@@ -380,28 +431,6 @@ export default function StockAddPage() {
             </div>
             )}
 
-            {showSpecs && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Specs *</div>
-              <Select
-                value={specs || undefined}
-                onValueChange={(v) => onIdentityChange({ specs: v })}
-                disabled={!productName}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {specsOptions.map((spec) => (
-                    <SelectItem key={spec} value={spec}>
-                      {spec}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            )}
-
             {showLevel && (
             <div className="space-y-2">
               <div className="text-sm font-medium">Level *</div>
@@ -417,6 +446,28 @@ export default function StockAddPage() {
                   {levelOptions.map((lvl) => (
                     <SelectItem key={lvl} value={lvl}>
                       {lvl}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            )}
+
+            {showSpecs && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Specs *</div>
+              <Select
+                value={specs || undefined}
+                onValueChange={(v) => onIdentityChange({ specs: v })}
+                disabled={!productName}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={productName ? 'Select Specs' : 'Select Product first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {specsOptions.map((spec) => (
+                    <SelectItem key={spec} value={spec}>
+                      {spec}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -447,6 +498,25 @@ export default function StockAddPage() {
             )}
 
             <div className="space-y-2">
+              <div className="text-sm font-medium">Vendor *</div>
+              <Select
+                value={vendor || undefined}
+                onValueChange={(v) => onIdentityChange({ vendor: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {vendorOptions.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
               <div className="text-sm font-medium">Quantity *</div>
               <Input
                 type="number"
@@ -459,7 +529,7 @@ export default function StockAddPage() {
             </div>
 
             <div className="md:col-span-2 flex gap-3">
-              <Button type="submit" disabled={saving || !productName || !itemType || !qty || (showCategory && !category) || (showLevel && !level) || (showSpecs && !specs) || (showSubject && !subject)}>
+              <Button type="submit" disabled={saving || !canSubmit}>
                 {saving ? 'Adding…' : 'Add Item'}
               </Button>
               <Button type="button" variant="destructive" onClick={() => router.push('/dashboard/warehouse/stock')}>

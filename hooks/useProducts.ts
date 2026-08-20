@@ -41,9 +41,26 @@ export function useProducts() {
     }
   }
 
-  // Get product names array (for backward compatibility)
   const getProductNames = (): string[] => {
     return products.map(p => p.productName)
+  }
+
+  const findProduct = (productName: string): Product | undefined => {
+    const n = String(productName || '').trim().toLowerCase()
+    if (!n) return undefined
+    return products.find(p => String(p.productName || '').trim().toLowerCase() === n)
+  }
+
+  const catalogSpecsFromProduct = (product: Product | undefined): string[] => {
+    if (!product) return []
+    const raw = product.specs
+    if (Array.isArray(raw)) {
+      return raw.map((s) => String(s || '').trim()).filter(Boolean)
+    }
+    if (typeof raw === 'string' && raw.trim()) {
+      return [raw.trim()]
+    }
+    return []
   }
 
   // Get product levels for a specific product
@@ -83,20 +100,10 @@ export function useProducts() {
     refetch: loadProducts,
     // Get product specs for a specific product
     getProductSpecs: (productName: string): string[] => {
-      const product = products.find(p => p.productName === productName)
-      if (product && product.hasSpecs && product.specs && Array.isArray(product.specs)) {
-        return product.specs.map((s) => String(s || '').trim()).filter(Boolean)
-      }
-      return ['Regular', 'Single Level only', 'Class WorkBooks Only'] // Default specs
+      return catalogSpecsFromProduct(findProduct(productName))
     },
-    // Check if product has specs configured
     hasProductSpecs: (productName: string): boolean => {
-      const product = products.find(p => p.productName === productName)
-      return (
-        product?.hasSpecs === true &&
-        Array.isArray(product?.specs) &&
-        product.specs.length > 0
-      )
+      return catalogSpecsFromProduct(findProduct(productName)).length > 0
     },
     // Get product subjects for a specific product
     getProductSubjects: (productName: string): string[] => {

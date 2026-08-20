@@ -30,12 +30,31 @@ const getEnums = async (req, res) => {
   }
 };
 
+async function vendorNamesFromMaster() {
+  const users = await User.find({ role: { $in: ['Partner', 'Vendor'] } })
+    .select('name')
+    .sort({ name: 1 })
+    .lean();
+  const names = [];
+  const seen = new Set();
+  for (const user of users) {
+    const name = String(user?.name || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  return names;
+}
+
 // @desc    Get inventory metadata options
 // @route   GET /api/metadata/inventory-options
 // @access  Private
 const getInventoryOptions = async (req, res) => {
   try {
-    // These could be stored in a database, but for now returning defaults
+    const vendors = await vendorNamesFromMaster();
     const options = {
       products: [
         'Abacus',
@@ -50,12 +69,7 @@ const getInventoryOptions = async (req, res) => {
         'Codechamp',
       ],
       uoms: ['Pieces (pcs)', 'boxes'],
-      itemTypes: ['Books', 'Question Paper', 'Instruments'],
-      vendors: [
-        'Vendor 1',
-        'Vendor 2',
-        'Vendor 3',
-      ],
+      vendors,
     };
 
     res.json(options);

@@ -2,26 +2,31 @@
  * Match DC product rows to warehouse inventory SKUs.
  *
  * Inventory identity (from Add Item / Stock) is:
- *   product + class + category + level + specs + subject + itemType + vendor
+ *   product + productCategory + specs + subject + level
  *
- * DC rows carry extra context (Class 1, New Students, L1, subject, etc.).
- * Those DC-only fields must not hide stock whose inventory value is empty ("-").
+ * DC rows carry extra context (Class 1, New Students, etc.).
+ * Student Type / enrollment Category is never Product Category.
+ * Class is not part of the Stock identity key.
  *
  * Compatibility:
  * - Product name must match.
  * - If BOTH the inventory record and the DC row have a value for a field,
  *   those values must match (L1 stock is never used for L2).
  * - Empty / "-" inventory fields are wildcards and can fulfill a DC that
- *   has Class/Level/Subject/Item Type filled in.
+ *   has Class/Level/Subject filled in.
  * - DC enrollment categories (New Students, etc.) are not inventory SKU category.
  *
- * Available qty = sum of currentStock on all compatible inventory records,
- * minus quantity already reserved by earlier lines on this DC.
+ * Available qty = sum of currentStock on all compatible Stock records
+ * (same function as the DC @ Warehouse table). Earlier lines on this DC
+ * reserve qty so Class 1 and Class 2 cannot both consume the full pool.
  */
 
 const STUDENT_ENROLLMENT_CATEGORIES = new Set([
+  'new student',
   'new students',
+  'existing student',
   'existing students',
+  'old student',
   'old students',
   'both',
   'new school',
@@ -80,23 +85,19 @@ function normClass(value) {
 }
 
 function normSpecs(value) {
-  return (blank(value) || 'Regular').toLowerCase();
-}
-
-function isDefaultSpecs(value) {
-  const raw = blank(value);
-  return !raw || raw.toLowerCase() === 'regular';
-}
-
-/** DC Regular/empty is the default spec and must not hide custom inventory specs. Specific DC specs still must match. */
-function specsConflict(itemSpecs, rowSpecs) {
-  if (isDefaultSpecs(rowSpecs)) return false;
-  if (isDefaultSpecs(itemSpecs)) return true;
-  return normSpecs(itemSpecs) !== normSpecs(rowSpecs);
+  const s = blank(value);
+  if (!s || s.toLowerCase() === 'regular') return '';
+  return s.toLowerCase();
 }
 
 function isStudentCategory(value) {
-  return STUDENT_ENROLLMENT_CATEGORIES.has(normName(value));
+  const n = normName(value).replace(/[\s_-]+/g, ' ');
+  if (!n) return false;
+  if (STUDENT_ENROLLMENT_CATEGORIES.has(n)) return true;
+  if (/^(new|old|existing)\s*students?$/.test(n)) return true;
+  if (/^(new|existing)\s*school$/.test(n)) return true;
+  if (/^training\s*materials?$/.test(n)) return true;
+  return false;
 }
 
 /** Inventory SKU category from a DC row (workbook, etc.). Never use DC enrollment Category or Specs. */
@@ -114,6 +115,17 @@ function skuCategoryFromItem(item = {}) {
   return '';
 }
 
+/** Exact inventory identity: Product + Product Category + Level + Specs + Subject */
+function inventoryIdentityKey(item = {}) {
+  return [
+    normName(item.productName || productNameFromRow(item)),
+    normName(skuCategoryFromItem(item) || skuCategoryFromRow(item)),
+    normLevel(item.level),
+    normSpecs(item.specs),
+    normSubject(item.subject),
+  ].join('|');
+}
+
 function productNameFromRow(row = {}) {
   return blank(row.productName || row.product || row.product_name);
 }
@@ -128,13 +140,15 @@ function requiredQtyFromDcRow(row = {}) {
 
 function rowStockLabel(row = {}) {
   const name = productNameFromRow(row) || 'Product';
-  const subject = blank(row.subject);
+  const sku = skuCategoryFromRow(row);
   const level = blank(row.level);
-  const klass = blank(row.class);
+  const specs = blank(row.specs);
+  const subject = blank(row.subject);
   const parts = [name];
-  if (subject) parts.push(subject);
+  if (sku) parts.push(sku);
   if (level) parts.push(level);
-  if (klass) parts.push(`Class ${klass}`);
+  if (specs && specs.toLowerCase() !== 'regular') parts.push(specs);
+  if (subject) parts.push(subject);
   return parts.join(' ');
 }
 
@@ -146,28 +160,24 @@ function stockOf(item) {
   return Number(item?.currentStock) || 0;
 }
 
-/** True when both sides have a value and those values differ. Empty is not a conflict. */
-function valuesConflict(itemValue, rowValue, normalize) {
-  const itemNorm = normalize(itemValue);
-  const rowNorm = normalize(rowValue);
-  if (!itemNorm || !rowNorm) return false;
-  return itemNorm !== rowNorm;
+function stockFieldCovers(stockValue, dcValue, normalize) {
+  const stockNorm = normalize(stockValue);
+  const dcNorm = normalize(dcValue);
+  if (!stockNorm || !dcNorm) return true;
+  return stockNorm === dcNorm;
 }
 
 function itemCompatibleWithRow(item, row) {
   if (!item || !row) return false;
   if (normName(item.productName) !== normName(productNameFromRow(row))) return false;
-  if (specsConflict(item.specs, row.specs)) return false;
-  if (valuesConflict(item.level, row.level, normLevel)) return false;
-  if (valuesConflict(item.subject, row.subject, normSubject)) return false;
-  if (valuesConflict(item.class, row.class, normClass)) return false;
-  if (valuesConflict(item.itemType, row.itemType, normName)) return false;
-  if (valuesConflict(item.supplier || item.vendor, row.supplier || row.vendor, normName)) return false;
 
-  const rowSku = skuCategoryFromRow(row);
-  const itemSku = skuCategoryFromItem(item);
-  if (rowSku && itemSku && normName(rowSku) !== normName(itemSku)) return false;
+  const stockCat = normName(skuCategoryFromItem(item));
+  const dcCat = normName(skuCategoryFromRow(row));
+  if (stockCat && dcCat && stockCat !== dcCat) return false;
 
+  if (!stockFieldCovers(item.level, row.level, normLevel)) return false;
+  if (!stockFieldCovers(item.specs, row.specs, normSpecs)) return false;
+  if (!stockFieldCovers(item.subject, row.subject, normSubject)) return false;
   return true;
 }
 
@@ -180,12 +190,8 @@ function compatibleInventoryItems(inventoryItems, row) {
 function specificityScore(item, row) {
   let score = 0;
   if (normLevel(item.level) && normLevel(item.level) === normLevel(row.level)) score += 1;
-  if (normClass(item.class) && normClass(item.class) === normClass(row.class)) score += 1;
   if (normSubject(item.subject) && normSubject(item.subject) === normSubject(row.subject)) score += 1;
   if (normSpecs(item.specs) && normSpecs(item.specs) === normSpecs(row.specs)) score += 1;
-  if (normName(item.itemType) && normName(row.itemType) && normName(item.itemType) === normName(row.itemType)) {
-    score += 1;
-  }
   const rowSku = skuCategoryFromRow(row);
   const itemSku = skuCategoryFromItem(item);
   if (rowSku && itemSku && normName(rowSku) === normName(itemSku)) score += 1;
@@ -195,17 +201,37 @@ function specificityScore(item, row) {
 function preferredCompatibleItems(inventoryItems, row) {
   const compatible = compatibleInventoryItems(inventoryItems, row);
   if (compatible.length <= 1) return compatible;
-  let best = -1;
-  const scored = compatible.map((item) => {
-    const score = specificityScore(item, row);
-    if (score > best) best = score;
-    return { item, score };
-  });
-  return scored.filter((entry) => entry.score === best).map((entry) => entry.item);
+
+  const groups = new Map();
+  for (const item of compatible) {
+    const key = inventoryIdentityKey(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+
+  let bestScore = -1;
+  let bestGroups = [];
+  for (const items of groups.values()) {
+    const score = Math.max(...items.map((item) => specificityScore(item, row)));
+    if (score > bestScore) {
+      bestScore = score;
+      bestGroups = [items];
+    } else if (score === bestScore) {
+      bestGroups.push(items);
+    }
+  }
+
+  if (bestGroups.length <= 1) return bestGroups[0] || [];
+
+  return bestGroups.sort((a, b) => {
+    const sa = a.reduce((sum, item) => sum + stockOf(item), 0);
+    const sb = b.reduce((sum, item) => sum + stockOf(item), 0);
+    return sb - sa;
+  })[0];
 }
 
 function availableStockForRow(inventoryItems, row, remainingById) {
-  const compatible = preferredCompatibleItems(inventoryItems, row);
+  const compatible = compatibleInventoryItems(inventoryItems, row);
   return compatible.reduce((sum, item) => {
     const id = itemId(item);
     const live = remainingById && id && remainingById.has(id)
@@ -252,8 +278,26 @@ function matchWarehouseItem(inventoryItems, row) {
   return [...compatible].sort((a, b) => stockOf(b) - stockOf(a))[0];
 }
 
+/** Available Qty comes from the matching Stock record. Class/Vendor are ignored. */
+function mapInventoryIdentityOntoDcRow(row, inventoryItems) {
+  const productCategory = skuCategoryFromRow(row);
+  const level = blank(row.level);
+  const specs = blank(row.specs);
+  const subject = blank(row.subject);
+  const matched = compatibleInventoryItems(inventoryItems, row);
+  return {
+    productCategory,
+    level,
+    specs,
+    subject,
+    availableQuantity: availableStockForRow(inventoryItems, row),
+    hasInventoryMatch: matched.length > 0,
+  };
+}
+
 function formatInsufficientStockMessage(insufficient) {
   const lines = (insufficient || []).map((entry) => {
+    if (entry.message) return entry.message;
     const label = entry.label || 'Product';
     return `${label} requires ${entry.requiredQty} but only ${entry.availableQty} is available`;
   });
@@ -266,10 +310,31 @@ function formatInsufficientStockMessage(insufficient) {
   return `Insufficient stock: ${lines.join('; ')}. Please ensure sufficient stock before processing this DC.`;
 }
 
+function displayedAvailableQty(row) {
+  if (!row || row.availableQuantity === undefined || row.availableQuantity === null || row.availableQuantity === '') {
+    return null;
+  }
+  const n = Number(row.availableQuantity);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, n);
+}
+
+/** Pool key for the table Available Qty. Class/Vendor/qty columns are ignored. */
+function displayedStockPoolKey(row = {}) {
+  return [
+    normName(productNameFromRow(row)),
+    normName(skuCategoryFromRow(row)),
+    normLevel(row.level),
+    normSpecs(row.specs),
+    normSubject(row.subject),
+  ].join('|');
+}
+
 function validateDcStockAgainstInventory(rows, inventoryItems) {
   const insufficient = [];
   const allocations = [];
   const remainingById = new Map();
+  const remainingByPool = new Map();
   for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
     const id = itemId(item);
     if (id) remainingById.set(id, stockOf(item));
@@ -279,10 +344,18 @@ function validateDcStockAgainstInventory(rows, inventoryItems) {
     const requiredQty = requiredQtyFromDcRow(row);
     if (requiredQty <= 0) continue;
 
-    const compatible = preferredCompatibleItems(inventoryItems, row);
-    const availableQty = availableStockForRow(inventoryItems, row, remainingById);
+    const compatible = compatibleInventoryItems(inventoryItems, row);
+    const computedQty = availableStockForRow(inventoryItems, row, remainingById);
+    const displayedQty = displayedAvailableQty(row);
+    const poolKey = displayedStockPoolKey(row);
 
-    if (compatible.length === 0 || requiredQty > availableQty) {
+    let availableQty = computedQty;
+    if (displayedQty != null) {
+      if (!remainingByPool.has(poolKey)) remainingByPool.set(poolKey, displayedQty);
+      availableQty = remainingByPool.get(poolKey);
+    }
+
+    if (requiredQty > availableQty) {
       insufficient.push({
         label: rowStockLabel(row),
         requiredQty,
@@ -291,10 +364,14 @@ function validateDcStockAgainstInventory(rows, inventoryItems) {
       continue;
     }
 
+    if (displayedQty != null) {
+      remainingByPool.set(poolKey, availableQty - requiredQty);
+    }
+
     const splits = allocateSplits(compatible, requiredQty, remainingById);
     allocations.push({
       row,
-      item: splits[0]?.item || compatible[0],
+      item: splits[0]?.item || compatible[0] || null,
       requiredQty,
       availableQty,
       splits,
@@ -320,14 +397,19 @@ module.exports = {
   normLevel,
   normSpecs,
   skuCategoryFromRow,
+  skuCategoryFromItem,
+  inventoryIdentityKey,
   requiredQtyFromDcRow,
   rowStockLabel,
   itemCompatibleWithRow,
   compatibleInventoryItems,
   preferredCompatibleItems,
   availableStockForRow,
+  displayedAvailableQty,
+  displayedStockPoolKey,
   itemMatchesRow,
   matchWarehouseItem,
+  mapInventoryIdentityOntoDcRow,
   formatInsufficientStockMessage,
   validateDcStockAgainstInventory,
 };

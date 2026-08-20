@@ -24,8 +24,9 @@ const {
   displayLevelValue,
   logDcProductAssoc,
 } = require('../utils/productLineIdentity');
-const { validateDcStockAgainstInventory } = require('../utils/warehouseInventoryMatch');
-const { ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
+const { validateDcStockAgainstInventory, itemCompatibleWithRow } = require('../utils/warehouseInventoryMatch');
+const { loadDcWarehouseStock } = require('../utils/warehouseStockRecords');
+const { warehouseDocsForStockRow, hasAssignedVendor } = require('../utils/warehouseInventoryIdentity');
 
 /** Closed Sales → Saved DC → Pending DC. Do not re-run Close Lead Term-Wise split/strip. */
 const CLOSED_SALES_PIPELINE_ORDER_STATUSES = new Set([
@@ -158,7 +159,11 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       level: displayLevelValue(p.level),
       specs,
       subject: p.subject || undefined,
+      itemType: typeof p.itemType === 'string' && p.itemType.trim() ? p.itemType.trim() : undefined,
       term: persistProductTerm(p),
+      availableQuantity: Number.isFinite(Number(p.availableQuantity)) ? Number(p.availableQuantity) : undefined,
+      deliverableQuantity: Number.isFinite(Number(p.deliverableQuantity)) ? Number(p.deliverableQuantity) : undefined,
+      remainingQuantity: Number.isFinite(Number(p.remainingQuantity)) ? Number(p.remainingQuantity) : undefined,
       ...(p.closeLeadDestination === 'MY_CLIENT' || p.closeLeadDestination === 'TERM_WISE_DC'
         ? { closeLeadDestination: p.closeLeadDestination }
         : {}),
@@ -2068,7 +2073,7 @@ const managerRequestWarehouse = async (req, res) => {
 // @access  Private (Warehouse only)
 const warehouseProcess = async (req, res) => {
   try {
-    const { availableQuantity, deliverableQuantity, remarks } = req.body;
+    const { availableQuantity, deliverableQuantity, remarks, productDetails } = req.body;
 
     const dc = await DC.findById(req.params.id);
     if (!dc) {
@@ -2083,16 +2088,12 @@ const warehouseProcess = async (req, res) => {
       return res.status(400).json({ message: 'Deliverable quantity cannot be negative' });
     }
 
-    const rows = (Array.isArray(dc.productDetails) ? dc.productDetails : []).map((r) =>
+    const savedRows = (Array.isArray(dc.productDetails) ? dc.productDetails : []).map((r) =>
       r && typeof r.toObject === 'function' ? r.toObject() : r
     );
-    try {
-      await ensureWarehouseInventoryIntegrity();
-    } catch (mergeErr) {
-      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
-    }
-    const inventory = await Warehouse.find({});
-    const stockCheck = validateDcStockAgainstInventory(rows, inventory);
+    const rows = Array.isArray(productDetails) && productDetails.length > 0 ? productDetails : savedRows;
+    const { stock } = await loadDcWarehouseStock({}, { skipAlign: true });
+    const stockCheck = validateDcStockAgainstInventory(rows, stock);
     if (!stockCheck.ok) {
       return res.status(400).json({
         message: stockCheck.message,
@@ -2100,32 +2101,59 @@ const warehouseProcess = async (req, res) => {
       });
     }
 
+    const allItems = await Warehouse.find({});
     for (const alloc of stockCheck.allocations) {
+      let left = Number(alloc.requiredQty) || 0;
+      if (left <= 0) continue;
+
+      const seen = new Set();
+      const docs = [];
       const splits =
         Array.isArray(alloc.splits) && alloc.splits.length > 0
           ? alloc.splits
-          : alloc.item && alloc.requiredQty > 0
-            ? [{ item: alloc.item, qty: alloc.requiredQty }]
+          : alloc.item
+            ? [{ item: alloc.item, qty: left }]
             : [];
       for (const split of splits) {
-        if (!split.item || split.qty <= 0) continue;
-        const warehouseItem =
-          inventory.find((i) => String(i._id) === String(split.item._id)) || split.item;
-        const before = Number(warehouseItem.currentStock) || 0;
-        if (before < split.qty) {
-          return res.status(400).json({
-            message: stockCheck.message || 'Insufficient stock. Please ensure sufficient stock before processing this DC.',
-            insufficient: stockCheck.insufficient,
-          });
+        if (!split.item) continue;
+        for (const doc of warehouseDocsForStockRow(allItems, split.item)) {
+          const id = String(doc._id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          docs.push(doc);
         }
-        warehouseItem.currentStock = before - split.qty;
+      }
+      if (docs.length === 0) {
+        for (const doc of allItems) {
+          if (!hasAssignedVendor(doc) || !itemCompatibleWithRow(doc, alloc.row)) continue;
+          const id = String(doc._id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          docs.push(doc);
+        }
+      }
+      docs.sort((a, b) => (Number(b.currentStock) || 0) - (Number(a.currentStock) || 0));
+
+      for (const warehouseItem of docs) {
+        if (left <= 0) break;
+        const before = Number(warehouseItem.currentStock) || 0;
+        const take = Math.min(Math.max(0, before), left);
+        if (take <= 0) continue;
+        warehouseItem.currentStock = before - take;
         await warehouseItem.save();
         await StockMovement.create({
           productId: warehouseItem._id,
           movementType: 'Out',
-          quantity: split.qty,
+          quantity: take,
           reason: `DC ${dc._id} - ${dc.customerName || 'Customer'}`,
           createdBy: req.user._id,
+        });
+        left -= take;
+      }
+      if (left > 0) {
+        return res.status(400).json({
+          message: stockCheck.message || 'Insufficient stock. Please ensure sufficient stock before processing this DC.',
+          insufficient: stockCheck.insufficient,
         });
       }
     }

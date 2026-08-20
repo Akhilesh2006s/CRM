@@ -16,6 +16,7 @@ import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
 import { sanitizeMobileInput, validateContactMobile, validateContactPerson } from '@/lib/saleFormValidation'
 import { keepMyClientsOwnedProductRows } from '@/lib/clientDcProductRows'
+import { CLOSE_LEAD_DESTINATION } from '@/lib/closeLeadTermRouting'
 import { resolveExistingProductTerm } from '@/lib/productTerm'
 
 /** DcOrder statuses that belong on the Closed Sales page. */
@@ -47,24 +48,59 @@ function productLineQty(p: any): number {
   return Number.isFinite(s) && s > 0 ? s : 0
 }
 
+function dcListFromResponse(res: any): any[] {
+  if (Array.isArray(res)) return res
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
+/** Term-Wise / Term 2 DC — never a Closed Sales Raise DC source. */
+function isTermWiseDcRecord(dc?: any): boolean {
+  if (!dc) return false
+  if (dc.status === 'scheduled_for_later') return true
+  const details = Array.isArray(dc.productDetails) ? dc.productDetails : []
+  if (!details.length) return false
+  return details.every(
+    (p: any) => String(p?.closeLeadDestination || '').trim() === CLOSE_LEAD_DESTINATION.TERM_WISE_DC
+  )
+}
+
 /**
- * Once a DC exists, use THAT DC's product allocations.
- * Never pick the longer unsplit lead/order/dcRequestData list.
+ * Closed Sales Raise DC is the My Clients / Term 1 DC only.
+ * Never include Term-Wise / Term 2 allocations (e.g. P3 Level 2).
  */
-function resolveClosedSalesProductLines(deal?: any, dc?: any): any[] {
-  if (Array.isArray(dc?.productDetails) && dc.productDetails.length > 0) {
-    return keepMyClientsOwnedProductRows(dc.productDetails)
+function closedSalesOwnedLines(rows: any[], siblingRows: any[] = []): any[] {
+  const input = Array.isArray(rows) ? rows : []
+  const withoutExplicitTermWise = input.filter((p) => {
+    const dest = String(p?.closeLeadDestination || '').trim()
+    return dest !== CLOSE_LEAD_DESTINATION.TERM_WISE_DC
+  })
+  return keepMyClientsOwnedProductRows(withoutExplicitTermWise, siblingRows)
+}
+
+/**
+ * Once a My Clients DC exists, use THAT DC's product allocations.
+ * Never pick Term-Wise DC lines or the merged DcOrder list (90 + 20 = 110).
+ */
+function resolveClosedSalesProductLines(deal?: any, dc?: any, siblingRows: any[] = []): any[] {
+  const sources: any[][] = []
+  if (!isTermWiseDcRecord(dc) && Array.isArray(dc?.productDetails) && dc.productDetails.length > 0) {
+    sources.push(dc.productDetails)
   }
   const requested = deal?.dcRequestData?.productDetails
   if (Array.isArray(requested) && requested.length > 0) {
-    return keepMyClientsOwnedProductRows(requested)
+    sources.push(requested)
   }
   const pe = deal?.pendingEdit
   if (pe?.status === 'approved' && Array.isArray(pe.products) && pe.products.length > 0) {
-    return keepMyClientsOwnedProductRows(pe.products)
+    sources.push(pe.products)
   }
   if (Array.isArray(deal?.products) && deal.products.length > 0) {
-    return keepMyClientsOwnedProductRows(deal.products)
+    sources.push(deal.products)
+  }
+  for (const src of sources) {
+    const owned = closedSalesOwnedLines(src, siblingRows)
+    if (owned.length > 0) return owned
   }
   return []
 }
@@ -210,7 +246,7 @@ export default function ClosedSalesPage() {
     unit_price: number
   }
   const [productRows, setProductRows] = useState<ProductRow[]>([
-    { id: '1', product: 'Abacus', class: '1', category: 'new Students', productCategory: undefined, specs: 'Regular', quantity: 1, strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
+    { id: '1', product: 'Abacus', class: '1', category: 'new Students', productCategory: undefined, specs: '', quantity: 1, strength: 0, level: 'L1', term: 'Term 1', unit_price: 0 }
   ])
   
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
@@ -236,7 +272,7 @@ export default function ClosedSalesPage() {
     if (v === 'Existing School') return 'Old Students'
     return categoryOptions.includes(v) ? v : fallback
   }
-  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories, hasProductSubjects } = useProducts()
+  const { productNames: availableProducts, getProductLevels, getDefaultLevel, getProductSpecs, getProductSubjects, getProductCategories, hasProductCategories, hasProductSubjects, hasProductSpecs } = useProducts()
 
   /** Map Create Sale / DcOrder / DC product lines into Closed Sales rows without mixing quantity ↔ strength. */
   const mapSourceProductToRow = (p: any, idx: number, schoolType?: string): ProductRow => {
@@ -404,20 +440,14 @@ export default function ClosedSalesPage() {
               const term2DC = relatedDCs.find((dc: any) => dc.status === 'scheduled_for_later')
               
               if (term1DC) {
-                // Use Term 1 DC for Closed Sales (shows Term 1 products)
+                // Use Term 1 / My Clients DC for Closed Sales only
                 dcMap[dealId] = term1DC
                 console.log(`✅ Found Term 1 DC for DcOrder ${dealId}:`, term1DC._id, `(status: ${term1DC.status})`)
                 if (term2DC) {
                   console.log(`   Also has Term 2 DC:`, term2DC._id, `(will appear in Term-Wise DC)`)
                 }
-              } else if (term2DC) {
-                // Fallback: if only Term 2 DC exists, use it (shouldn't happen for Closed Sales, but handle it)
-                dcMap[dealId] = term2DC
-                console.log(`⚠️ Only Term 2 DC found for DcOrder ${dealId}:`, term2DC._id)
               } else {
-                // Use first DC found
-                dcMap[dealId] = relatedDCs[0]
-                console.log(`✅ Found DC for DcOrder ${dealId}:`, relatedDCs[0]._id)
+                console.log(`⚠️ No My Clients DC for Closed Sales DcOrder ${dealId}`)
               }
             }
           })
@@ -543,7 +573,6 @@ export default function ClosedSalesPage() {
         // Check if this is a split DC (has dcRequestData.isSplit or term2DCId)
         const dcRequestData = (item as any).dcRequestData || {}
         const isSplit = dcRequestData.isSplit || dcRequestData.term2DCId
-        const term2DCId = dcRequestData.term2DCId
         
         // For split DCs, determine if this is Term 1 or Term 2 entry
         // Priority: Check dcRequestData.productDetails (most recent request)
@@ -569,10 +598,12 @@ export default function ClosedSalesPage() {
           // But we need to check products to be sure
         }
         
-        // For split DCs, include term indicator in unique key to allow both entries
-        const uniqueKey = isSplit 
-          ? `${schoolName}|${contactMobile}|${isTerm2Entry ? 'term2' : 'term1'}`
-          : `${schoolName}|${contactMobile}`
+        // Term-Wise / Term 2 DCs belong on Clients → Term Wise DC, not Closed Sales.
+        if (isSplit && isTerm2Entry) {
+          continue
+        }
+
+        const uniqueKey = `${schoolName}|${contactMobile}`
         
         // Only add if we haven't seen this combination before
         if (!seen.has(uniqueKey)) {
@@ -597,22 +628,7 @@ export default function ClosedSalesPage() {
             const index = uniqueData.findIndex(d => {
               const dSchoolName = (d.school_name || '').toLowerCase().trim()
               const dContactMobile = (d.contact_mobile || '').trim()
-              const dDcRequestData = (d as any).dcRequestData || {}
-              const dIsSplit = dDcRequestData.isSplit || dDcRequestData.term2DCId
-              let dIsTerm2Entry = false
-              if (dIsSplit && dDcRequestData.productDetails && Array.isArray(dDcRequestData.productDetails)) {
-                const dAllTerm2 = dDcRequestData.productDetails.every((p: any) => (p.term || 'Term 1') === 'Term 2')
-                const dHasTerm1 = dDcRequestData.productDetails.some((p: any) => (p.term || 'Term 1') === 'Term 1' || p.term === 'Both')
-                dIsTerm2Entry = dAllTerm2 && !dHasTerm1
-              } else if (dIsSplit && d.products && Array.isArray(d.products)) {
-                const dHasTerm2Only = d.products.every((p: any) => (p.term || 'Term 1') === 'Term 2')
-                const dHasTerm1 = d.products.some((p: any) => (p.term || 'Term 1') === 'Term 1' || p.term === 'Both')
-                dIsTerm2Entry = dHasTerm2Only && !dHasTerm1
-              }
-              const dUniqueKey = dIsSplit 
-                ? `${dSchoolName}|${dContactMobile}|${dIsTerm2Entry ? 'term2' : 'term1'}`
-                : `${dSchoolName}|${dContactMobile}`
-              return dUniqueKey === uniqueKey
+              return `${dSchoolName}|${dContactMobile}` === uniqueKey
             })
             if (index !== -1) {
               uniqueData[index] = item
@@ -667,73 +683,20 @@ export default function ClosedSalesPage() {
 
   const openRaiseDC = async (deal: DcOrder) => {
     try {
-      // Check if this is a Term 2 split DC
-      const isTerm2SplitDC = (deal as any).isTerm2SplitDC
-      const term2DCId = (deal as any).term2DCId
-      
-      // Check if DC already exists for this deal
-      const existingDCForDeal = dealDCs[deal._id]
+      // Closed Sales Raise DC is always the My Clients / Term 1 DC.
+      // Term-Wise products stay on Clients → Term Wise DC.
+      const existingDCForDeal = isTermWiseDcRecord(dealDCs[deal._id])
+        ? undefined
+        : dealDCs[deal._id]
       setExistingDC(existingDCForDeal || null)
-      
-      // For Term 2 split DCs, fetch the actual DC data instead of DcOrder
+
       let fullDeal: DcOrder
-      if (isTerm2SplitDC && term2DCId) {
-        console.log('📦 Loading Term 2 split DC:', term2DCId)
-        try {
-          const term2DC = await apiRequest<DC>(`/dc/${term2DCId}`)
-          console.log('✅ Loaded Term 2 split DC:', term2DC)
-          
-          // Convert DC to DcOrder-like format for the dialog
-          const dcOrderId = typeof term2DC.dcOrderId === 'object' ? term2DC.dcOrderId?._id : term2DC.dcOrderId
-          
-          // Fetch the original DcOrder for additional details
-          let originalDcOrder: any = null
-          if (dcOrderId) {
-            try {
-              originalDcOrder = await apiRequest<any>(`/dc-orders/${dcOrderId}`)
-            } catch (e) {
-              console.warn('Could not fetch original DcOrder:', e)
-            }
-          }
-          
-          // Merge DC data with DcOrder data
-          fullDeal = {
-            ...deal,
-            _id: dcOrderId || deal._id, // Use DcOrder ID for operations
-            school_name: term2DC.customerName || deal.school_name || '',
-            contact_person: originalDcOrder?.contact_person || deal.contact_person || '',
-            contact_mobile: term2DC.customerPhone || originalDcOrder?.contact_mobile || deal.contact_mobile || '',
-            contact_person2: originalDcOrder?.contact_person2 || (deal as any).contact_person2 || '',
-            contact_mobile2: originalDcOrder?.contact_mobile2 || (deal as any).contact_mobile2 || '',
-            email: (term2DC as any).customerEmail || originalDcOrder?.email || deal.email || '',
-            address: (term2DC as any).customerAddress || originalDcOrder?.address || deal.address || '',
-            location: originalDcOrder?.location || deal.location || '',
-            zone: originalDcOrder?.zone || deal.zone || '',
-            school_type: originalDcOrder?.school_type || deal.school_type || '',
-            products: term2DC.productDetails || originalDcOrder?.products || deal.products || [],
-            assigned_to: originalDcOrder?.assigned_to || deal.assigned_to,
-            remarks: term2DC.dcRemarks || originalDcOrder?.remarks || deal.remarks || '',
-            pod_proof_url: term2DC.poPhotoUrl || (term2DC as any).poDocument || originalDcOrder?.pod_proof_url || deal.pod_proof_url,
-            status: 'dc_requested', // Keep as dc_requested
-            term2DCId: term2DC._id, // Store the actual DC ID
-            isTerm2SplitDC: true,
-          } as DcOrder
-          
-          // Set the existing DC to the Term 2 DC
-          setExistingDC(term2DC)
-        } catch (fetchError: any) {
-          console.error('Could not fetch Term 2 split DC, using deal data:', fetchError?.message)
-          fullDeal = deal
-        }
-      } else if ((deal as any).isLead) {
-        // This is a closed lead, not a dc-order, so use the deal data directly
+      if ((deal as any).isLead) {
         fullDeal = deal
       } else {
-        // Fetch full deal details to ensure all data is populated
         try {
           fullDeal = await apiRequest<DcOrder>(`/dc-orders/${deal._id}`)
         } catch (fetchError: any) {
-          // If fetch fails (deal not found, etc.), use the deal data we have
           console.warn('Could not fetch full deal details, using list data:', fetchError?.message)
           fullDeal = deal
         }
@@ -818,15 +781,53 @@ export default function ClosedSalesPage() {
       if (dcRequestData.dcCategory) setDcCategory(dcRequestData.dcCategory)
       if (dcRequestData.dcNotes) setDcNotes(dcRequestData.dcNotes)
 
-      let dcForProducts = existingDCForDeal
-      if (existingDCForDeal?._id) {
+      let siblingRows: any[] = []
+      let myClientsDcFromSiblings: DC | undefined
+      const orderIdForSiblings = String(
+        (existingDCForDeal as any)?.dcOrderId?._id ||
+          (existingDCForDeal as any)?.dcOrderId ||
+          fullDeal._id ||
+          deal._id ||
+          ''
+      )
+      if (orderIdForSiblings) {
         try {
-          dcForProducts = await apiRequest<DC>(`/dc/${existingDCForDeal._id}`)
+          const related = await apiRequest<any>(
+            `/dc?dcOrderId=${encodeURIComponent(orderIdForSiblings)}`
+          )
+          const relatedList = dcListFromResponse(related)
+          myClientsDcFromSiblings = relatedList.find((r: any) => !isTermWiseDcRecord(r))
+          siblingRows = relatedList
+            .filter((r: any) => isTermWiseDcRecord(r))
+            .flatMap((r: any) => (Array.isArray(r.productDetails) ? r.productDetails : []))
+        } catch (e) {
+          console.warn('Could not load Term-Wise sibling lines for Closed Sales Raise DC:', e)
+        }
+      }
+
+      let dcForProducts = existingDCForDeal || myClientsDcFromSiblings
+      if (isTermWiseDcRecord(dcForProducts)) {
+        dcForProducts = myClientsDcFromSiblings
+      }
+      if (dcForProducts?._id && !isTermWiseDcRecord(dcForProducts)) {
+        try {
+          const loaded = await apiRequest<DC>(`/dc/${dcForProducts._id}`)
+          if (loaded && !isTermWiseDcRecord(loaded)) {
+            dcForProducts = loaded
+            setExistingDC(loaded)
+            setDcDate(loaded.dcDate ? new Date(loaded.dcDate).toISOString().split('T')[0] : '')
+            if (loaded.dcRemarks) setDcRemarks(loaded.dcRemarks)
+            if (loaded.dcCategory) setDcCategory(loaded.dcCategory)
+            if (loaded.dcNotes) setDcNotes(loaded.dcNotes)
+          }
         } catch (e) {
           console.warn('Could not load full DC for Closed Sales products:', e)
         }
       }
-      const poProducts = resolveClosedSalesProductLines(fullDeal, dcForProducts)
+      if (isTermWiseDcRecord(dcForProducts)) {
+        dcForProducts = undefined
+      }
+      const poProducts = resolveClosedSalesProductLines(fullDeal, dcForProducts, siblingRows)
       console.log('[DC-ASSOC] Closed Sales Raise products', {
         dcId: dcForProducts?._id,
         count: poProducts.length,
@@ -838,142 +839,28 @@ export default function ClosedSalesPage() {
           quantity: productLineQty(p),
         })),
       })
+
+      const placeholderRow = {
+        id: '1',
+        product: 'Abacus',
+        class: '1',
+        category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
+        specs: '',
+        quantity: 1,
+        strength: 0,
+        level: 'L1',
+        term: 'Term 1',
+        unit_price: 0,
+      }
+
       if (poProducts.length > 0) {
         setProductRows(
           poProducts.map((p: any, idx: number) =>
             mapSourceProductToRow(p, idx, normalizedDeal.school_type)
           )
         )
-      }
-
-      if ((fullDeal.status === 'dc_requested' || fullDeal.status === 'dc_accepted') && dcRequestData && poProducts.length === 0) {
-        setProductRows([{
-          id: '1',
-          product: 'Abacus',
-          class: '1',
-          category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-          specs: 'Regular',
-          quantity: 1,
-          strength: 0,
-          level: 'L1',
-          term: 'Term 1',
-          unit_price: 0,
-        }])
-      } else if (existingDCForDeal && poProducts.length === 0) {
-        // Load full DC details to get all fields
-        try {
-          const fullDC = await apiRequest<DC>(`/dc/${existingDCForDeal._id}`)
-          console.log('Loading existing DC data:', fullDC)
-          console.log('DC productDetails:', fullDC.productDetails)
-          console.log('DC productDetails type:', typeof fullDC.productDetails)
-          console.log('DC productDetails is array?', Array.isArray(fullDC.productDetails))
-          if (fullDC.productDetails && Array.isArray(fullDC.productDetails)) {
-            fullDC.productDetails.forEach((p: any, idx: number) => {
-              console.log(`Product ${idx + 1} RAW DATA:`, p)
-              console.log(`Product ${idx + 1} DETAILS:`, {
-                product: p.product,
-                price: p.price,
-                priceType: typeof p.price,
-                total: p.total,
-                totalType: typeof p.total,
-                level: p.level,
-                strength: p.strength,
-                quantity: p.quantity,
-                class: p.class,
-                category: p.category,
-                productName: p.productName,
-              })
-            })
-          }
-          
-          setDcDate(fullDC.dcDate ? new Date(fullDC.dcDate).toISOString().split('T')[0] : '')
-          setDcRemarks(fullDC.dcRemarks || '')
-          setDcCategory(fullDC.dcCategory || '')
-          setDcNotes(fullDC.dcNotes || '')
-          
-          // Load product rows from DC productDetails or DcOrder products
-          // Use EXACT product names as they were entered when DC was requested
-          if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-            setProductRows(
-              fullDC.productDetails.map((p: any, idx: number) =>
-                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
-              )
-            )
-          } else if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-            setProductRows(
-              normalizedDeal.products.map((p: any, idx: number) =>
-                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
-              )
-            )
-          } else {
-            setProductRows([{
-              id: '1',
-              product: 'Abacus',
-              class: '1',
-              category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-              specs: 'Regular',
-              quantity: 1,
-              strength: 0,
-              level: 'L1',
-              term: 'Term 1',
-              unit_price: 0,
-            }])
-          }
-        } catch (e) {
-          console.error('Failed to load existing DC:', e)
-          // Fallback to empty form
-          setDcDate('')
-          setDcRemarks('')
-          setDcCategory('')
-          setDcNotes('')
-          if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-            setProductRows(
-              normalizedDeal.products.map((p: any, idx: number) =>
-                mapSourceProductToRow(p, idx, normalizedDeal.school_type)
-              )
-            )
-          } else {
-            setProductRows([{
-              id: '1',
-              product: 'Abacus',
-              class: '1',
-              category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-              specs: 'Regular',
-              quantity: 1,
-              strength: 0,
-              level: 'L1',
-              term: 'Term 1',
-              unit_price: 0,
-            }])
-          }
-        }
       } else {
-        // No existing DC, start with fresh form
-        setDcDate('')
-        setDcRemarks('')
-        setDcCategory('')
-        setDcNotes('')
-        // Initialize product rows from existing products in deal, or start with one empty row
-        if (normalizedDeal.products && Array.isArray(normalizedDeal.products) && normalizedDeal.products.length > 0) {
-          setProductRows(
-            normalizedDeal.products.map((p: any, idx: number) =>
-              mapSourceProductToRow(p, idx, normalizedDeal.school_type)
-            )
-          )
-        } else {
-          setProductRows([{
-            id: '1',
-            product: 'Abacus',
-            class: '1',
-            category: normalizedDeal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-            specs: 'Regular',
-            quantity: 1,
-            strength: 0,
-            level: 'L1',
-            term: 'Term 1',
-            unit_price: 0,
-          }])
-        }
+        setProductRows([placeholderRow])
       }
       setDcDetailsErrors({})
       setOpenRaiseDCDialog(true)
@@ -992,9 +879,13 @@ export default function ClosedSalesPage() {
       setDcRemarks('')
       setDcCategory('')
       setDcNotes('')
-      if (deal.products && Array.isArray(deal.products) && deal.products.length > 0) {
+      const fallbackLines = resolveClosedSalesProductLines(
+        deal,
+        isTermWiseDcRecord(dealDCs[deal._id]) ? undefined : dealDCs[deal._id]
+      )
+      if (fallbackLines.length > 0) {
         setProductRows(
-          deal.products.map((p: any, idx: number) => mapSourceProductToRow(p, idx, deal.school_type))
+          fallbackLines.map((p: any, idx: number) => mapSourceProductToRow(p, idx, deal.school_type))
         )
       } else {
         setProductRows([{
@@ -1002,7 +893,7 @@ export default function ClosedSalesPage() {
           product: 'Abacus',
           class: '1',
           category: deal.school_type === 'Existing' ? 'Old Students' : 'new Students',
-          specs: 'Regular',
+          specs: '',
           quantity: 1,
           strength: 0,
           level: 'L1',
@@ -1146,6 +1037,7 @@ export default function ClosedSalesPage() {
         quantity: Number(row.quantity) || 0,
         level: row.level,
         term: resolveExistingProductTerm(row),
+        closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
       }))
 
       // Set status to pending_dc when raising from Closed Sales
@@ -1167,8 +1059,8 @@ export default function ClosedSalesPage() {
       let dc: DC
       
       // If DC exists, update it; otherwise create new one
-      if (existingDC) {
-        // Update existing DC
+      if (existingDC && !isTermWiseDcRecord(existingDC)) {
+        // Update existing My Clients DC
         await apiRequest(`/dc/${existingDC._id}`, {
           method: 'PUT',
           body: JSON.stringify({
@@ -1265,6 +1157,7 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
           term: row.term || 'Term 1',
+          closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
         })),
         employeeId: employeeId,
       }
@@ -1323,9 +1216,13 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level && String(row.level).trim() !== '-' ? String(row.level).trim() : '',
           term: row.term || 'Term 1',
+          closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
         }))
       } else {
-        const fallbackLines = resolveClosedSalesProductLines(selectedDeal, existingDC)
+        const fallbackLines = resolveClosedSalesProductLines(
+          selectedDeal,
+          isTermWiseDcRecord(existingDC) ? undefined : existingDC
+        )
         if (fallbackLines.length > 0) {
           finalProductDetails = fallbackLines.map((p: any) => ({
             product: p.product_name || p.product || p.productName || 'Abacus',
@@ -1339,6 +1236,7 @@ export default function ClosedSalesPage() {
             quantity: Number(p.quantity) || Number(p.strength) || 0,
             level: p.level && String(p.level).trim() !== '-' ? String(p.level).trim() : '',
             term: p.term || 'Term 1',
+            closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
           }))
         }
       }
@@ -1375,8 +1273,8 @@ export default function ClosedSalesPage() {
       let dc: DC
       
       // If DC exists, update it; otherwise create new one
-      if (existingDC) {
-        // Update existing DC
+      if (existingDC && !isTermWiseDcRecord(existingDC)) {
+        // Update existing My Clients DC
         await apiRequest(`/dc/${existingDC._id}`, {
           method: 'PUT',
           body: JSON.stringify(raisePayload),
@@ -1441,7 +1339,7 @@ export default function ClosedSalesPage() {
       if (!row.product || row.product.trim() === '') {
         invalidRows.push(`Row ${rowNum}: Product is required`)
       }
-      if (!row.specs || row.specs.trim() === '') {
+      if (row.product && hasProductSpecs(row.product) && (!row.specs || row.specs.trim() === '')) {
         invalidRows.push(`Row ${rowNum}: Specs is required`)
       }
       if (!row.quantity || Number(row.quantity) <= 0) {
@@ -1467,10 +1365,6 @@ export default function ClosedSalesPage() {
 
     setSaving(true)
     try {
-      // Check if this is a Term 2 split DC
-      const isTerm2SplitDC = (selectedDeal as any).isTerm2SplitDC
-      const term2DCId = (selectedDeal as any).term2DCId
-      
       // Get DC request data from DcOrder
       const dcRequestData = (selectedDeal as any).dcRequestData || {}
       
@@ -1497,6 +1391,7 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
               term: row.term || 'Term 1',
+              closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
             }))
           : (dcRequestData.productDetails || []),
       }
@@ -1510,20 +1405,9 @@ export default function ClosedSalesPage() {
       // Status will only change to sent_to_manager when "Submit to Warehouse" is pressed in Pending DC page
       raisePayload.status = 'pending_dc'
 
-      // Create or update DC
+      // Create or update the My Clients DC only — never the Term-Wise DC
       let dc: DC
-      if (isTerm2SplitDC && term2DCId && existingDC) {
-        // This is a Term 2 split DC - update the existing Term 2 DC
-        console.log('📦 Updating Term 2 split DC:', term2DCId)
-        await apiRequest(`/dc/${term2DCId}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            ...raisePayload,
-            status: 'pending_dc', // Change from scheduled_for_later to pending_dc
-          }),
-        })
-        dc = existingDC
-      } else if (existingDC) {
+      if (existingDC && !isTermWiseDcRecord(existingDC)) {
         await apiRequest(`/dc/${existingDC._id}`, {
           method: 'PUT',
           body: JSON.stringify(raisePayload),
@@ -2175,7 +2059,7 @@ export default function ClosedSalesPage() {
                                 }
                                 // Default specs based on product
                                 const specs = getProductSpecs(value)
-                                updated[idx].specs = specs[0] || 'Regular'
+                                updated[idx].specs = specs[0] || ''
                                 // Default subject if product has subjects
                                 if (hasProductSubjects(value)) {
                                   const subjects = getProductSubjects(value)
@@ -2257,8 +2141,9 @@ export default function ClosedSalesPage() {
                         )}
                           </td>
                           <td className="py-4 px-5">
+                            {hasProductSpecs(row.product) ? (
                             <Select
-                              value={row.specs || ''}
+                              value={row.specs || undefined}
                               onValueChange={(value) => {
                               const updated = [...productRows]
                                 updated[idx].specs = value
@@ -2266,7 +2151,7 @@ export default function ClosedSalesPage() {
                               }}
                             >
                               <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-36">
-                                <SelectValue placeholder="Specs" />
+                                <SelectValue placeholder="Select Specs" />
                               </SelectTrigger>
                               <SelectContent>
                                 {getProductSpecs(row.product).map((spec) => (
@@ -2276,6 +2161,9 @@ export default function ClosedSalesPage() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
                           </td>
                           <td className="py-4 px-5">
                             {hasProductSubjects(row.product) && getProductSubjects(row.product).length > 0 ? (

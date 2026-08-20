@@ -4,8 +4,11 @@
  */
 
 const STUDENT_ENROLLMENT_CATEGORIES = new Set([
+  'new student',
   'new students',
+  'existing student',
   'existing students',
+  'old student',
   'old students',
   'both',
   'new school',
@@ -53,18 +56,9 @@ function normLevel(value: unknown): string {
 }
 
 function normSpecs(value: unknown): string {
-  return (blank(value) || 'Regular').toLowerCase()
-}
-
-function isDefaultSpecs(value: unknown): boolean {
-  const raw = blank(value)
-  return !raw || raw.toLowerCase() === 'regular'
-}
-
-function specsConflict(itemSpecs: unknown, rowSpecs: unknown): boolean {
-  if (isDefaultSpecs(rowSpecs)) return false
-  if (isDefaultSpecs(itemSpecs)) return true
-  return normSpecs(itemSpecs) !== normSpecs(rowSpecs)
+  const s = blank(value)
+  if (!s || s.toLowerCase() === 'regular') return ''
+  return s.toLowerCase()
 }
 
 function normClass(value: unknown): string {
@@ -78,7 +72,13 @@ function normClass(value: unknown): string {
 }
 
 function isStudentCategory(value: unknown): boolean {
-  return STUDENT_ENROLLMENT_CATEGORIES.has(normName(value))
+  const n = normName(value).replace(/[\s_-]+/g, ' ')
+  if (!n) return false
+  if (STUDENT_ENROLLMENT_CATEGORIES.has(n)) return true
+  if (/^(new|old|existing)\s*students?$/.test(n)) return true
+  if (/^(new|existing)\s*school$/.test(n)) return true
+  if (/^training\s*materials?$/.test(n)) return true
+  return false
 }
 
 export function skuCategoryFromRow(row: Record<string, any> = {}): string {
@@ -89,10 +89,29 @@ export function skuCategoryFromRow(row: Record<string, any> = {}): string {
   return ''
 }
 
-function skuCategoryFromItem(item: Record<string, any> = {}): string {
+export function skuCategoryFromItem(item: Record<string, any> = {}): string {
   const category = blank(item.category)
   if (category && !isStudentCategory(category)) return category
   return ''
+}
+
+function stockIdentity(item: Record<string, any> = {}) {
+  return {
+    productName: normName(item.productName || productNameFromRow(item)),
+    category: normName(skuCategoryFromItem(item) || skuCategoryFromRow(item)),
+    level: normLevel(item.level),
+    specs: normSpecs(item.specs),
+    subject: normSubject(item.subject),
+  }
+}
+
+function stockIdentityKeyFromParts(id: ReturnType<typeof stockIdentity>): string {
+  return [id.productName, id.category, id.level, id.specs, id.subject].join('|')
+}
+
+/** Exact Stock identity: Product + Product Category + Level + Specs + Subject. Vendor/Class ignored. */
+export function inventoryIdentityKey(item: Record<string, any> = {}): string {
+  return stockIdentityKeyFromParts(stockIdentity(item))
 }
 
 export function productNameFromRow(row: Record<string, any> = {}): string {
@@ -109,13 +128,15 @@ export function requiredQtyFromDcRow(row: Record<string, any> = {}): number {
 
 export function rowStockLabel(row: Record<string, any> = {}): string {
   const name = productNameFromRow(row) || 'Product'
-  const subject = blank(row.subject)
+  const sku = skuCategoryFromRow(row)
   const level = blank(row.level)
-  const klass = blank(row.class)
+  const specs = blank(row.specs)
+  const subject = blank(row.subject)
   const parts = [name]
-  if (subject) parts.push(subject)
+  if (sku) parts.push(sku)
   if (level) parts.push(level)
-  if (klass) parts.push(`Class ${klass}`)
+  if (specs && specs.toLowerCase() !== 'regular') parts.push(specs)
+  if (subject) parts.push(subject)
   return parts.join(' ')
 }
 
@@ -127,31 +148,29 @@ function stockOf(item: Record<string, any> | null | undefined): number {
   return Number(item?.currentStock) || 0
 }
 
-function valuesConflict(
-  itemValue: unknown,
-  rowValue: unknown,
+/** Empty Stock fields are not filters. Filled Stock fields must equal the DC value. Class/Vendor ignored. */
+function stockFieldCovers(
+  stockValue: unknown,
+  dcValue: unknown,
   normalize: (value: unknown) => string
 ): boolean {
-  const itemNorm = normalize(itemValue)
-  const rowNorm = normalize(rowValue)
-  if (!itemNorm || !rowNorm) return false
-  return itemNorm !== rowNorm
+  const stockNorm = normalize(stockValue)
+  const dcNorm = normalize(dcValue)
+  if (!stockNorm || !dcNorm) return true
+  return stockNorm === dcNorm
 }
 
 export function itemCompatibleWithRow(item: Record<string, any>, row: Record<string, any>): boolean {
   if (!item || !row) return false
   if (normName(item.productName) !== normName(productNameFromRow(row))) return false
-  if (specsConflict(item.specs, row.specs)) return false
-  if (valuesConflict(item.level, row.level, normLevel)) return false
-  if (valuesConflict(item.subject, row.subject, normSubject)) return false
-  if (valuesConflict(item.class, row.class, normClass)) return false
-  if (valuesConflict(item.itemType, row.itemType, normName)) return false
-  if (valuesConflict(item.supplier || item.vendor, row.supplier || row.vendor, normName)) return false
 
-  const rowSku = skuCategoryFromRow(row)
-  const itemSku = skuCategoryFromItem(item)
-  if (rowSku && itemSku && normName(rowSku) !== normName(itemSku)) return false
+  const stockCat = normName(skuCategoryFromItem(item))
+  const dcCat = normName(skuCategoryFromRow(row))
+  if (stockCat && dcCat && stockCat !== dcCat) return false
 
+  if (!stockFieldCovers(item.level, row.level, normLevel)) return false
+  if (!stockFieldCovers(item.specs, row.specs, normSpecs)) return false
+  if (!stockFieldCovers(item.subject, row.subject, normSubject)) return false
   return true
 }
 
@@ -167,12 +186,8 @@ export function compatibleInventoryItems<T extends Record<string, any>>(
 function specificityScore(item: Record<string, any>, row: Record<string, any>): number {
   let score = 0
   if (normLevel(item.level) && normLevel(item.level) === normLevel(row.level)) score += 1
-  if (normClass(item.class) && normClass(item.class) === normClass(row.class)) score += 1
   if (normSubject(item.subject) && normSubject(item.subject) === normSubject(row.subject)) score += 1
   if (normSpecs(item.specs) && normSpecs(item.specs) === normSpecs(row.specs)) score += 1
-  if (normName(item.itemType) && normName(row.itemType) && normName(item.itemType) === normName(row.itemType)) {
-    score += 1
-  }
   const rowSku = skuCategoryFromRow(row)
   const itemSku = skuCategoryFromItem(item)
   if (rowSku && itemSku && normName(rowSku) === normName(itemSku)) score += 1
@@ -185,13 +200,34 @@ export function preferredCompatibleItems<T extends Record<string, any>>(
 ): T[] {
   const compatible = compatibleInventoryItems(inventoryItems, row)
   if (compatible.length <= 1) return compatible
-  let best = -1
-  const scored = compatible.map((item) => {
-    const score = specificityScore(item, row)
-    if (score > best) best = score
-    return { item, score }
-  })
-  return scored.filter((entry) => entry.score === best).map((entry) => entry.item)
+
+  const groups = new Map<string, T[]>()
+  for (const item of compatible) {
+    const key = inventoryIdentityKey(item)
+    const list = groups.get(key)
+    if (list) list.push(item)
+    else groups.set(key, [item])
+  }
+
+  let bestScore = -1
+  let bestGroups: T[][] = []
+  for (const items of groups.values()) {
+    const score = Math.max(...items.map((item) => specificityScore(item, row)))
+    if (score > bestScore) {
+      bestScore = score
+      bestGroups = [items]
+    } else if (score === bestScore) {
+      bestGroups.push(items)
+    }
+  }
+
+  if (bestGroups.length <= 1) return bestGroups[0] || []
+
+  return bestGroups.sort((a, b) => {
+    const sa = a.reduce((sum, item) => sum + stockOf(item), 0)
+    const sb = b.reduce((sum, item) => sum + stockOf(item), 0)
+    return sb - sa
+  })[0]
 }
 
 export function availableStockForRow(
@@ -199,7 +235,7 @@ export function availableStockForRow(
   row: Record<string, any>,
   remainingById?: Map<string, number>
 ): number {
-  const compatible = preferredCompatibleItems(inventoryItems, row)
+  const compatible = compatibleInventoryItems(inventoryItems, row)
   return compatible.reduce((sum, item) => {
     const id = itemId(item)
     const live =
@@ -221,10 +257,31 @@ export function matchWarehouseItem<T extends Record<string, any>>(
   return [...compatible].sort((a, b) => stockOf(b) - stockOf(a))[0]
 }
 
+/** Copy Stock identity fields from the DC row; Available Qty comes from the matching Stock record. */
+export function mapInventoryIdentityOntoDcRow(
+  row: Record<string, any>,
+  inventoryItems: Record<string, any>[] | undefined
+) {
+  const productCategory = skuCategoryFromRow(row)
+  const level = blank(row.level)
+  const specs = blank(row.specs)
+  const subject = blank(row.subject)
+  const matched = compatibleInventoryItems(inventoryItems, row)
+  return {
+    productCategory,
+    level,
+    specs,
+    subject,
+    availableQuantity: availableStockForRow(inventoryItems, row),
+    hasInventoryMatch: matched.length > 0,
+  }
+}
+
 export function formatInsufficientStockMessage(
   insufficient: Array<{ label: string; requiredQty: number; availableQty: number }>
 ): string {
   const lines = (insufficient || []).map((entry) => {
+    if ((entry as { message?: string }).message) return (entry as { message: string }).message
     const label = entry.label || 'Product'
     return `${label} requires ${entry.requiredQty} but only ${entry.availableQty} is available`
   })
@@ -235,6 +292,25 @@ export function formatInsufficientStockMessage(
     return `Insufficient stock: ${lines[0]}. Please ensure sufficient stock before processing this DC.`
   }
   return `Insufficient stock: ${lines.join('; ')}. Please ensure sufficient stock before processing this DC.`
+}
+
+function displayedAvailableQty(row: Record<string, any> | null | undefined): number | null {
+  if (!row || row.availableQuantity === undefined || row.availableQuantity === null || row.availableQuantity === '') {
+    return null
+  }
+  const n = Number(row.availableQuantity)
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, n)
+}
+
+function displayedStockPoolKey(row: Record<string, any> = {}): string {
+  return [
+    normName(productNameFromRow(row)),
+    normName(skuCategoryFromRow(row)),
+    normLevel(row.level),
+    normSpecs(row.specs),
+    normSubject(row.subject),
+  ].join('|')
 }
 
 export function validateDcStockAgainstInventory(
@@ -261,6 +337,7 @@ export function validateDcStockAgainstInventory(
     splits?: Array<{ item: Record<string, any>; qty: number }>
   }> = []
   const remainingById = new Map<string, number>()
+  const remainingByPool = new Map<string, number>()
   for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
     const id = itemId(item)
     if (id) remainingById.set(id, stockOf(item))
@@ -270,16 +347,28 @@ export function validateDcStockAgainstInventory(
     const requiredQty = requiredQtyFromDcRow(row)
     if (requiredQty <= 0) continue
 
-    const compatible = preferredCompatibleItems(inventoryItems, row)
-    const availableQty = availableStockForRow(inventoryItems, row, remainingById)
+    const compatible = compatibleInventoryItems(inventoryItems, row)
+    const computedQty = availableStockForRow(inventoryItems, row, remainingById)
+    const displayedQty = displayedAvailableQty(row)
+    const poolKey = displayedStockPoolKey(row)
 
-    if (compatible.length === 0 || requiredQty > availableQty) {
+    let availableQty = computedQty
+    if (displayedQty != null) {
+      if (!remainingByPool.has(poolKey)) remainingByPool.set(poolKey, displayedQty)
+      availableQty = remainingByPool.get(poolKey) ?? displayedQty
+    }
+
+    if (requiredQty > availableQty) {
       insufficient.push({
         label: rowStockLabel(row),
         requiredQty,
         availableQty,
       })
       continue
+    }
+
+    if (displayedQty != null) {
+      remainingByPool.set(poolKey, availableQty - requiredQty)
     }
 
     const ranked = [...compatible].sort((a, b) => {
@@ -303,7 +392,7 @@ export function validateDcStockAgainstInventory(
 
     allocations.push({
       row,
-      item: splits[0]?.item || compatible[0],
+      item: splits[0]?.item || compatible[0] || null,
       requiredQty,
       availableQty,
       splits,

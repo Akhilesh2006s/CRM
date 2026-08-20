@@ -18,13 +18,12 @@ type Item = {
   level?: string
   specs?: string
   subject?: string
-  itemType?: string
   supplier?: string
   unitPrice: number
   currentStock?: number
 }
 
-type InventoryOptions = { itemTypes?: string[]; vendors?: string[] }
+type InventoryOptions = { vendors?: string[] }
 
 export default function InventoryEditItemPage() {
   const params = useParams<{ id: string }>()
@@ -43,7 +42,6 @@ export default function InventoryEditItemPage() {
   } = useProducts()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [itemTypes, setItemTypes] = useState<string[]>([])
   const [vendors, setVendors] = useState<string[]>([])
 
   const [productName, setProductName] = useState('')
@@ -51,7 +49,6 @@ export default function InventoryEditItemPage() {
   const [level, setLevel] = useState('')
   const [specs, setSpecs] = useState('')
   const [subject, setSubject] = useState('')
-  const [itemType, setItemType] = useState('')
   const [vendor, setVendor] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [updateQty, setUpdateQty] = useState('')
@@ -69,16 +66,10 @@ export default function InventoryEditItemPage() {
     ;(async () => {
       try {
         const opts = await apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({}))
-        if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
         if (opts?.vendors?.length) setVendors(opts.vendors)
       } catch (_) {}
     })()
   }, [])
-
-  const itemTypeOptions = useMemo(() => {
-    if (itemType && !itemTypes.includes(itemType)) return [itemType, ...itemTypes]
-    return itemTypes
-  }, [itemType, itemTypes])
 
   const vendorOptions = useMemo(() => {
     if (vendor && !vendors.includes(vendor)) return [vendor, ...vendors]
@@ -107,7 +98,6 @@ export default function InventoryEditItemPage() {
         setLevel(item.level || '')
         setSpecs(item.specs || '')
         setSubject(item.subject || '')
-        setItemType(item.itemType || '')
         setVendor(item.supplier || '')
         setUnitPrice(String(item.unitPrice ?? ''))
         setUpdateQty(String(item.currentStock ?? 0))
@@ -161,7 +151,6 @@ export default function InventoryEditItemPage() {
           level: showLevel ? level : '',
           specs: showSpecs ? specs : '',
           subject: showSubject ? subject : '',
-          itemType: itemType || undefined,
           vendor: vendor || undefined,
           unitPrice: price,
           currentStock: qty,
@@ -279,22 +268,6 @@ export default function InventoryEditItemPage() {
                 </Select>
               </div>
             )}
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Item Type</div>
-              <Select value={itemType || undefined} onValueChange={setItemType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Item Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {itemTypeOptions.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Vendor</div>

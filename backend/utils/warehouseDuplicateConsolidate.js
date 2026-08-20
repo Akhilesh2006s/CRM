@@ -111,12 +111,17 @@ function aggregatedWarehouseList(items) {
   for (const group of groups.values()) {
     const [canonical] = group;
     const row = toPlain(canonical);
+    delete row.itemType;
     row.currentStock = group.reduce((sum, item) => sum + (Number(item.currentStock) || 0), 0);
     rows.push(row);
     for (const item of group) used.add(String(item._id));
   }
   for (const item of list) {
-    if (!used.has(String(item._id))) rows.push(toPlain(item));
+    if (!used.has(String(item._id))) {
+      const extra = toPlain(item);
+      delete extra.itemType;
+      rows.push(extra);
+    }
   }
   rows.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   return rows;

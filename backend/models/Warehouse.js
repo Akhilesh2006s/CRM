@@ -26,9 +26,6 @@ const warehouseSchema = new mongoose.Schema({
   subject: {
     type: String,
   },
-  itemType: {
-    type: String,
-  },
   currentStock: {
     type: Number,
     required: true,

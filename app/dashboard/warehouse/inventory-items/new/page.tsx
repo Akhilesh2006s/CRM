@@ -10,7 +10,7 @@ import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 
-type InventoryOptions = { itemTypes?: string[]; vendors?: string[] }
+type InventoryOptions = { vendors?: string[] }
 
 export default function InventoryNewItemPage() {
   const router = useRouter()
@@ -30,11 +30,9 @@ export default function InventoryNewItemPage() {
   const [level, setLevel] = useState<string>('')
   const [specs, setSpecs] = useState<string>('')
   const [subject, setSubject] = useState<string>('')
-  const [itemType, setItemType] = useState<string>('')
   const [vendor, setVendor] = useState<string>('')
   const [quantity, setQuantity] = useState<string>('')
   const [saving, setSaving] = useState(false)
-  const [itemTypes, setItemTypes] = useState<string[]>([])
   const [vendors, setVendors] = useState<string[]>([])
 
   const showCategory = Boolean(productName && hasProductCategories(productName))
@@ -50,7 +48,6 @@ export default function InventoryNewItemPage() {
     ;(async () => {
       try {
         const opts = await apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({}))
-        if (opts?.itemTypes?.length) setItemTypes(opts.itemTypes)
         if (opts?.vendors?.length) setVendors(opts.vendors)
       } catch (_) {}
     })()
@@ -90,10 +87,6 @@ export default function InventoryNewItemPage() {
       toast.error('Subject is required for this product')
       return
     }
-    if (!itemType) {
-      toast.error('Item Type is required')
-      return
-    }
 
     setSaving(true)
     try {
@@ -107,7 +100,6 @@ export default function InventoryNewItemPage() {
           level: showLevel ? level : '',
           specs: showSpecs ? specs : '',
           subject: showSubject ? subject : '',
-          itemType,
           vendor: vendor || undefined,
           currentStock: qty,
         }),
@@ -123,7 +115,6 @@ export default function InventoryNewItemPage() {
 
   const canSubmit =
     Boolean(productName) &&
-    Boolean(itemType) &&
     Boolean(quantity) &&
     (!showCategory || Boolean(category)) &&
     (!showLevel || Boolean(level)) &&
@@ -225,22 +216,6 @@ export default function InventoryNewItemPage() {
               </Select>
             </div>
           )}
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Item Type *</div>
-            <Select value={itemType || undefined} onValueChange={setItemType} disabled={!productName}>
-              <SelectTrigger>
-                <SelectValue placeholder={productName ? 'Select Item Type' : 'Select Product first'} />
-              </SelectTrigger>
-              <SelectContent>
-                {itemTypes.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
 
           <div className="space-y-2">
             <div className="text-sm font-medium">Vendor</div>

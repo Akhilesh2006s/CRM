@@ -15,10 +15,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
 import {
-  availableStockForRow,
+  mapInventoryIdentityOntoDcRow,
   requiredQtyFromDcRow,
   validateDcStockAgainstInventory,
 } from '@/lib/warehouseInventoryMatch'
+import { consolidateStockRows } from '@/lib/warehouseStockList'
 
 type ProductDetail = {
   product: string
@@ -140,7 +141,28 @@ function toStockRow(p: Record<string, any>) {
     term: p.term,
     quantity: p.quantity,
     strength: p.strength,
+    availableQuantity: p.availableQuantity,
   }
+}
+
+async function loadStockRecords(): Promise<WarehouseItem[]> {
+  const stockList = await apiRequest<WarehouseItem[]>('/warehouse/stock-list').catch(() => [])
+  if (Array.isArray(stockList) && stockList.length > 0) {
+    return stockList.map((row) => ({
+      ...row,
+      currentStock: Number(row.currentStock) || 0,
+    }))
+  }
+  const inventory = await apiRequest<WarehouseItem[]>('/warehouse').catch(() => [])
+  return consolidateStockRows(Array.isArray(inventory) ? inventory : []).map((row) => ({
+    _id: row._id,
+    productName: row.productName,
+    category: row.category,
+    level: row.level,
+    specs: row.specs,
+    subject: row.subject,
+    currentStock: row.currentStock,
+  }))
 }
 
 export default function WarehouseDcAtWarehouse() {
@@ -200,9 +222,7 @@ export default function WarehouseDcAtWarehouse() {
     try {
       setOpenDialog(true) // Open dialog first to show loading state
       // Fetch warehouse inventory first
-      const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
-      // Ensure inventory is an array before setting
-      const inventoryArray = Array.isArray(inventory) ? inventory : []
+      const inventoryArray = await loadStockRecords()
       setWarehouseInventory(inventoryArray)
       
       // Fetch full DC details to get productDetails and dcOrderId with delivery/address info
@@ -247,34 +267,32 @@ export default function WarehouseDcAtWarehouse() {
 
       if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
         setProductRows(fullDC.productDetails.map((p) => {
-          const specsValue = (p.specs !== undefined && p.specs !== null && String(p.specs).trim() !== '')
-            ? String(p.specs)
-            : 'Regular'
           const subjectValue = (p.subject !== undefined && p.subject !== null && String(p.subject).trim() !== '')
             ? String(p.subject)
             : undefined
           const stockRow = toStockRow({
             ...p,
-            specs: specsValue,
+            specs: p.specs,
             subject: subjectValue,
             level: p.level || '',
           })
           const productName = stockRow.productName || stockRow.product
           const requestedQty = requiredQtyFromDcRow(stockRow)
-          const availableQty = availableStockForRow(inventoryArray, stockRow)
+          const mapped = mapInventoryIdentityOntoDcRow(stockRow, inventoryArray)
+          const availableQty = mapped.availableQuantity
           const deliverableQty = (p.deliverableQuantity !== undefined && p.deliverableQuantity !== null)
             ? Number(p.deliverableQuantity)
             : requestedQty
-          const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+          const remainingQty = Math.max(0, availableQty - deliverableQty)
 
           return {
             product: productName,
             productName,
-            productCategory: (p as any).productCategory,
+            productCategory: mapped.productCategory,
             class: p.class || 'NA',
             category: p.category || 'Training-Material',
-            specs: specsValue,
-            subject: subjectValue,
+            specs: mapped.specs,
+            subject: mapped.subject || undefined,
             quantity: requestedQty,
             availableQuantity: availableQty,
             deliverableQuantity: deliverableQty,
@@ -282,7 +300,7 @@ export default function WarehouseDcAtWarehouse() {
             strength: p.strength || 0,
             price: p.price || 0,
             total: p.total || 0,
-            level: p.level || '',
+            level: mapped.level,
             term: (p as any).term,
           }
         }))
@@ -292,27 +310,28 @@ export default function WarehouseDcAtWarehouse() {
           product: productName,
           productName,
           category: 'Training-Material',
-          specs: 'Regular',
           quantity: fullDC.requestedQuantity || 0,
         })
         const requestedQty = requiredQtyFromDcRow(stockRow)
-        const availableQty = availableStockForRow(inventoryArray, stockRow)
+        const mapped = mapInventoryIdentityOntoDcRow(stockRow, inventoryArray)
+        const availableQty = mapped.availableQuantity
         const deliverableQty = requestedQty
-        const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+        const remainingQty = Math.max(0, availableQty - deliverableQty)
 
         setProductRows([{
           product: productName,
           productName,
+          productCategory: mapped.productCategory,
           class: 'NA',
           category: 'Training-Material',
-          specs: 'Regular',
-          subject: undefined,
+          specs: mapped.specs,
+          subject: mapped.subject || undefined,
           quantity: requestedQty,
           availableQuantity: availableQty,
           deliverableQuantity: deliverableQty,
           remainingQuantity: remainingQty,
           strength: 0,
-          level: '',
+          level: mapped.level,
         }])
       }
       
@@ -389,18 +408,22 @@ export default function WarehouseDcAtWarehouse() {
 
     setProcessing(true)
     try {
-      const inventory = await apiRequest<WarehouseItem[]>('/warehouse')
-      const inventoryArray = Array.isArray(inventory) ? inventory : []
+      const inventoryArray = await loadStockRecords()
       setWarehouseInventory(inventoryArray)
 
       const updatedProductRows = productRows.map(p => {
         const stockRow = toStockRow(p)
-        const availableQty = availableStockForRow(inventoryArray, stockRow)
+        const mapped = mapInventoryIdentityOntoDcRow(stockRow, inventoryArray)
+        const availableQty = mapped.availableQuantity
         const requiredQty = requiredQtyFromDcRow(stockRow)
         const deliverableQty = p.deliverableQuantity != null ? Number(p.deliverableQuantity) : requiredQty
-        const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+        const remainingQty = Math.max(0, availableQty - deliverableQty)
         return {
           ...p,
+          productCategory: mapped.productCategory,
+          specs: mapped.specs,
+          subject: mapped.subject || undefined,
+          level: mapped.level,
           quantity: requiredQty,
           availableQuantity: availableQty,
           remainingQuantity: remainingQty,
@@ -467,6 +490,21 @@ export default function WarehouseDcAtWarehouse() {
           availableQuantity: totalAvailableQty,
           deliverableQuantity: totalDeliverableQty,
           remarks,
+          productDetails: updatedProductRows.map(p => ({
+            product: p.product,
+            productName: p.productName || p.product,
+            productCategory: p.productCategory,
+            class: p.class,
+            category: p.category,
+            specs: p.specs || '',
+            subject: p.subject || undefined,
+            quantity: p.quantity,
+            availableQuantity: p.availableQuantity,
+            deliverableQuantity: p.deliverableQuantity,
+            remainingQuantity: p.remainingQuantity,
+            strength: p.strength,
+            level: p.level || '',
+          })),
         }),
       })
 
@@ -515,7 +553,7 @@ export default function WarehouseDcAtWarehouse() {
       const availableQty = p.availableQuantity || 0
       const deliverableQty = p.deliverableQuantity || 0
       // Calculate remaining qty = available qty - deliverable qty (only if available >= deliverable)
-      const remainingQty = availableQty >= deliverableQty ? availableQty - deliverableQty : 0
+      const remainingQty = Math.max(0, availableQty - deliverableQty)
       
       return {
         ...p,
@@ -546,6 +584,7 @@ export default function WarehouseDcAtWarehouse() {
             product: p.product,
             class: p.class,
             category: p.category,
+            productCategory: p.productCategory,
             specs: p.specs || 'Regular',
             subject: p.subject || undefined,
             quantity: p.quantity,
@@ -922,11 +961,11 @@ export default function WarehouseDcAtWarehouse() {
                 </div>
               </Card>
 
-              {/* Products Table */}
-              <Card className="p-4 border-t-4 border-t-blue-500">
-                <div className="mb-4">
+              {/* Products Table — same layout as Warehouse → Stock */}
+              <Card className="overflow-hidden">
+                <div className="px-4 pt-4 pb-2">
                   <h3 className="font-semibold text-neutral-900">Products</h3>
-                  <p className="text-sm text-neutral-600 mt-1">Available quantity is auto-filled from inventory and cannot be changed. Deliverable and remaining quantities are calculated automatically.</p>
+                  <p className="text-sm text-neutral-500 mt-1">Available quantity is mapped from Inventory / Stock and cannot be changed.</p>
                   {insufficientQuantity && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md">
                       <p className="text-sm font-medium text-red-800">
@@ -936,129 +975,84 @@ export default function WarehouseDcAtWarehouse() {
                   )}
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-gray-100 border-b">
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Product</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Class</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Category</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Specs</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Subject</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Required Quantity</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Level</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Available Qty</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Deliverable Qty</th>
-                        <th className="py-2 px-3 text-left border-r text-gray-900">Remaining Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-16">S.No</TableHead>
+                        <TableHead>Product</TableHead>
+                        <TableHead>Class</TableHead>
+                        <TableHead>Product Category</TableHead>
+                        <TableHead>Specs</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead>Required Qty</TableHead>
+                        <TableHead>Level</TableHead>
+                        <TableHead>Available Qty</TableHead>
+                        <TableHead>Deliverable Qty</TableHead>
+                        <TableHead>Remaining Qty</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {productRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={10} className="text-center text-neutral-500 py-4">No products added</td>
-                        </tr>
+                        <TableRow>
+                          <TableCell colSpan={11} className="text-center text-neutral-500">No products added</TableCell>
+                        </TableRow>
                       ) : (
-                        productRows.map((row, idx) => (
-                          <tr key={idx} className={`border-b ${(row.quantity || 0) > (row.availableQuantity || 0) ? 'bg-red-50' : 'bg-white'}`}>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.product}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.class}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.category}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.specs || 'Regular'}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.subject || '-'}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700 font-medium">
-                                {row.quantity || 0}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className="h-8 text-xs bg-neutral-50 px-2 py-1.5 rounded border border-neutral-200 text-neutral-700">
-                                {row.level || '-'}
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                <Input
-                  type="number"
-                                className={`h-8 text-xs bg-neutral-50 font-medium ${(row.quantity || 0) > (row.availableQuantity || 0) ? 'border-red-300 text-red-800' : 'border-neutral-300 text-neutral-700'}`}
-                                value={row.availableQuantity !== undefined && row.availableQuantity !== null ? String(row.availableQuantity) : ''}
-                                readOnly
-                                disabled
-                                placeholder="Auto-filled from inventory"
-                  min="0"
-                />
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <Input
-                                type="number"
-                                className={`h-8 text-xs border font-medium ${
-                                  (row.availableQuantity || 0) < (row.deliverableQuantity || 0)
-                                    ? 'bg-red-50 border-red-300 text-red-800'
-                                    : 'bg-white border-neutral-300 text-neutral-700'
-                                }`}
-                                value={row.deliverableQuantity !== undefined && row.deliverableQuantity !== null ? String(row.deliverableQuantity) : '0'}
-                                onChange={(e) => {
-                                  const updated = [...productRows]
-                                  const newDeliverableQty = Number(e.target.value) || 0
-                                  const availableQty = updated[idx].availableQuantity || 0
-                                  updated[idx].deliverableQuantity = newDeliverableQty
-                                  // Calculate remaining qty = available qty - deliverable qty (only if available > deliverable)
-                                  if (availableQty >= newDeliverableQty) {
-                                    updated[idx].remainingQuantity = availableQty - newDeliverableQty
-                                  } else {
-                                    updated[idx].remainingQuantity = 0 // Can't have negative remaining
-                                  }
-                                  setProductRows(updated)
-                                }}
-                                min="0"
-                                max={row.availableQuantity || 0}
-                                placeholder="0"
-                              />
-                            </td>
-                            <td className="py-2 px-3 border-r">
-                              <div className={`h-8 text-xs px-2 py-1.5 rounded border font-medium ${
-                                (row.remainingQuantity || 0) < 0
-                                  ? 'bg-red-50 border-red-300 text-red-800'
-                                  : (row.remainingQuantity || 0) === 0
-                                  ? 'bg-yellow-50 border-yellow-300 text-yellow-800'
-                                  : 'bg-blue-50 border-blue-300 text-blue-800'
-                              }`}>
+                        productRows.map((row, idx) => {
+                          const requiredQty = requiredQtyFromDcRow(row)
+                          const availableQty = Number(row.availableQuantity) || 0
+                          const highlightRed = availableQty <= 0 || requiredQty > availableQty
+                          return (
+                            <TableRow key={idx} className={highlightRed ? 'bg-red-50' : undefined}>
+                              <TableCell>{idx + 1}</TableCell>
+                              <TableCell className="font-medium text-neutral-900">{row.product}</TableCell>
+                              <TableCell>{row.class || '-'}</TableCell>
+                              <TableCell>{row.productCategory || '-'}</TableCell>
+                              <TableCell>{row.specs || '-'}</TableCell>
+                              <TableCell>{row.subject || '-'}</TableCell>
+                              <TableCell>{row.quantity || 0}</TableCell>
+                              <TableCell>{row.level || '-'}</TableCell>
+                              <TableCell className={highlightRed ? 'font-medium text-red-800' : undefined}>
+                                {row.availableQuantity !== undefined && row.availableQuantity !== null ? row.availableQuantity : 0}
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="number"
+                                  className={`h-8 w-24 text-sm ${
+                                    availableQty < (row.deliverableQuantity || 0)
+                                      ? 'bg-red-50 border-red-300 text-red-800'
+                                      : ''
+                                  }`}
+                                  value={row.deliverableQuantity !== undefined && row.deliverableQuantity !== null ? String(row.deliverableQuantity) : '0'}
+                                  onChange={(e) => {
+                                    const updated = [...productRows]
+                                    const newDeliverableQty = Number(e.target.value) || 0
+                                    const liveAvailable = Number(updated[idx].availableQuantity) || 0
+                                    updated[idx].deliverableQuantity = newDeliverableQty
+                                    updated[idx].remainingQuantity = Math.max(0, liveAvailable - newDeliverableQty)
+                                    setProductRows(updated)
+                                  }}
+                                  min="0"
+                                  max={availableQty}
+                                  placeholder="0"
+                                />
+                              </TableCell>
+                              <TableCell>
                                 {row.remainingQuantity !== undefined && row.remainingQuantity !== null ? row.remainingQuantity : 0}
-                              </div>
-                            </td>
-                          </tr>
-                        ))
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })
                       )}
-                      {/* Total Row */}
-                      <tr className="border-t-2 border-gray-300 bg-gray-100 font-semibold">
-                        <td colSpan={5} className="px-3 py-3 text-right">
-                          <span className="text-gray-700">Total:</span>
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold text-lg">
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-right font-semibold text-neutral-700">Total:</TableCell>
+                        <TableCell className="font-semibold">
                           {productRows.reduce((sum, row) => sum + requiredQtyFromDcRow(row), 0)}
-                        </td>
-                        <td colSpan={4} className="px-3 py-3"></td>
-                      </tr>
-                    </tbody>
-                  </table>
-              </div>
+                        </TableCell>
+                        <TableCell colSpan={3} />
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
               </Card>
             </div>
           )}

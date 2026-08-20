@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getWarehouse,
+  getWarehouseStockList,
   getWarehouseLocations,
   getWarehouseItem,
   createWarehouseItem,
@@ -30,6 +31,7 @@ router.post('/dc/:id/hold', authMiddleware, toggleHoldDC);
 // Warehouse items routes
 router.get('/reports', authMiddleware, getWarehouseReports);
 router.get('/locations', authMiddleware, getWarehouseLocations);
+router.get('/stock-list', authMiddleware, getWarehouseStockList);
 router.post('/stock', authMiddleware, updateStock);
 router.get('/', authMiddleware, getWarehouse);
 router.post('/', authMiddleware, createWarehouseItem);

@@ -149,7 +149,7 @@ export default function SampleRequestForm({ onSuccess }: Props) {
       level: getDefaultLevel(product),
       class: resolved.class,
       productCategory: resolved.productCategory,
-      specs: specsList[0] || resolved.specs,
+      specs: specsList[0] || '',
     })
   }
 

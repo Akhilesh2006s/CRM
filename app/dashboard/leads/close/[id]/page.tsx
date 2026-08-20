@@ -247,11 +247,11 @@ export default function CloseLeadPage() {
               price: savedUnitPrice || 0, // Use saved unit_price as default price
               total: (savedQuantity || 0) * (savedUnitPrice || 0),
               level: productData?.level || getDefaultLevel(product),
-              specs: 'Regular',
+              specs: getProductSpecs(product)[0] || '',
               isParentRow: true,
               sameRateForAllClasses: false,
               selectedSubjects: [],
-              selectedSpecs: getProductSpecs(product),
+              selectedSpecs: getProductSpecs(product).slice(0, 1),
               selectedDeliverables: productData?.deliverables || [],
               selectedCategories: hasProductCategories(product) 
                 ? getProductCategories(product) 
@@ -677,7 +677,7 @@ export default function CloseLeadPage() {
           price: Number(p.price) || 0,
           total: Number(p.total) || (Number(p.strength) || 0) * (Number(p.price) || 0),
           level: levelValue,
-          specs: p.specs || 'Regular', // Include specs
+          specs: p.specs || '',
           subject: p.subject || undefined, // Include subject if present
           deliverables,
           term: persistProductTerm({

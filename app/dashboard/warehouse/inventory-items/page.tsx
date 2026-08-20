@@ -18,7 +18,6 @@ type WarehouseItem = {
   level?: string
   specs?: string
   subject?: string
-  itemType?: string
   supplier?: string
   currentStock?: number
 }
@@ -43,6 +42,8 @@ export default function WarehouseInventoryItems() {
     const lcCategory = category.trim().toLowerCase()
     const lcLevel = level.trim().toLowerCase()
     return items.filter((it) => {
+      const vendor = String(it.supplier || '').trim()
+      if (!vendor || vendor === '-') return false
       const itemLevel = (it.level || it.location || '').toString().toLowerCase()
       const itemCategory = (it.category || '').toString().toLowerCase()
       const catOk = lcCategory ? itemCategory.includes(lcCategory) : true
@@ -66,8 +67,8 @@ export default function WarehouseInventoryItems() {
       <Card className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <div className="text-sm text-neutral-600 mb-1">Category</div>
-            <Input placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
+            <div className="text-sm text-neutral-600 mb-1">Product Category</div>
+            <Input placeholder="Product Category" value={category} onChange={(e) => setCategory(e.target.value)} />
           </div>
           <div>
             <div className="text-sm text-neutral-600 mb-1">Level</div>
@@ -85,11 +86,10 @@ export default function WarehouseInventoryItems() {
             <TableRow>
               <TableHead className="w-16">S.No</TableHead>
               <TableHead>Product</TableHead>
-              <TableHead>Category</TableHead>
+              <TableHead>Product Category</TableHead>
               <TableHead>Level</TableHead>
               <TableHead>Specs</TableHead>
               <TableHead>Subject</TableHead>
-              <TableHead>Item Type</TableHead>
               <TableHead>Vendor</TableHead>
               <TableHead>Quantity</TableHead>
               <TableHead className="w-12"></TableHead>
@@ -98,7 +98,7 @@ export default function WarehouseInventoryItems() {
           <TableBody>
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-neutral-500">No items found.</TableCell>
+                <TableCell colSpan={9} className="text-center text-neutral-500">No items found.</TableCell>
               </TableRow>
             )}
             {filtered.map((row, idx) => (
@@ -109,7 +109,6 @@ export default function WarehouseInventoryItems() {
                 <TableCell>{row.level || row.location || '-'}</TableCell>
                 <TableCell>{row.specs || '-'}</TableCell>
                 <TableCell>{row.subject || '-'}</TableCell>
-                <TableCell>{row.itemType || '—'}</TableCell>
                 <TableCell>{row.supplier || '-'}</TableCell>
                 <TableCell>{row.currentStock !== undefined && row.currentStock !== null ? row.currentStock : 0}</TableCell>
                 <TableCell>

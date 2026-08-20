@@ -5,14 +5,10 @@ const {
   findIdentityMatches,
   mergeIdentityDuplicates,
   addQuantityToExistingIdentity,
-  aggregatedWarehouseList,
 } = require('../utils/warehouseDuplicateConsolidate');
-const {
-  ensureWarehouseInventoryIntegrity,
-  sanitizeWarehousePayload,
-  loadProductIndex,
-  filterWarehouseItemsToProductMaster,
-} = require('../utils/warehouseProductMaster');
+const { sanitizeWarehousePayload, ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
+const { consolidatedStockList } = require('../utils/warehouseInventoryIdentity');
+const { loadInventoryItemList } = require('../utils/warehouseStockRecords');
 
 // @desc    Get distinct warehouse locations (for return form dropdown)
 // @route   GET /api/warehouse/locations
@@ -30,24 +26,20 @@ const getWarehouseLocations = async (req, res) => {
 // @access  Private
 const getWarehouse = async (req, res) => {
   try {
-    const { status, category } = req.query;
-    const filter = {};
-
-    if (status) filter.status = status;
-    if (category) filter.category = category;
-
-    try {
-      await ensureWarehouseInventoryIntegrity();
-    } catch (mergeErr) {
-      console.warn('Warehouse Product Master align skipped:', mergeErr?.message || mergeErr);
-    }
-    const items = await Warehouse.find(filter).sort({ createdAt: -1 });
-    let list = aggregatedWarehouseList(items);
-    try {
-      const { byName } = await loadProductIndex();
-      list = filterWarehouseItemsToProductMaster(list, byName);
-    } catch (_) {}
+    const list = await loadInventoryItemList(req.query || {});
     res.json(list);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get consolidated stock from Inventory Items only
+// @route   GET /api/warehouse/stock-list
+// @access  Private
+const getWarehouseStockList = async (req, res) => {
+  try {
+    const inventoryItems = await loadInventoryItemList(req.query || {});
+    res.json(consolidatedStockList(inventoryItems));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -181,11 +173,17 @@ const getWarehouseItem = async (req, res) => {
     }
     const item = await Warehouse.findById(req.params.id);
     if (item) {
-      return res.json(item);
+      const json = item.toObject();
+      delete json.itemType;
+      return res.json(json);
     }
     if (existing) {
       const matches = await findIdentityMatches(existing.toObject());
-      if (matches[0]) return res.json(matches[0]);
+      if (matches[0]) {
+        const json = matches[0].toObject ? matches[0].toObject() : { ...matches[0] };
+        delete json.itemType;
+        return res.json(json);
+      }
     }
     return res.status(404).json({ message: 'Warehouse item not found' });
   } catch (error) {
@@ -207,6 +205,7 @@ const createWarehouseItem = async (req, res) => {
       return res.status(400).json({ message: sanitized.message });
     }
     Object.assign(body, sanitized.payload);
+    delete body.itemType;
 
     const qty = Number(body.currentStock);
     const addQty = Number.isFinite(qty) && qty > 0 ? qty : 0;
@@ -263,9 +262,10 @@ const updateWarehouseItem = async (req, res) => {
       return res.status(400).json({ message: sanitized.message });
     }
     Object.assign(body, sanitized.payload);
+    delete body.itemType;
     const item = await Warehouse.findByIdAndUpdate(
       req.params.id,
-      body,
+      { $set: body, $unset: { itemType: 1 } },
       { new: true, runValidators: true }
     );
     if (!item) {
@@ -285,6 +285,7 @@ const updateWarehouseItem = async (req, res) => {
 
 module.exports = {
   getWarehouse,
+  getWarehouseStockList,
   getWarehouseLocations,
   getWarehouseItem,
   createWarehouseItem,

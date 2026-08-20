@@ -154,6 +154,36 @@ test('sibling Term-Wise rows also strip the matching later-stage allocation', ()
   assert.equal(sumProductQuantities(kept), 90);
 });
 
+test('Closed Sales Raise DC total is My Clients 90, not merged 110', () => {
+  const myClients = [
+    { product: 'P1', class: '1', quantity: 20, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'P1', class: '2', quantity: 20, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'P2', class: '1', subject: 'Phy', quantity: 10, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'P2', class: '1', subject: 'math', quantity: 10, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'P2', class: '2', subject: 'Phy', quantity: 10, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'P2', class: '2', subject: 'math', quantity: 10, term: 'Term 1', closeLeadDestination: 'MY_CLIENT' },
+    { product: 'p3', class: '1', level: 'Level 1', term: 'Term 1', quantity: 10, closeLeadDestination: 'MY_CLIENT' },
+  ]
+  const termWise = [
+    {
+      product: 'p3',
+      class: '1',
+      level: 'Level 2',
+      term: 'Term 2',
+      quantity: 20,
+      closeLeadDestination: 'TERM_WISE_DC',
+    },
+  ]
+  const merged = [...myClients, ...termWise]
+  const kept = keepMyClientsOwnedProductRows(merged, termWise)
+  assert.equal(sumProductQuantities(merged), 110)
+  assert.equal(sumProductQuantities(kept), 90)
+  assert.equal(
+    kept.filter((p) => String(p.level || '') === 'Level 2').length,
+    0
+  )
+})
+
 test('Term-2-only product on My Clients is kept when it has no Level 1 pair', () => {
   const onlyLaterStage = [
     { product: 'P4', class: '1', level: 'Level 2', term: 'Term 2', quantity: 10 },

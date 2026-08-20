@@ -1,7 +1,7 @@
 /**
  * Inventory identity for warehouse stock records.
  * Same product name is not enough — class, category, level, specs,
- * subject, item type, and vendor/supplier distinguish variants.
+ * subject, and vendor/supplier distinguish variants.
  */
 
 function blank(value) {
@@ -49,7 +49,6 @@ function inventoryIdentity(item = {}) {
     level: normLevel(item.level),
     specs: normSpecs(item.specs),
     subject: normText(item.subject),
-    itemType: normText(item.itemType),
     supplier: normText(item.supplier || item.vendor),
   };
 }
@@ -63,13 +62,103 @@ function inventoryIdentityKey(item) {
     id.level,
     id.specs,
     id.subject,
-    id.itemType,
     id.supplier,
   ].join('|');
 }
 
 function itemsHaveSameInventoryIdentity(a, b) {
   return inventoryIdentityKey(a) === inventoryIdentityKey(b);
+}
+
+function hasAssignedVendor(item = {}) {
+  return Boolean(blank(item.supplier || item.vendor));
+}
+
+function isWarehouseLocationName(value) {
+  const n = String(value || '').trim().toLowerCase();
+  return Boolean(n) && n.includes('warehouse');
+}
+
+/** Product Level only. Do not treat warehouse location (e.g. Main Warehouse) as Level. */
+function productLevelValue(item = {}) {
+  const level = blank(item.level);
+  if (level) return level;
+  const loc = blank(item.location);
+  if (!loc || isWarehouseLocationName(loc)) return '';
+  return loc;
+}
+
+/** Stock page identity: Product + Product Category + Level + Specs + Subject. Vendor is ignored. */
+function stockListIdentity(item = {}) {
+  return {
+    productName: normText(item.productName || item.product || item.product_name),
+    category: normText(item.category),
+    level: normLevel(productLevelValue(item)),
+    specs: normSpecs(item.specs),
+    subject: normText(item.subject),
+  };
+}
+
+function stockListIdentityKey(item) {
+  const id = stockListIdentity(item);
+  return [id.productName, id.category, id.level, id.specs, id.subject].join('|');
+}
+
+function firstDisplayValue(group, getter) {
+  for (const item of group) {
+    const value = blank(getter(item));
+    if (value) return value;
+  }
+  return '';
+}
+
+function consolidatedStockList(items) {
+  const groups = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!hasAssignedVendor(item)) continue;
+    if (!stockListIdentity(item).productName) continue;
+    const key = stockListIdentityKey(item);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+
+  const rows = [];
+  for (const [key, group] of groups.entries()) {
+    const row = {
+      _id: key,
+      productName: firstDisplayValue(group, (item) => item.productName) || group[0].productName,
+      category: firstDisplayValue(group, (item) => item.category),
+      level: firstDisplayValue(group, (item) => productLevelValue(item)),
+      specs: firstDisplayValue(group, (item) => item.specs),
+      subject: firstDisplayValue(group, (item) => item.subject),
+      currentStock: group.reduce((sum, item) => sum + (Number(item.currentStock) || 0), 0),
+      sourceIds: group.map((item) => item._id).filter(Boolean),
+    };
+    rows.push(row);
+  }
+
+  rows.sort((a, b) =>
+    String(a.productName || '').localeCompare(String(b.productName || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  );
+  return rows;
+}
+
+function warehouseDocsForStockRow(allItems, stockRow) {
+  const sourceIds = (stockRow?.sourceIds || []).map((id) => String(id));
+  if (sourceIds.length > 0) {
+    const matched = (Array.isArray(allItems) ? allItems : []).filter((item) =>
+      sourceIds.includes(String(item._id))
+    );
+    if (matched.length > 0) return matched;
+  }
+  const key = stockListIdentityKey(stockRow);
+  if (!key || !stockListIdentity(stockRow).productName) return [];
+  return (Array.isArray(allItems) ? allItems : []).filter(
+    (item) => hasAssignedVendor(item) && stockListIdentityKey(item) === key
+  );
 }
 
 function groupItemsByInventoryIdentity(items) {
@@ -114,7 +203,13 @@ module.exports = {
   inventoryIdentity,
   inventoryIdentityKey,
   itemsHaveSameInventoryIdentity,
+  hasAssignedVendor,
   findMatchingInventoryItems,
   groupItemsByInventoryIdentity,
+  stockListIdentity,
+  stockListIdentityKey,
+  productLevelValue,
+  consolidatedStockList,
   escapeRegex,
+  warehouseDocsForStockRow,
 };

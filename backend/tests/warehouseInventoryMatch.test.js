@@ -4,6 +4,7 @@ const {
   matchWarehouseItem,
   validateDcStockAgainstInventory,
   availableStockForRow,
+  mapInventoryIdentityOntoDcRow,
 } = require('../utils/warehouseInventoryMatch');
 
 function inv(overrides) {
@@ -147,99 +148,98 @@ test('two lines sharing one SKU reserve stock cumulatively', () => {
   assert.match(result.message, /requires 8 but only 2 is available/i);
 });
 
-test('empty inventory level still covers a DC Level 1 / L1 row', () => {
+test('empty stock Level still covers a DC Level 1 row', () => {
   const inventory = [
     inv({
       _id: 'qp',
       productName: 'P1',
       category: 'workbook',
       level: '-',
-      specs: 'Regular',
+      specs: '',
       subject: '-',
-      itemType: 'Question Paper',
-      currentStock: 20,
+      currentStock: 180,
     }),
   ];
   const row = {
     productName: 'P1',
     class: '1',
+    productCategory: 'workbook',
     category: 'New Students',
     level: 'L1',
-    specs: 'Regular',
-    quantity: 20,
+    specs: 'Single Level only',
+    quantity: 10,
   };
-  assert.equal(availableStockForRow(inventory, row), 20);
-  const result = validateDcStockAgainstInventory([row], inventory);
-  assert.equal(result.ok, true);
+  assert.equal(availableStockForRow(inventory, row), 180);
+  assert.equal(mapInventoryIdentityOntoDcRow(row, inventory).availableQuantity, 180);
 });
 
-test('compatible duplicate Question Paper rows are aggregated (20 + 10 = 30)', () => {
+test('duplicate Stock rows with the same identity are summed', () => {
   const inventory = [
-    inv({ _id: 'qp1', productName: 'P1', category: 'workbook', specs: 'Regular', itemType: 'Question Paper', currentStock: 20 }),
-    inv({ _id: 'qp2', productName: 'P1', category: 'workbook', specs: 'Regular', itemType: 'Question Paper', currentStock: 10 }),
+    inv({ _id: 'qp1', productName: 'P1', category: 'workbook', specs: '', currentStock: 20 }),
+    inv({ _id: 'qp2', productName: 'P1', category: 'workbook', specs: '', currentStock: 10 }),
   ];
-  const row = { productName: 'P1', class: '1', level: 'Level 1', category: 'New Students', specs: 'Regular', quantity: 30 };
+  const row = { productName: 'P1', class: '1', productCategory: 'workbook', category: 'New Students', specs: '', quantity: 30 };
   assert.equal(availableStockForRow(inventory, row), 30);
   const result = validateDcStockAgainstInventory([row], inventory);
   assert.equal(result.ok, true);
 });
 
-test('DC enrollment category does not block workbook inventory', () => {
+test('DC enrollment category is ignored; Product Category from Stock still maps', () => {
   const inventory = [
-    inv({ _id: 'wb', productName: 'P1', category: 'workbook', specs: 'Regular', currentStock: 20 }),
+    inv({ _id: 'wb', productName: 'P1', category: 'workbook', specs: '', currentStock: 180 }),
   ];
-  const row = { productName: 'P1', category: 'Existing Students', class: '1', quantity: 20, specs: 'Regular' };
-  assert.equal(availableStockForRow(inventory, row), 20);
-  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, true);
+  const enrollmentOnly = { productName: 'P1', category: 'Existing Students', class: '1', quantity: 10, specs: 'Regular' };
+  const withSku = { ...enrollmentOnly, productCategory: 'workbook' };
+  assert.equal(availableStockForRow(inventory, withSku), 180);
+  assert.equal(validateDcStockAgainstInventory([withSku], inventory).ok, true);
 });
 
-test('empty inventory subject still covers a DC row that has a subject', () => {
+test('empty stock Subject still covers a DC row that has a subject', () => {
   const inventory = [
-    inv({ _id: 'p1', productName: 'P1', category: 'workbook', specs: 'Regular', subject: '', currentStock: 20 }),
+    inv({ _id: 'p1', productName: 'P1', category: 'workbook', specs: '', subject: '', currentStock: 180 }),
   ];
-  const row = { productName: 'P1', subject: 'Math', quantity: 20, specs: 'Regular' };
-  assert.equal(availableStockForRow(inventory, row), 20);
-  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, true);
+  const row = { productName: 'P1', productCategory: 'workbook', subject: 'Math', quantity: 10, specs: '' };
+  assert.equal(availableStockForRow(inventory, row), 180);
 });
 
-test('P3 Single Level only Books stock is not blocked by DC Class/Category', () => {
+test('P3 Single Level only stock matches exact Specs/Level/Category and ignores Class', () => {
   const inventory = [
-    inv({ _id: 'qp', productName: 'p3', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', itemType: 'Question Paper', currentStock: 99755 }),
-    inv({ _id: 'books10', productName: 'p3', class: '10', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', itemType: 'Books', currentStock: 50 }),
-    inv({ _id: 'booksRegular', productName: 'p3', class: '1', category: 'lki8764d', level: 'Level 1', specs: 'Regular', itemType: 'Books', currentStock: 40 }),
-    inv({ _id: 'books500', productName: 'p3', class: '1', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', itemType: 'Books', currentStock: 500 }),
+    inv({ _id: 'a', productName: 'p3', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', currentStock: 99755 }),
+    inv({ _id: 'b', productName: 'p3', class: '10', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', currentStock: 50 }),
+    inv({ _id: 'regular', productName: 'p3', class: '1', category: 'lki8764d', level: 'Level 1', specs: 'Regular', currentStock: 40 }),
+    inv({ _id: 'c', productName: 'p3', class: '1', category: 'lki8764d', level: 'Level 1', specs: 'Single Level only', currentStock: 500 }),
   ];
   const row = {
     productName: 'P3',
     class: '1',
     category: 'New Students',
+    productCategory: 'lki8764d',
     level: 'Level 1',
     specs: 'Single Level only',
     quantity: 7,
   };
-  assert.equal(availableStockForRow(inventory, row), 500);
-  assert.equal(matchWarehouseItem(inventory, row)?._id, 'books500');
+  assert.equal(availableStockForRow(inventory, row), 100345);
+  assert.equal(matchWarehouseItem(inventory, row)?._id, 'a');
   const result = validateDcStockAgainstInventory([row], inventory);
   assert.equal(result.ok, true);
-  assert.equal(result.allocations[0].item._id, 'books500');
+  assert.equal(result.allocations[0].item._id, 'a');
   assert.equal(result.allocations[0].splits[0].qty, 7);
 });
 
-test('Regular specs stock is not used for Single Level only DC rows', () => {
+test('Regular/empty Stock specs still fulfill a leftover DC spec', () => {
   const inventory = [
-    inv({ _id: 'regular', productName: 'P3', class: '1', level: 'Level 1', specs: 'Regular', itemType: 'Books', currentStock: 40 }),
+    inv({ _id: 'regular', productName: 'P3', class: '1', level: 'Level 1', specs: 'Regular', currentStock: 20 }),
   ];
   const row = { productName: 'P3', class: '1', level: 'Level 1', specs: 'Single Level only', quantity: 7, category: 'New Students' };
-  assert.equal(availableStockForRow(inventory, row), 0);
-  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, false);
+  assert.equal(availableStockForRow(inventory, row), 20);
+  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, true);
 });
 
-test('P4 DC Regular/L1 uses existing P4 Books stock even if inventory specs is custom', () => {
+test('P4 leftover Regular/L1 still maps to Stock spec hhhhh', () => {
   const inventory = [
-    inv({ _id: 'qp', productName: 'p4', category: '564uyb', level: '', specs: 'hhhhh', itemType: 'Question Paper', currentStock: 149 }),
-    inv({ _id: 'books500', productName: 'p4', class: '1', category: '564uyb', specs: 'hhhhh', itemType: 'Books', currentStock: 500 }),
+    inv({ _id: 'a', productName: 'p4', category: '', level: '', specs: 'hhhhh', currentStock: 20 }),
   ];
-  const row = {
+  const leftover = {
     productName: 'p4',
     class: '1',
     category: 'new Students',
@@ -247,8 +247,172 @@ test('P4 DC Regular/L1 uses existing P4 Books stock even if inventory specs is c
     level: 'L1',
     quantity: 10,
   };
-  assert.equal(availableStockForRow(inventory, row), 500);
-  assert.equal(matchWarehouseItem(inventory, row)?._id, 'books500');
+  const explicit = { ...leftover, specs: 'hhhhh' };
+  assert.equal(availableStockForRow(inventory, leftover), 20);
+  assert.equal(availableStockForRow(inventory, explicit), 20);
+});
+
+test('P1 workbook duplicate inventory rows are aggregated without Item Type', () => {
+  const inventory = [
+    inv({ _id: 'a', productName: 'P1', category: 'workbook', currentStock: 90 }),
+    inv({ _id: 'b', productName: 'P1', category: 'workbook', currentStock: 20 }),
+  ];
+  const row = { productName: 'P1', productCategory: 'workbook', quantity: 90, specs: 'Regular' };
+  assert.equal(availableStockForRow(inventory, row), 110);
+  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, true);
+
+  const mapped = mapInventoryIdentityOntoDcRow(row, inventory);
+  assert.equal(mapped.availableQuantity, 110);
+  assert.equal(mapped.hasInventoryMatch, true);
+  assert.equal(mapped.productCategory, 'workbook');
+});
+
+test('DC row maps Available Qty from the matching inventory SKU', () => {
+  const inventory = [
+    inv({ _id: 'sku', productName: 'P1', category: 'workbook', currentStock: 20 }),
+  ];
+  const row = { productName: 'P1', productCategory: 'workbook', quantity: 10, specs: 'Regular' };
+  const mapped = mapInventoryIdentityOntoDcRow(row, inventory);
+  assert.equal(mapped.availableQuantity, 20);
+  assert.equal(mapped.hasInventoryMatch, true);
+  assert.equal(validateDcStockAgainstInventory([row], inventory).ok, true);
+});
+
+test('P2 Physics Books is not mixed with other subjects', () => {
+  const inventory = [
+    inv({ _id: 'phy', productName: 'P2', subject: 'Physics', currentStock: 40 }),
+    inv({ _id: 'math', productName: 'P2', subject: 'Math', currentStock: 80 }),
+  ];
+  const row = { product: 'P2', subject: 'Physics', quantity: 10, specs: 'Regular' };
+  assert.equal(availableStockForRow(inventory, row), 40);
+  assert.equal(matchWarehouseItem(inventory, row)?._id, 'phy');
+});
+
+test('P3 Level 1 Books is not mixed with Level 2 stock', () => {
+  const inventory = [
+    inv({ _id: 'l1', productName: 'P3', level: 'Level 1', currentStock: 50 }),
+    inv({ _id: 'l2', productName: 'P3', level: 'Level 2', currentStock: 999 }),
+  ];
+  const row = { productName: 'P3', level: 'Level 1', quantity: 10, specs: 'Regular' };
+  assert.equal(availableStockForRow(inventory, row), 50);
+  assert.equal(matchWarehouseItem(inventory, row)?._id, 'l1');
+});
+
+test('insufficient stock message includes Product Category when mapped', () => {
+  const inventory = [
+    inv({ _id: 'sku', productName: 'P1', category: 'workbook', currentStock: 5 }),
+  ];
+  const row = {
+    productName: 'P1',
+    productCategory: 'workbook',
+    quantity: 10,
+    specs: 'Regular',
+  };
   const result = validateDcStockAgainstInventory([row], inventory);
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, false);
+  assert.match(result.message, /workbook/i);
+});
+
+test('New Student enrollment is not used as Product Category', () => {
+  const inventory = [
+    inv({ _id: 'wb', productName: 'P1', category: 'workbook', currentStock: 90 }),
+  ];
+  const row = { productName: 'P1', category: 'New Student', productCategory: 'workbook', quantity: 10, specs: '' };
+  assert.equal(availableStockForRow(inventory, row), 90);
+});
+
+test('Stock module identity is used for DC @ Warehouse Available Qty', () => {
+  const stock = [
+    inv({ productName: 'P1', category: 'workbook', currentStock: 180 }),
+    inv({ productName: 'P2', subject: 'Phy', currentStock: 20 }),
+    inv({ productName: 'P2', subject: 'math', currentStock: 20 }),
+    inv({ productName: 'P3', level: 'Level 1', currentStock: 20 }),
+    inv({ productName: 'P4', specs: 'hhhhh', currentStock: 20 }),
+  ];
+  const qty = (row) => mapInventoryIdentityOntoDcRow(row, stock).availableQuantity;
+  assert.equal(qty({ productName: 'P1', productCategory: 'workbook', class: '1', specs: 'Single Level only', level: 'L1' }), 180);
+  assert.equal(qty({ productName: 'P1', productCategory: 'workbook', class: '2', specs: 'Single Level only', level: 'L1' }), 180);
+  assert.equal(qty({ productName: 'P2', subject: 'math', class: '1', specs: 'Regular', level: 'L1' }), 20);
+  assert.equal(qty({ productName: 'P2', subject: 'Math', class: '2', specs: 'Regular', level: 'L1' }), 20);
+  assert.equal(qty({ productName: 'P2', subject: 'chem', class: '1', specs: 'Regular', level: 'L1' }), 0);
+  assert.equal(qty({ productName: 'P3', level: 'Level 1', class: '1', specs: 'Regular' }), 20);
+  assert.equal(qty({ productName: 'P3', level: 'Level 1', class: '2', specs: 'Regular' }), 20);
+  assert.equal(qty({ productName: 'P4', specs: 'hhhhh', class: '1', level: 'L1' }), 20);
+});
+
+test('Update/Submit validates the same Available Qty the DC table shows', () => {
+  const stock = [
+    inv({ _id: 'p1-stock', productName: 'P1', category: 'workbook', currentStock: 180 }),
+    inv({ _id: 'p1-zero', productName: 'P1', category: 'workbook', level: 'L1', specs: 'Single Level only', currentStock: 0 }),
+    inv({ _id: 'p2-math', productName: 'P2', subject: 'math', currentStock: 20 }),
+    inv({ _id: 'p2-chem', productName: 'P2', subject: 'chem', currentStock: 0 }),
+  ];
+  const p1 = { productName: 'P1', productCategory: 'workbook', class: '1', specs: 'Single Level only', level: 'L1', quantity: 10 };
+  const p1b = { ...p1, class: '2' };
+  const p2math = { productName: 'P2', subject: 'math', class: '1', specs: 'Regular', level: 'L1', quantity: 10 };
+  const p2chem = { productName: 'P2', subject: 'chem', class: '1', specs: 'Regular', level: 'L1', quantity: 10 };
+
+  assert.equal(mapInventoryIdentityOntoDcRow(p1, stock).availableQuantity, 180);
+  assert.equal(availableStockForRow(stock, p1), 180);
+  assert.equal(validateDcStockAgainstInventory([p1, p1b], stock).ok, true);
+  assert.equal(validateDcStockAgainstInventory([p2math], stock).ok, true);
+
+  const chem = validateDcStockAgainstInventory([p2chem], stock);
+  assert.equal(mapInventoryIdentityOntoDcRow(p2chem, stock).availableQuantity, 0);
+  assert.equal(chem.ok, false);
+  assert.match(chem.message, /only 0 is available/i);
+});
+
+test('backend Update uses the table Available Qty even if a second lookup would return 0', () => {
+  const unmatchedStock = [
+    inv({ _id: 'other', productName: 'ZZ', category: 'other', currentStock: 999 }),
+  ];
+  const p1 = {
+    productName: 'P1',
+    productCategory: 'workbook',
+    class: '1',
+    specs: 'Single Level only',
+    level: 'L1',
+    quantity: 10,
+    availableQuantity: 180,
+  };
+  const p1b = { ...p1, class: '2' };
+  const p2math = {
+    productName: 'P2',
+    subject: 'math',
+    class: '1',
+    specs: 'Regular',
+    level: 'L1',
+    quantity: 10,
+    availableQuantity: 120,
+  };
+  const p2chem = {
+    productName: 'P2',
+    subject: 'chem',
+    class: '1',
+    specs: 'Regular',
+    level: 'L1',
+    quantity: 10,
+    availableQuantity: 50,
+  };
+  const missing = {
+    productName: 'PX',
+    quantity: 10,
+    availableQuantity: 0,
+  };
+
+  assert.equal(validateDcStockAgainstInventory([p1, p1b], unmatchedStock).ok, true);
+  assert.equal(validateDcStockAgainstInventory([p2math], unmatchedStock).ok, true);
+  assert.equal(validateDcStockAgainstInventory([p2chem], unmatchedStock).ok, true);
+  const none = validateDcStockAgainstInventory([missing], unmatchedStock);
+  assert.equal(none.ok, false);
+  assert.match(none.message, /only 0 is available/i);
+});
+
+test('DC class does not block a Stock match on Product Category', () => {
+  const inventory = [
+    inv({ _id: 'wb', productName: 'P1', class: '10', category: 'workbook', currentStock: 90 }),
+  ];
+  const row = { productName: 'P1', class: '1', productCategory: 'workbook', quantity: 10, specs: 'Regular' };
+  assert.equal(availableStockForRow(inventory, row), 90);
 });

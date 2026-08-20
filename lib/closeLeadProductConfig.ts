@@ -433,7 +433,7 @@ export function expandSectionsToProductDetails(
         price: priceToUse,
         total: 0,
         level: levelsToUse[0] || line.level,
-        specs: 'Regular',
+        specs: (line.selectedSpecs && line.selectedSpecs[0]) || '',
         isParentRow: true,
         sameRateForAllClasses: line.sameRateForAllClasses,
         selectedSubjects: line.selectedSubjects || [],
@@ -448,7 +448,6 @@ export function expandSectionsToProductDetails(
       out.push(parentRow)
 
       const selectedSpecs = line.selectedSpecs || []
-      const specsToUse = selectedSpecs.length > 0 ? selectedSpecs : ['Regular']
       const selectedSubjects = line.selectedSubjects || []
       const hasSubjects =
         ctx.hasProductSubjects(line.product) && selectedSubjects.length > 0
@@ -457,7 +456,6 @@ export function expandSectionsToProductDetails(
         : schoolExisting
           ? 'Existing Students'
           : 'New Students'
-      const defaultSpec = specsToUse[0]
       const subjectsToUse =
         hasSubjects && selectedSubjects.length > 0 ? selectedSubjects : [undefined]
       const subjectPriceMult = hasSubjects ? selectedSubjects.length : 1
@@ -488,7 +486,7 @@ export function expandSectionsToProductDetails(
               price: priceToUse || 0,
               total: strengthToUse * (priceToUse || 0),
               level,
-              specs: defaultSpec,
+              specs: selectedSpecs[0] || '',
               subject,
               isParentRow: false,
               sameRateForAllClasses: false,
