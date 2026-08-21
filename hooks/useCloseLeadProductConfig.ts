@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiRequest } from '@/lib/api'
 import { useProducts } from '@/hooks/useProducts'
 import {
@@ -8,12 +8,17 @@ import {
   type CloseProductSectionLine,
   type ProductDetailRow,
   type GroupProductOpts,
+  categoryValueFromRow,
   expandSectionsToProductDetails,
   getLineClassSelections,
   groupProductDetailsByProductAndClass,
   lineHasValidClassSelections,
   lineHasValidLevelSelections,
   makeRowId,
+  parentRowIdForDetailRow,
+  productCategoryRowIdentity,
+  resolveRowProductCategory,
+  syncClassSelectionsFromDetailRows,
   sectionHasValidClassSelections,
   buildDcOrderProductsFromDetails,
   validateCloseLeadProductConfig,
@@ -36,6 +41,7 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
   const [deliverablesByProduct, setDeliverablesByProduct] = useState<Record<string, string[]>>(
     {}
   )
+  const productCategoryOverridesRef = useRef<Record<string, string>>({})
 
   const {
     products: catalogProducts,
@@ -58,13 +64,16 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
   }
 
   useEffect(() => {
-    const details = expandSectionsToProductDetails(productSections, {
-      hasProductSubjects,
-      getProductCategories,
-      hasProductCategories,
-      schoolType,
-    })
-    setProductDetails(details)
+    setProductDetails((prev) =>
+      expandSectionsToProductDetails(productSections, {
+        hasProductSubjects,
+        getProductCategories,
+        hasProductCategories,
+        schoolType,
+        previousDetails: prev,
+        categoryOverrides: productCategoryOverridesRef.current,
+      })
+    )
     const names = [...new Set(productSections.flatMap((s) => s.lines.map((l) => l.product)))]
     setSelectedProducts(names)
     // Only stable deps: useProducts() returns new function references every render, so including
@@ -244,6 +253,7 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
           selectedSubjects: [],
           selectedDeliverables: [],
           selectedCategories: undefined,
+          productCategoryByKey: {},
           sameRateForAllClasses: false,
           price: 0,
         }
@@ -330,12 +340,12 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
       const hasSubjects = hasProductSubjects(parentRow.product) && selectedSubjects.length > 0
       const subjectsToUse = hasSubjects ? selectedSubjects : [undefined]
       const subjectPriceMult = hasSubjects ? selectedSubjects.length : 1
-      const selectedCategories = parentRow.selectedCategories || []
-      const categoriesToUse = hasProductCategories(parentRow.product)
-        ? selectedCategories.length > 0
-          ? selectedCategories
-          : getProductCategories(parentRow.product)
-        : [schoolType === 'Existing' ? 'Existing Students' : 'New Students']
+      const hasSkuCategories = hasProductCategories(parentRow.product)
+      const defaultCategory = hasSkuCategories
+        ? getProductCategories(parentRow.product)[0] || ''
+        : schoolType === 'Existing'
+          ? 'Existing Students'
+          : 'New Students'
 
       const strengthToUse =
         typeof defaultStrength === 'number' ? defaultStrength : parentRow.strength || 0
@@ -346,22 +356,49 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
       const otherChildRows = currentDetails.filter(
         (p) => !p.isParentRow && !p.id.startsWith(parentId + '_')
       )
+      const existingChildren = currentDetails.filter(
+        (p) => !p.isParentRow && p.id.startsWith(parentId + '_')
+      )
 
       const newRows: Array<typeof parentRow> = []
       let rowIdx = 0
       for (let classNum = from; classNum <= to; classNum++) {
         specsToUse.forEach((spec) => {
-          categoriesToUse.forEach((category) => {
+          subjectsToUse.forEach((subject) => {
+            const classValue = classNum.toString()
             const subjectDisplay =
               hasSubjects && selectedSubjects.length > 0
                 ? selectedSubjects.join(', ')
-                : undefined
+                : subject
+            const existing = existingChildren.find(
+              (p) =>
+                p.class === classValue &&
+                String(p.level || '') === String(parentRow.level || '') &&
+                String(p.specs || '') === String(spec || '') &&
+                String(p.subject || '') === String(subjectDisplay || '')
+            )
+            const identity = productCategoryRowIdentity(
+              parentId,
+              parentRow.product,
+              classValue,
+              parentRow.level,
+              subjectDisplay
+            )
+            const existingCategory = resolveRowProductCategory(
+              productCategoryOverridesRef.current[identity] ||
+                categoryValueFromRow(existing || { category: '', productCategory: undefined }),
+              ''
+            )
+            const category = resolveRowProductCategory(existingCategory, defaultCategory)
+            if (category) {
+              productCategoryOverridesRef.current[identity] = category
+            }
             newRows.push({
               id: parentId + '_' + classNum + '_' + rowIdx++,
               product: parentRow.product,
-              class: classNum.toString(),
-              category: category,
-              productCategory: hasProductCategories(parentRow.product) ? category : undefined,
+              class: classValue,
+              category,
+              productCategory: hasSkuCategories ? category : undefined,
               quantity: strengthToUse || 1,
               strength: strengthToUse || 0,
               price: priceToUse || 0,
@@ -413,6 +450,27 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
 
       const updated = { ...rowToUpdate, [field]: value }
 
+      if (field === 'category' || field === 'productCategory') {
+        const cat = String(value ?? '').trim()
+        updated.category = cat
+        updated.productCategory = hasProductCategories(rowToUpdate.product) ? cat : undefined
+        if (!rowToUpdate.isParentRow) {
+          const parent = currentDetails.find(
+            (p) => p.isParentRow && rowToUpdate.id.startsWith(`${p.id}_`)
+          )
+          if (parent) {
+            const identity = productCategoryRowIdentity(
+              parent.id,
+              rowToUpdate.product,
+              rowToUpdate.class,
+              rowToUpdate.level,
+              rowToUpdate.subject
+            )
+            productCategoryOverridesRef.current[identity] = cat
+          }
+        }
+      }
+
       if (field === 'price' || field === 'strength') {
         const parentForSubjects =
           rowToUpdate.isParentRow
@@ -431,13 +489,29 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
 
         if (!rowToUpdate.isParentRow) {
           if (field === 'strength') {
+            const newStrength = Number(value) || 0
+            setProductSections((prev) =>
+              prev.map((sec) => ({
+                ...sec,
+                lines: sec.lines.map((line) => {
+                  if (!rowToUpdate.id.startsWith(`${line.parentRowId}_`)) return line
+                  return {
+                    ...line,
+                    classSelections: getLineClassSelections(line).map((s) =>
+                      String(s.class) === String(updated.class)
+                        ? { ...s, strength: newStrength }
+                        : s
+                    ),
+                  }
+                }),
+              }))
+            )
             return currentDetails.map((p) => {
               if (
                 !p.isParentRow &&
                 p.product === updated.product &&
                 p.class === updated.class
               ) {
-                const newStrength = value
                 const price = Number(p.price) || 0
                 return {
                   ...p,
@@ -509,8 +583,9 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
 
   const removeProductDetail = (id: string) => {
     const rowToRemove = productDetails.find((p) => p.id === id)
+    if (!rowToRemove) return
 
-    if (rowToRemove?.isParentRow) {
+    if (rowToRemove.isParentRow) {
       setProductSections((prev) =>
         prev.map((sec) => ({
           ...sec,
@@ -519,12 +594,58 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
       )
       return
     }
-    setProductDetails(productDetails.filter((p) => p.id !== id))
-    const remainingProducts = productDetails
-      .filter((p) => p.id !== id)
-      .map((p) => p.product)
-      .filter((p, idx, arr) => arr.indexOf(p) === idx)
-    setSelectedProducts(remainingProducts)
+
+    const parentId = parentRowIdForDetailRow(rowToRemove, productDetails)
+    const remaining = productDetails.filter((p) => p.id !== id)
+    const remainingChildren = remaining.filter((p) => {
+      if (p.isParentRow) return false
+      if (parentId) return p.id.startsWith(`${parentId}_`)
+      return p.product === rowToRemove.product
+    })
+    const deletedClass = String(rowToRemove.class || '').trim()
+    const classStillPresent = remainingChildren.some(
+      (r) => String(r.class || '').trim() === deletedClass
+    )
+
+    if (parentId && deletedClass && !classStillPresent) {
+      const classPrefix = `${parentId}|${rowToRemove.product}|${deletedClass}|`
+      for (const key of Object.keys(productCategoryOverridesRef.current)) {
+        if (key.startsWith(classPrefix)) {
+          delete productCategoryOverridesRef.current[key]
+        }
+      }
+    }
+
+    setProductDetails(remaining)
+    setSelectedProducts(
+      remaining
+        .map((p) => p.product)
+        .filter((p, idx, arr) => arr.indexOf(p) === idx)
+    )
+
+    const shouldSyncClasses = !classStillPresent || remainingChildren.length === 0
+    if (!shouldSyncClasses) return
+
+    setProductSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        lines: sec.lines.map((line) => {
+          const isTarget = parentId
+            ? line.parentRowId === parentId
+            : rowToRemove.id.startsWith(`${line.parentRowId}_`)
+          if (!isTarget) return line
+          return {
+            ...line,
+            classSelections: syncClassSelectionsFromDetailRows(
+              getLineClassSelections(line),
+              remainingChildren
+            ),
+            fromClass: undefined,
+            toClass: undefined,
+          }
+        }),
+      }))
+    )
   }
 
   const buildDcOrderProducts = () =>

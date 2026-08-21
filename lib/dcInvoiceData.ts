@@ -1,6 +1,6 @@
 import { apiRequest } from '@/lib/api'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
-import { displayProductLevel, findMatchingOrderProduct } from '@/lib/clientDcProductRows'
+import { displayProductLevel, findPricedOrderProduct, collectPoUnitPriceSources, resolvePersistedUnitPrice } from '@/lib/clientDcProductRows'
 import type { CalculationType } from '@/lib/paymentDivisor'
 
 export type DcInvoicePaymentLine = {
@@ -228,33 +228,29 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
   }
 
   if (fullDC.productDetails && Array.isArray(fullDC.productDetails) && fullDC.productDetails.length > 0) {
-    if (dcOrder?.products && Array.isArray(dcOrder.products) && dcOrder.products.length > 0) {
+    const priceSources = collectPoUnitPriceSources(dcOrder)
+    if (priceSources.length > 0) {
       const usedIndices = new Set<number>()
 
-      paymentBreakdown = fullDC.productDetails.map((pd: any, index: number) => {
-        const matchingProduct = findMatchingOrderProduct(
-          dcOrder.products,
-          pd,
-          index,
-          usedIndices
-        )
+      paymentBreakdown = fullDC.productDetails.map((pd: any) => {
+        const matchingProduct = findPricedOrderProduct(priceSources, pd, usedIndices)
 
-        const unitPrice =
-          matchingProduct && matchingProduct.unit_price != null
-            ? Number(matchingProduct.unit_price)
-            : pd.price != null
-              ? Number(pd.price)
-              : 0
-        const quantity = Number(pd.quantity) || 0
-        const strength = Number(pd.strength) || 0
-        const total = strength * unitPrice
+        const unitPrice = resolvePersistedUnitPrice(
+          matchingProduct?.unit_price,
+          matchingProduct?.price,
+          pd.unit_price,
+          pd.price
+        )
+        const quantity = Number(pd.quantity) || Number(pd.strength) || 0
+        const strength = Number(pd.strength) || quantity
+        const total = quantity * unitPrice
         totalAmount += total
 
         return {
           product: pd.product || '',
           class: pd.class || '1',
           category: pd.category || 'New School',
-          specs: pd.specs || 'Regular',
+          specs: matchingProduct?.specs || pd.specs || '',
           subject: pd.subject || undefined,
           quantity,
           strength,
@@ -266,16 +262,16 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
       })
     } else {
       paymentBreakdown = fullDC.productDetails.map((p: any) => {
-        const price = p.price != null ? Number(p.price) : 0
-        const quantity = Number(p.quantity) || 0
-        const strength = Number(p.strength) || 0
-        const total = strength * price
+        const price = resolvePersistedUnitPrice(p.unit_price, p.price)
+        const quantity = Number(p.quantity) || Number(p.strength) || 0
+        const strength = Number(p.strength) || quantity
+        const total = quantity * price
         totalAmount += total
         return {
           product: p.product || '',
           class: p.class || '1',
           category: p.category || 'New School',
-          specs: p.specs || 'Regular',
+          specs: p.specs || '',
           subject: p.subject || undefined,
           quantity,
           strength,

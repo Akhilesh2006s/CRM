@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { Eye, Search, X } from 'lucide-react'
 import { useProducts } from '@/hooks/useProducts'
 import { Badge } from '@/components/ui/badge'
+import { sortDcsNewestFirst } from '@/lib/dcListSort'
 
 type DC = {
   _id: string
@@ -169,7 +170,7 @@ export default function SearchDCPage() {
         })
       }
 
-      setDcs(filteredDCs)
+      setDcs(sortDcsNewestFirst(filteredDCs))
       toast.success(`Found ${filteredDCs.length} DC(s)`)
     } catch (error: any) {
       console.error('Error searching DCs:', error)
@@ -417,6 +418,7 @@ export default function SearchDCPage() {
                 onChange={(e) => setSelectedDate(e.target.value)}
                 className="w-full"
                 placeholder="Select date (optional)"
+                allowPastDates
               />
             </div>
 

@@ -1,10 +1,11 @@
 const User = require('../models/User');
 const Product = require('../models/Product');
+const { VENDOR_MASTER_ROLES } = require('../utils/vendorMaster');
 
-// List all partners
+// List all vendors from Vendor master (Partner and Vendor roles)
 const list = async (req, res) => {
   try {
-    const partners = await User.find({ role: 'Partner' })
+    const partners = await User.find({ role: { $in: VENDOR_MASTER_ROLES } })
       .select('-password')
       .populate('partnerAssignedProducts', 'productName')
       .sort({ createdAt: -1 });
@@ -79,7 +80,7 @@ const create = async (req, res) => {
 // Get single partner
 const getOne = async (req, res) => {
   try {
-    const partner = await User.findOne({ _id: req.params.id, role: 'Partner' })
+    const partner = await User.findOne({ _id: req.params.id, role: { $in: VENDOR_MASTER_ROLES } })
       .select('-password')
       .populate('partnerAssignedProducts', 'productName');
     if (!partner) {
@@ -98,7 +99,7 @@ const updateProducts = async (req, res) => {
     const partnerId = req.params.id;
 
     // Validate partner exists
-    const partner = await User.findOne({ _id: partnerId, role: 'Partner' });
+    const partner = await User.findOne({ _id: partnerId, role: { $in: VENDOR_MASTER_ROLES } });
     if (!partner) {
       return res.status(404).json({ message: 'Partner not found' });
     }

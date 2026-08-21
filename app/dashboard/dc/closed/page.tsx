@@ -24,16 +24,22 @@ function isClosedSalesOrderStatus(status?: string) {
   return status === 'dc_requested' || status === 'dc_accepted'
 }
 
+/** Closed Sales only after Executive clicks Request DC (requestedAt / requestedBy). */
+function wasRequestedByExecutive(deal?: { status?: string; requestedAt?: string; requestedBy?: unknown } | null) {
+  if (!deal) return false
+  if (!isClosedSalesOrderStatus(deal.status)) return false
+  if (deal.status === 'dc_accepted') return true
+  return Boolean(deal.requestedAt || deal.requestedBy)
+}
+
 /**
- * Linked DC document statuses that mean the sale has left Closed Sales
- * (Pending DC → EMP/Warehouse → Completed DC).
+ * Linked DC document statuses that mean Super Admin already Raised DC
+ * (Pending DC → warehouse). Request DC / po_submitted / created must stay visible.
  */
 const DC_LEFT_CLOSED_SALES = new Set([
   'pending_dc',
   'sent_to_manager',
   'warehouse_processing',
-  'completed',
-  'hold',
 ])
 
 function hasLeftClosedSalesStage(dc?: { status?: string } | null) {
@@ -357,9 +363,7 @@ export default function ClosedSalesPage() {
         })))
         
         data = [...dcRequestedArray, ...dcAcceptedArray].filter((d: any) =>
-          isClosedSalesOrderStatus(d.status) &&
-          d.status !== 'dc_approved' &&
-          d.status !== 'dc_sent_to_senior'
+          isClosedSalesOrderStatus(d.status)
         )
       } catch (e) {
         // If no completed deals, try getting all deals and filter client-side
@@ -471,16 +475,7 @@ export default function ClosedSalesPage() {
         setDealDCs(dcMap)
         console.log('Loaded DCs for deals:', Object.keys(dcMap).length, 'DCs found')
 
-        // Drop deals whose linked DC has already left Closed Sales (Pending / Warehouse / Completed)
         data = data.filter((deal: any) => {
-          const linkedDc = dcMap[deal._id]
-          if (hasLeftClosedSalesStage(linkedDc)) {
-            console.log(
-              `🚫 Excluding from Closed Sales (DC stage=${linkedDc?.status}):`,
-              deal.school_name || deal._id
-            )
-            return false
-          }
           if (deal.isLead) return true
           return isClosedSalesOrderStatus(deal.status)
         })
@@ -1037,6 +1032,11 @@ export default function ClosedSalesPage() {
         quantity: Number(row.quantity) || 0,
         level: row.level,
         term: resolveExistingProductTerm(row),
+        unit_price: Number(row.unit_price) || Number(row.price) || 0,
+        price: Number(row.unit_price) || Number(row.price) || 0,
+        total:
+          (Number(row.quantity) || 0) *
+          (Number(row.unit_price) || Number(row.price) || 0),
         closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
       }))
 
@@ -1157,6 +1157,11 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
           term: row.term || 'Term 1',
+          unit_price: Number(row.unit_price) || Number(row.price) || 0,
+          price: Number(row.unit_price) || Number(row.price) || 0,
+          total:
+            (Number(row.quantity) || 0) *
+            (Number(row.unit_price) || Number(row.price) || 0),
           closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
         })),
         employeeId: employeeId,
@@ -1216,6 +1221,11 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level && String(row.level).trim() !== '-' ? String(row.level).trim() : '',
           term: row.term || 'Term 1',
+          unit_price: Number(row.unit_price) || Number(row.price) || 0,
+          price: Number(row.unit_price) || Number(row.price) || 0,
+          total:
+            (Number(row.quantity) || 0) *
+            (Number(row.unit_price) || Number(row.price) || 0),
           closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
         }))
       } else {
@@ -1236,6 +1246,11 @@ export default function ClosedSalesPage() {
             quantity: Number(p.quantity) || Number(p.strength) || 0,
             level: p.level && String(p.level).trim() !== '-' ? String(p.level).trim() : '',
             term: p.term || 'Term 1',
+            unit_price: Number(p.unit_price) || Number(p.price) || 0,
+            price: Number(p.unit_price) || Number(p.price) || 0,
+            total:
+              (Number(p.quantity) || Number(p.strength) || 0) *
+              (Number(p.unit_price) || Number(p.price) || 0),
             closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
           }))
         }
@@ -1391,6 +1406,11 @@ export default function ClosedSalesPage() {
           quantity: Number(row.quantity) || 0,
           level: row.level || getDefaultLevel(row.product || 'Abacus'),
               term: row.term || 'Term 1',
+              unit_price: Number(row.unit_price) || Number(row.price) || 0,
+              price: Number(row.unit_price) || Number(row.price) || 0,
+              total:
+                (Number(row.quantity) || 0) *
+                (Number(row.unit_price) || Number(row.price) || 0),
               closeLeadDestination: CLOSE_LEAD_DESTINATION.MY_CLIENT,
             }))
           : (dcRequestData.productDetails || []),

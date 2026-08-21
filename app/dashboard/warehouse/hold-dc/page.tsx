@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
+import { sortDcsNewestFirst } from '@/lib/dcListSort'
 
 type HoldRow = {
   _id: string
@@ -19,6 +20,8 @@ type HoldRow = {
   executive?: string
   holdRemarks?: string
   isDcOrder?: boolean // true for DcOrder, false for DC model
+  createdAt?: string
+  updatedAt?: string
 }
 
 export default function HoldDCPage() {
@@ -52,11 +55,13 @@ export default function HoldDCPage() {
         executive: dc.employeeId?.name || '',
         holdRemarks: dc.holdReason || '',
         isDcOrder: false, // DC model
+        createdAt: dc.createdAt || '',
+        updatedAt: dc.updatedAt || '',
       }))
       
       // Combine both lists
       const allHolds = [...markedDcOrderHolds, ...transformedDCHolds]
-      setRows(allHolds)
+      setRows(sortDcsNewestFirst(allHolds))
     } catch (err: any) {
       toast.error(err?.message || 'Failed to load held DCs')
     } finally {

@@ -52,6 +52,10 @@ const warehouseSchema = new mongoose.Schema({
   supplier: {
     type: String,
   },
+  vendorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
   lastRestocked: {
     type: Date,
   },

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -35,6 +35,32 @@ import {
   useCloseLeadProductConfig,
   type CloseLeadProductConfigApi,
 } from '@/hooks/useCloseLeadProductConfig'
+
+const UNIT_PRICE_INPUT_CLASS =
+  'h-8 w-28 [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:m-0'
+
+function sanitizeUnitPriceInput(raw: string): string {
+  let value = String(raw || '').replace(/[^\d.]/g, '')
+  const firstDot = value.indexOf('.')
+  if (firstDot !== -1) {
+    value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, '')
+  }
+  if (value.startsWith('.')) value = `0${value}`
+  if (value.includes('.')) {
+    const [intPart, decPart = ''] = value.split('.')
+    const cleanedInt = intPart.length > 1 ? intPart.replace(/^0+/, '') || '0' : intPart
+    value = `${cleanedInt}.${decPart}`
+  } else if (value.length > 1) {
+    value = value.replace(/^0+/, '') || '0'
+  }
+  return value
+}
+
+function parseUnitPriceInput(value: string): number {
+  if (!value || value === '.') return 0
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
 
 export type CloseLeadProductConfigProps = {
   schoolType?: string
@@ -103,6 +129,14 @@ function CloseLeadProductConfigView({
     updateProductDetail,
     removeProductDetail,
   } = cfg
+
+  const [unitPriceDraftByLine, setUnitPriceDraftByLine] = useState<Record<string, string>>({})
+
+  const handleUnitPriceChange = (sectionId: string, lineId: string, raw: string) => {
+    const value = sanitizeUnitPriceInput(raw)
+    setUnitPriceDraftByLine((prev) => ({ ...prev, [lineId]: value }))
+    updateLineUnitPrice(sectionId, lineId, parseUnitPriceInput(value))
+  }
 
   return (
     <div className={className}>
@@ -478,29 +512,25 @@ function CloseLeadProductConfigView({
                                           Unit Price *
                                         </Label>
                                         <Input
-                                          type="number"
-                                          value={line.price || ''}
-                                          onChange={(e) => {
-                                            let value = e.target.value
-                                            if (value.includes('.')) {
-                                              const [intPart, decPart] = value.split('.')
-                                              const cleanedInt =
-                                                intPart.length > 1
-                                                  ? intPart.replace(/^0+/, '') || '0'
-                                                  : intPart
-                                              value =
-                                                cleanedInt +
-                                                (decPart !== undefined ? '.' + decPart : '')
-                                            } else if (value.length > 1) {
-                                              value = value.replace(/^0+/, '') || '0'
-                                            }
-                                            const numValue = value === '' ? 0 : Number(value)
-                                            updateLineUnitPrice(section.id, line.id, numValue)
-                                          }}
-                                          className="h-8 w-28"
-                                          min="0.01"
+                                          type="text"
+                                          inputMode="decimal"
+                                          autoComplete="off"
+                                          value={
+                                            unitPriceDraftByLine[line.id] !== undefined
+                                              ? unitPriceDraftByLine[line.id]
+                                              : line.price
+                                                ? String(line.price)
+                                                : ''
+                                          }
+                                          onChange={(e) =>
+                                            handleUnitPriceChange(
+                                              section.id,
+                                              line.id,
+                                              e.target.value
+                                            )
+                                          }
+                                          className={UNIT_PRICE_INPUT_CLASS}
                                           placeholder="0"
-                                          step="0.01"
                                           required
                                         />
                                       </div>
@@ -530,29 +560,21 @@ function CloseLeadProductConfigView({
                                       Unit Price *
                                     </Label>
                                     <Input
-                                      type="number"
-                                      value={line.price || ''}
-                                      onChange={(e) => {
-                                        let value = e.target.value
-                                        if (value.includes('.')) {
-                                          const [intPart, decPart] = value.split('.')
-                                          const cleanedInt =
-                                            intPart.length > 1
-                                              ? intPart.replace(/^0+/, '') || '0'
-                                              : intPart
-                                          value =
-                                            cleanedInt +
-                                            (decPart !== undefined ? '.' + decPart : '')
-                                        } else if (value.length > 1) {
-                                          value = value.replace(/^0+/, '') || '0'
-                                        }
-                                        const numValue = value === '' ? 0 : Number(value)
-                                        updateLineUnitPrice(section.id, line.id, numValue)
-                                      }}
-                                      className="h-8 w-28"
-                                      min="0.01"
+                                      type="text"
+                                      inputMode="decimal"
+                                      autoComplete="off"
+                                      value={
+                                        unitPriceDraftByLine[line.id] !== undefined
+                                          ? unitPriceDraftByLine[line.id]
+                                          : line.price
+                                            ? String(line.price)
+                                            : ''
+                                      }
+                                      onChange={(e) =>
+                                        handleUnitPriceChange(section.id, line.id, e.target.value)
+                                      }
+                                      className={UNIT_PRICE_INPUT_CLASS}
                                       placeholder="0"
-                                      step="0.01"
                                       required
                                     />
                                   </div>
@@ -685,7 +707,9 @@ function CloseLeadProductConfigView({
                           <td className="px-3 py-2">
                             {hasProductCategories(pd.product) ? (
                               <Select
-                                value={pd.category}
+                                value={
+                                  (pd.productCategory || pd.category || '').trim() || undefined
+                                }
                                 onValueChange={(v) => updateProductDetail(pd.id, 'category', v)}
                               >
                                 <SelectTrigger className="w-32 h-8">

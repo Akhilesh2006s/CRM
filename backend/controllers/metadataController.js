@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const Lead = require('../models/Lead');
+const { listActiveVendorMaster } = require('../utils/vendorMaster');
 
 // Enum values for Lead, DcOrder, DC - must match backend models (Lead.js, DcOrder.js, DC.js)
 const ENUMS = {
@@ -30,31 +31,14 @@ const getEnums = async (req, res) => {
   }
 };
 
-async function vendorNamesFromMaster() {
-  const users = await User.find({ role: { $in: ['Partner', 'Vendor'] } })
-    .select('name')
-    .sort({ name: 1 })
-    .lean();
-  const names = [];
-  const seen = new Set();
-  for (const user of users) {
-    const name = String(user?.name || '').trim();
-    if (!name) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    names.push(name);
-  }
-  names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  return names;
-}
-
 // @desc    Get inventory metadata options
 // @route   GET /api/metadata/inventory-options
 // @access  Private
 const getInventoryOptions = async (req, res) => {
   try {
-    const vendors = await vendorNamesFromMaster();
+    const vendorRecords = await listActiveVendorMaster();
+    const vendors = vendorRecords.map((v) => v.name);
+    console.log('[inventory-options] fetched vendors:', vendors);
     const options = {
       products: [
         'Abacus',
@@ -70,6 +54,7 @@ const getInventoryOptions = async (req, res) => {
       ],
       uoms: ['Pieces (pcs)', 'boxes'],
       vendors,
+      vendorRecords,
     };
 
     res.json(options);

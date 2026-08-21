@@ -9,6 +9,7 @@ const {
   updateWarehouseItem,
   updateStock,
   getWarehouseReports,
+  getWarehouseVendors,
 } = require('../controllers/warehouseController');
 const {
   getWarehouseDCList,
@@ -31,6 +32,7 @@ router.post('/dc/:id/hold', authMiddleware, toggleHoldDC);
 // Warehouse items routes
 router.get('/reports', authMiddleware, getWarehouseReports);
 router.get('/locations', authMiddleware, getWarehouseLocations);
+router.get('/vendors', authMiddleware, getWarehouseVendors);
 router.get('/stock-list', authMiddleware, getWarehouseStockList);
 router.post('/stock', authMiddleware, updateStock);
 router.get('/', authMiddleware, getWarehouse);

@@ -19,6 +19,7 @@ import { lookupPincode } from '@/lib/pincode'
 import { sanitizePhoneInput, validateIndianMobile } from '@/lib/phone'
 import { normalizeIntegerInput } from '@/lib/numericInput'
 import { toFollowUpDatePayload } from '@/lib/followUpDate'
+import { isBeforeToday } from '@/lib/todayDate'
 
 const LEAD_STATUS_OPTIONS = ['Hot', 'Warm', 'Cold'] as const
 
@@ -42,6 +43,7 @@ export default function NewSchoolPage() {
   const [form, setForm] = useState({
     school_type: 'New',
     school_name: '',
+    school_code: '',
     contact_person: '',
     contact_mobile: '',
     email: '',
@@ -244,6 +246,11 @@ export default function NewSchoolPage() {
     setError(null)
     
     // Validate required fields
+    if (!form.school_code || !form.school_code.trim()) {
+      setError('School Code is required')
+      setSubmitting(false)
+      return
+    }
     if (!form.decision_maker_name || !form.decision_maker_name.trim()) {
       setError('Decision Maker Name is required')
       setSubmitting(false)
@@ -307,6 +314,11 @@ export default function NewSchoolPage() {
     }
     if (!form.follow_up_date || !form.follow_up_date.trim()) {
       setError('Follow-up date is required')
+      setSubmitting(false)
+      return
+    }
+    if (isBeforeToday(form.follow_up_date)) {
+      setError('Follow-up date cannot be in the past')
       setSubmitting(false)
       return
     }
@@ -377,6 +389,7 @@ export default function NewSchoolPage() {
       
       const payload: any = {
         school_name: form.school_name,
+        school_code: form.school_code.trim(),
         school_type: form.school_type || 'New', // Use selected school type (New or Existing)
         contact_person: form.contact_person,
         contact_mobile: contactMobileCheck.digits,
@@ -410,8 +423,12 @@ export default function NewSchoolPage() {
       toast.success('New school lead created successfully!')
       router.push('/dashboard/leads/followup')
     } catch (err: any) {
-      setError(err?.message || 'Failed to create lead')
-      toast.error(err?.message || 'Failed to create lead')
+      const raw = err?.message || 'Failed to create lead'
+      const message = /school code already exists/i.test(raw)
+        ? 'This school already exists. Go to Renewal Leads.'
+        : raw
+      setError(message)
+      toast.error(message)
     } finally {
       setSubmitting(false)
     }
@@ -437,6 +454,17 @@ export default function NewSchoolPage() {
           <div>
             <Label>School name *</Label>
             <Input className="bg-white text-neutral-900" name="school_name" value={form.school_name} onChange={onChange} required />
+          </div>
+          <div>
+            <Label>School code *</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="school_code"
+              value={form.school_code}
+              onChange={onChange}
+              placeholder="Enter school code"
+              required
+            />
           </div>
           <div>
             <Label>School Type</Label>
@@ -809,7 +837,21 @@ export default function NewSchoolPage() {
               required
             />
           </div>
-          {error && <div className="md:col-span-2 text-red-600 text-sm">{error}</div>}
+          {error && (
+            <div className="md:col-span-2 text-red-600 text-sm">
+              {error.includes('Renewal Leads') ? (
+                <>
+                  This school already exists.{' '}
+                  <Link href="/dashboard/leads/renewal" className="underline font-medium">
+                    Go to Renewal Leads
+                  </Link>
+                  .
+                </>
+              ) : (
+                error
+              )}
+            </div>
+          )}
           <div className="md:col-span-2">
             <Button type="submit" disabled={submitting}>{submitting ? 'Creating...' : 'Create New School Lead'}</Button>
           </div>

@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useProducts } from '@/hooks/useProducts'
+import { sortDcsNewestFirst } from '@/lib/dcListSort'
 import {
   mapInventoryIdentityOntoDcRow,
   requiredQtyFromDcRow,
@@ -206,7 +207,7 @@ export default function WarehouseDcAtWarehouse() {
       const data = await apiRequest<DC[]>(`/dc/pending-warehouse`)
       // Ensure data is an array before setting
       const dataArray = Array.isArray(data) ? data : []
-      setRows(dataArray)
+      setRows(sortDcsNewestFirst(dataArray))
     } catch (err: any) {
       console.error('Failed to load DC list:', err)
     } finally {
@@ -298,8 +299,11 @@ export default function WarehouseDcAtWarehouse() {
             deliverableQuantity: deliverableQty,
             remainingQuantity: remainingQty,
             strength: p.strength || 0,
-            price: p.price || 0,
-            total: p.total || 0,
+            price: Number(p.unit_price) || Number(p.price) || 0,
+            unit_price: Number(p.unit_price) || Number(p.price) || 0,
+            total:
+              (Number(p.quantity) || Number(p.strength) || 0) *
+              (Number(p.unit_price) || Number(p.price) || 0),
             level: mapped.level,
             term: (p as any).term,
           }
@@ -462,8 +466,11 @@ export default function WarehouseDcAtWarehouse() {
             deliverableQuantity: p.deliverableQuantity,
             remainingQuantity: p.remainingQuantity,
             strength: p.strength,
-            price: p.price,
-            total: p.total,
+            price: Number(p.price) || Number(p.unit_price) || 0,
+            unit_price: Number(p.unit_price) || Number(p.price) || 0,
+            total:
+              (Number(p.quantity) || 0) *
+              (Number(p.price) || Number(p.unit_price) || 0),
             level: p.level || '',
           })),
           requestedQuantity: totalRequestedQty,
@@ -503,6 +510,11 @@ export default function WarehouseDcAtWarehouse() {
             deliverableQuantity: p.deliverableQuantity,
             remainingQuantity: p.remainingQuantity,
             strength: p.strength,
+            price: Number(p.price) || Number(p.unit_price) || 0,
+            unit_price: Number(p.unit_price) || Number(p.price) || 0,
+            total:
+              (Number(p.quantity) || 0) *
+              (Number(p.price) || Number(p.unit_price) || 0),
             level: p.level || '',
           })),
         }),
@@ -547,35 +559,44 @@ export default function WarehouseDcAtWarehouse() {
       return
     }
 
-    // Recalculate remaining qty for each product: remaining qty = available qty - deliverable qty
-    // Note: Hold DC is allowed even when available qty < deliverable qty (that's the purpose of putting it on hold)
-    const updatedProductRows = productRows.map(p => {
-      const availableQty = p.availableQuantity || 0
-      const deliverableQty = p.deliverableQuantity || 0
-      // Calculate remaining qty = available qty - deliverable qty (only if available >= deliverable)
-      const remainingQty = Math.max(0, availableQty - deliverableQty)
-      
-      return {
-        ...p,
-        remainingQuantity: remainingQty,
-      }
-    })
-
-    // Calculate totals - use the larger of quantity or strength for each product
-    const totalRequestedQty = productRows.reduce((sum, p) => {
-      const qty = p.quantity || 0
-      const str = p.strength || 0
-      return sum + Math.max(qty, str) // Use the larger value
-    }, 0)
-    const totalAvailableQty = productRows.reduce((sum, p) => sum + (p.availableQuantity || 0), 0)
-    const totalDeliverableQty = updatedProductRows.reduce((sum, p) => sum + (p.deliverableQuantity || 0), 0)
-
     setOnHoldProcessing(true)
     try {
-      // Update DC with product details and set status to 'hold'
-      const holdReason = remarks 
-        ? `Insufficient quantity available. Remarks: ${remarks}`
-        : 'Insufficient quantity available.';
+      const inventoryArray = await loadStockRecords()
+      setWarehouseInventory(inventoryArray)
+
+      const updatedProductRows = productRows.map((p) => {
+        const stockRow = toStockRow(p)
+        const mapped = mapInventoryIdentityOntoDcRow(stockRow, inventoryArray)
+        const availableQty = mapped.availableQuantity
+        const requiredQty = requiredQtyFromDcRow(stockRow)
+        const deliverableQty = p.deliverableQuantity != null ? Number(p.deliverableQuantity) : requiredQty
+        return {
+          ...p,
+          productCategory: mapped.productCategory,
+          specs: mapped.specs,
+          subject: mapped.subject || undefined,
+          level: mapped.level,
+          quantity: requiredQty,
+          availableQuantity: availableQty,
+          remainingQuantity: Math.max(0, availableQty - deliverableQty),
+        }
+      })
+      setProductRows(updatedProductRows)
+
+      const stockCheck = validateDcStockAgainstInventory(
+        updatedProductRows.map(toStockRow),
+        inventoryArray
+      )
+      setInsufficientQuantity(!stockCheck.ok)
+      setInsufficientStockMessage(stockCheck.ok ? '' : stockCheck.message)
+
+      const totalRequestedQty = updatedProductRows.reduce((sum, p) => sum + requiredQtyFromDcRow(toStockRow(p)), 0)
+      const totalAvailableQty = updatedProductRows.reduce((sum, p) => sum + (p.availableQuantity || 0), 0)
+      const totalDeliverableQty = updatedProductRows.reduce((sum, p) => sum + (p.deliverableQuantity || 0), 0)
+
+      const holdReason = stockCheck.ok
+        ? (remarks ? `Hold requested. Remarks: ${remarks}` : 'Hold requested.')
+        : (remarks ? `${stockCheck.message}. Remarks: ${remarks}` : stockCheck.message)
       
       await apiRequest(`/dc/${selectedDC._id}`, {
         method: 'PUT',
@@ -592,8 +613,11 @@ export default function WarehouseDcAtWarehouse() {
             deliverableQuantity: p.deliverableQuantity,
             remainingQuantity: p.remainingQuantity, // Save remaining qty to database
             strength: p.strength,
-            price: p.price,
-            total: p.total,
+            price: Number(p.price) || Number(p.unit_price) || 0,
+            unit_price: Number(p.unit_price) || Number(p.price) || 0,
+            total:
+              (Number(p.quantity) || 0) *
+              (Number(p.price) || Number(p.unit_price) || 0),
             level: p.level,
           })),
           requestedQuantity: totalRequestedQty,

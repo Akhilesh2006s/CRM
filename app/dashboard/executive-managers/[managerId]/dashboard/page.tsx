@@ -381,6 +381,7 @@ export default function ExecutiveManagerDashboardPage() {
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
               className="bg-white"
+              allowPastDates
             />
           </div>
           <div>
@@ -390,6 +391,7 @@ export default function ExecutiveManagerDashboardPage() {
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
               className="bg-white"
+              allowPastDates
             />
           </div>
           <div className="flex items-end">

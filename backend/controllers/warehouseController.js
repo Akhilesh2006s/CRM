@@ -9,6 +9,7 @@ const {
 const { sanitizeWarehousePayload, ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
 const { consolidatedStockList } = require('../utils/warehouseInventoryIdentity');
 const { loadInventoryItemList } = require('../utils/warehouseStockRecords');
+const { listActiveVendorMaster } = require('../utils/vendorMaster');
 
 // @desc    Get distinct warehouse locations (for return form dropdown)
 // @route   GET /api/warehouse/locations
@@ -16,6 +17,19 @@ const { loadInventoryItemList } = require('../utils/warehouseStockRecords');
 const getWarehouseLocations = async (req, res) => {
   try {
     res.json(['Main Warehouse']);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Active vendors from Vendor master (not filtered by product)
+// @route   GET /api/warehouse/vendors
+// @access  Private
+const getWarehouseVendors = async (req, res) => {
+  try {
+    const vendors = await listActiveVendorMaster();
+    console.log('[warehouse/vendors] fetched vendors:', vendors.map((v) => v.name));
+    res.json({ vendors, vendorRecords: vendors });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -199,6 +213,7 @@ const createWarehouseItem = async (req, res) => {
     const body = { ...(req.body || {}) };
     if (body.vendor && !body.supplier) body.supplier = body.vendor;
     delete body.vendor;
+    if (!body.vendorId) delete body.vendorId;
 
     const sanitized = await sanitizeWarehousePayload(body);
     if (!sanitized.ok) {
@@ -257,6 +272,7 @@ const updateWarehouseItem = async (req, res) => {
     const body = { ...(req.body || {}) };
     if (body.vendor && !body.supplier) body.supplier = body.vendor;
     delete body.vendor;
+    if (!body.vendorId) delete body.vendorId;
     const sanitized = await sanitizeWarehousePayload(body);
     if (!sanitized.ok) {
       return res.status(400).json({ message: sanitized.message });
@@ -292,5 +308,6 @@ module.exports = {
   updateWarehouseItem,
   updateStock,
   getWarehouseReports,
+  getWarehouseVendors,
 };
 

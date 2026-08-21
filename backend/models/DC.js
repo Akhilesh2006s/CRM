@@ -274,6 +274,10 @@ const dcSchema = new mongoose.Schema({
       type: Number,
       default: 0,
     },
+    unit_price: {
+      type: Number,
+      min: 0,
+    },
     total: {
       type: Number,
       default: 0,

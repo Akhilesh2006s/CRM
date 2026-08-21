@@ -53,6 +53,7 @@ export function useProducts() {
 
   const catalogSpecsFromProduct = (product: Product | undefined): string[] => {
     if (!product) return []
+    if (product.hasSpecs === false) return []
     const raw = product.specs
     if (Array.isArray(raw)) {
       return raw.map((s) => String(s || '').trim()).filter(Boolean)

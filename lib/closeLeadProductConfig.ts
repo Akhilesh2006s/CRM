@@ -53,6 +53,11 @@ export type CloseProductSectionLine = {
   selectedSubjects: string[]
   selectedDeliverables: string[]
   selectedCategories?: string[]
+  /**
+   * Per-row Product Category keyed by `class|level|subject`.
+   * Survives class generation, adding another product, and re-expansion.
+   */
+  productCategoryByKey?: Record<string, string>
   sameRateForAllClasses: boolean
   price: number
   term?: string
@@ -85,6 +90,82 @@ export const SELECTABLE_CLOSE_CLASSES = [
 ]
 
 export const makeRowId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
+
+/** Per-line Product Category map key: class + level + subject. */
+export function productCategoryRowKey(
+  classValue: string,
+  level?: string,
+  subject?: string
+): string {
+  return `${String(classValue ?? '')}|${String(level ?? '')}|${String(subject ?? '')}`
+}
+
+/** Cross-row identity so P1 Class 1 stays distinct from P2 Class 1. */
+export function productCategoryRowIdentity(
+  parentRowId: string,
+  product: string,
+  classValue: string,
+  level?: string,
+  subject?: string
+): string {
+  return [
+    parentRowId,
+    product,
+    String(classValue ?? ''),
+    String(level ?? ''),
+    String(subject ?? ''),
+  ].join('|')
+}
+
+export function categoryValueFromRow(
+  row: Pick<ProductDetailRow, 'category' | 'productCategory'>
+): string {
+  const sku = typeof row.productCategory === 'string' ? row.productCategory.trim() : ''
+  if (sku) return sku
+  return typeof row.category === 'string' ? row.category.trim() : ''
+}
+
+function parentRowIdForChild(child: ProductDetailRow, parents: ProductDetailRow[]): string {
+  const match = parents.find((p) => p.isParentRow && child.id.startsWith(`${p.id}_`))
+  return match?.id || ''
+}
+
+export function buildProductCategoryOverrideMap(
+  rows: ProductDetailRow[] | undefined
+): Record<string, string> {
+  const map: Record<string, string> = {}
+  if (!rows?.length) return map
+  const parents = rows.filter((r) => r.isParentRow)
+  for (const row of rows) {
+    if (row.isParentRow) continue
+    const value = categoryValueFromRow(row)
+    if (!value) continue
+    const parentId = parentRowIdForChild(row, parents)
+    if (!parentId) continue
+    map[
+      productCategoryRowIdentity(parentId, row.product, row.class, row.level, row.subject)
+    ] = value
+  }
+  return map
+}
+
+function firstNonEmptyCategory(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const trimmed = typeof value === 'string' ? value.trim() : ''
+    if (trimmed) return trimmed
+  }
+  return ''
+}
+
+/**
+ * Keep an existing Product Category. Only use the catalog default when the row
+ * has no value yet — never replace a selection with cats[0].
+ */
+export function resolveRowProductCategory(existing: string | undefined, fallback: string): string {
+  const current = typeof existing === 'string' ? existing.trim() : ''
+  if (current) return current
+  return typeof fallback === 'string' ? fallback.trim() : ''
+}
 
 /** Group child product rows per product + class. For level_based / subject_based,
  * sum strengths across distinct levels/subjects; duplicate same level+subject uses max.
@@ -202,7 +283,8 @@ export function getLineClassSelections(
   line: CloseProductSectionLine,
   sec?: CloseProductSection
 ): ClassStrengthSelection[] {
-  if (line.classSelections?.length) return line.classSelections
+  // Empty array is intentional (all classes unchecked / all Product Details rows deleted).
+  if (Array.isArray(line.classSelections)) return line.classSelections
   if (sec?.classSelections?.length && sec.lines.length === 1 && sec.lines[0]?.id === line.id) {
     return sec.classSelections
   }
@@ -211,6 +293,49 @@ export function getLineClassSelections(
   }
   if (sec) return getSectionClassSelections(sec)
   return []
+}
+
+export function parentRowIdForDetailRow(
+  row: ProductDetailRow,
+  details: ProductDetailRow[]
+): string | undefined {
+  if (row.isParentRow) return row.id
+  return details.find((p) => p.isParentRow && row.id.startsWith(`${p.id}_`))?.id
+}
+
+/**
+ * Rebuild class checkboxes from remaining Product Details rows.
+ * Classes with no remaining row are omitted (unchecked, strength/rate dropped).
+ */
+export function syncClassSelectionsFromDetailRows(
+  previous: ClassStrengthSelection[],
+  remainingChildRows: ProductDetailRow[]
+): ClassStrengthSelection[] {
+  const strengthByClass = new Map<string, number>()
+  for (const row of remainingChildRows) {
+    if (row.isParentRow) continue
+    const cls = String(row.class || '').trim()
+    if (!cls) continue
+    const strength = Number(row.strength) || Number(row.quantity) || 0
+    const existing = strengthByClass.get(cls)
+    if (existing == null || (strength > 0 && existing <= 0)) {
+      strengthByClass.set(cls, strength)
+    }
+  }
+  const seen = new Set<string>()
+  const next: ClassStrengthSelection[] = []
+  for (const sel of previous) {
+    const cls = String(sel.class || '').trim()
+    if (!cls || !strengthByClass.has(cls) || seen.has(cls)) continue
+    seen.add(cls)
+    next.push({ class: cls, strength: strengthByClass.get(cls) ?? sel.strength })
+  }
+  for (const [cls, strength] of strengthByClass) {
+    if (seen.has(cls)) continue
+    seen.add(cls)
+    next.push({ class: cls, strength })
+  }
+  return next
 }
 
 /** Count of checked subjects on a product line (unselected subjects do not count). */
@@ -395,6 +520,10 @@ export type ExpandSectionsCtx = {
   getProductCategories: (product: string) => string[]
   hasProductCategories: (product: string) => boolean
   schoolType?: string
+  /** Existing table rows — used so re-expansion does not clobber Product Category. */
+  previousDetails?: ProductDetailRow[]
+  /** Explicit per-row overrides (user selections), keyed by productCategoryRowIdentity. */
+  categoryOverrides?: Record<string, string>
 }
 
 export function expandSectionsToProductDetails(
@@ -403,6 +532,8 @@ export function expandSectionsToProductDetails(
 ): ProductDetailRow[] {
   const out: ProductDetailRow[] = []
   const schoolExisting = ctx.schoolType === 'Existing'
+  const prevCategoryMap = buildProductCategoryOverrideMap(ctx.previousDetails)
+  const categoryOverrides = ctx.categoryOverrides || {}
 
   for (const sec of sections) {
     for (const line of sec.lines) {
@@ -416,6 +547,12 @@ export function expandSectionsToProductDetails(
         : line.level
           ? [line.level]
           : []
+      const hasSkuCategories = ctx.hasProductCategories(line.product)
+      const skuCategories = hasSkuCategories ? ctx.getProductCategories(line.product) : []
+      const enrollmentDefault = schoolExisting ? 'Existing Students' : 'New Students'
+      const defaultCategory = hasSkuCategories
+        ? skuCategories[0] || ''
+        : enrollmentDefault
 
       const parentRow: ProductDetailRow = {
         id: line.parentRowId,
@@ -423,11 +560,7 @@ export function expandSectionsToProductDetails(
         class: '0',
         fromClass,
         toClass,
-        category: ctx.hasProductCategories(line.product)
-          ? ctx.getProductCategories(line.product)[0] || ''
-          : schoolExisting
-            ? 'Existing Students'
-            : 'New Students',
+        category: defaultCategory,
         quantity: 1,
         strength: classSelections[0]?.strength || 0,
         price: priceToUse,
@@ -451,11 +584,6 @@ export function expandSectionsToProductDetails(
       const selectedSubjects = line.selectedSubjects || []
       const hasSubjects =
         ctx.hasProductSubjects(line.product) && selectedSubjects.length > 0
-      const defaultCategory = ctx.hasProductCategories(line.product)
-        ? ctx.getProductCategories(line.product)[0] || ''
-        : schoolExisting
-          ? 'Existing Students'
-          : 'New Students'
       const subjectsToUse =
         hasSubjects && selectedSubjects.length > 0 ? selectedSubjects : [undefined]
       const subjectPriceMult = hasSubjects ? selectedSubjects.length : 1
@@ -472,15 +600,31 @@ export function expandSectionsToProductDetails(
 
         for (const level of levelsToUse) {
           for (const subject of subjectsToUse) {
+            const classValue = classNum.toString()
+            const lineKey = productCategoryRowKey(classValue, level, subject)
+            const identity = productCategoryRowIdentity(
+              parentId,
+              line.product,
+              classValue,
+              level,
+              subject
+            )
+            const existingCategory = firstNonEmptyCategory(
+              categoryOverrides[identity],
+              line.productCategoryByKey?.[lineKey],
+              prevCategoryMap[identity]
+            )
+            const category = resolveRowProductCategory(existingCategory, defaultCategory)
+            if (category) {
+              categoryOverrides[identity] = category
+            }
             // Per-subject row stores strength×price; class list-price uses subject count via computeLineDisplayTotal.
             out.push({
               id: `${parentId}_${classNum}_${rowIdx++}`,
               product: line.product,
-              class: classNum.toString(),
-              category: defaultCategory,
-              productCategory: ctx.hasProductCategories(line.product)
-                ? defaultCategory
-                : undefined,
+              class: classValue,
+              category,
+              productCategory: hasSkuCategories ? category : undefined,
               quantity: strengthToUse || 1,
               strength: strengthToUse,
               price: priceToUse || 0,
@@ -529,6 +673,7 @@ export function parentRowToSectionLine(p: ProductDetailRow): CloseProductSection
     selectedSubjects: p.selectedSubjects || [],
     selectedDeliverables: p.selectedDeliverables || [],
     selectedCategories: undefined,
+    productCategoryByKey: undefined,
     sameRateForAllClasses: p.sameRateForAllClasses || false,
     price: Number(p.price) || 0,
     term: p.term,

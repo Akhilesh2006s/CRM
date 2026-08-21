@@ -14,6 +14,21 @@ function isStudentEnrollmentCategory(cat: string) {
   return STUDENT_ENROLLMENT_CATEGORIES.some((s) => s.toLowerCase() === normalized)
 }
 
+/** First saved commercial unit price (> 0 wins). Accepts unit_price or price. */
+export function resolvePersistedUnitPrice(
+  ...vals: Array<number | string | null | undefined>
+): number {
+  for (const v of vals) {
+    const n = Number(v)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  for (const v of vals) {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
 export type ResolveClientDCRowOpts = {
   hasProductCategories: (product: string) => boolean
   getProductCategories: (product: string) => string[]
@@ -459,6 +474,41 @@ export function findMatchingOrderProduct(
   }
 
   return null
+}
+
+export function collectPoUnitPriceSources(dcOrder: any): any[] {
+  const pending = Array.isArray(dcOrder?.pendingEdit?.products)
+    ? dcOrder.pendingEdit.products
+    : []
+  const committed = Array.isArray(dcOrder?.products) ? dcOrder.products : []
+  return [...pending, ...committed]
+}
+
+export function findPricedOrderProduct(
+  orderProducts: any[],
+  detail: any,
+  used: Set<number>
+) {
+  const items = Array.isArray(orderProducts) ? orderProducts : []
+  const exact = findMatchingOrderProduct(items, detail, 0, used)
+  if (resolvePersistedUnitPrice(exact?.unit_price, exact?.price) > 0) return exact
+
+  const name = (detail.product || detail.productName || detail.product_name || '')
+    .toLowerCase()
+    .trim()
+  if (name) {
+    for (let i = 0; i < items.length; i++) {
+      if (used.has(i)) continue
+      const o = items[i]
+      const on = (o.product_name || o.product || o.productName || '').toLowerCase().trim()
+      if (on !== name) continue
+      if (resolvePersistedUnitPrice(o.unit_price, o.price) > 0) {
+        used.add(i)
+        return o
+      }
+    }
+  }
+  return exact
 }
 
 /** Term for Request DC / My Clients tables. Recovers Term 2 from Level 2 when schema defaulted term to Term 1. */

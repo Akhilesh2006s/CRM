@@ -23,10 +23,20 @@ const {
   keepMyClientsOwnedProductRows,
   displayLevelValue,
   logDcProductAssoc,
+  productLineIdentity,
+  productNameKey,
+  rowUnitPrice,
+  dcDetailToOrderProduct,
 } = require('../utils/productLineIdentity');
 const { validateDcStockAgainstInventory, itemCompatibleWithRow } = require('../utils/warehouseInventoryMatch');
 const { loadDcWarehouseStock } = require('../utils/warehouseStockRecords');
 const { warehouseDocsForStockRow, hasAssignedVendor } = require('../utils/warehouseInventoryIdentity');
+const {
+  sortDcsNewestFirst,
+  DC_LIST_MONGO_SORT,
+  COMPLETED_DC_MONGO_SORT,
+  WAREHOUSE_DC_MONGO_SORT,
+} = require('../utils/dcListSort');
 
 /** Closed Sales → Saved DC → Pending DC. Do not re-run Close Lead Term-Wise split/strip. */
 const CLOSED_SALES_PIPELINE_ORDER_STATUSES = new Set([
@@ -107,15 +117,26 @@ const STUDENT_ENROLLMENT_CATEGORIES = new Set([
   'existing school',
 ]);
 
-const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
-  (Array.isArray(rows) ? rows : []).map((p) => {
+const normalizeProductDetails = (rows = [], { isShortage = false, existingRows = [] } = {}) =>
+  (Array.isArray(rows) ? rows : []).map((p, idx) => {
     const quantity = qtyFromRow(p);
     const deliveredQuantity = Number.isFinite(Number(p.deliveredQuantity)) ? Number(p.deliveredQuantity) : 0;
     const shortageQuantity = Number.isFinite(Number(p.shortageQuantity))
       ? Number(p.shortageQuantity)
       : (isShortage ? quantity : 0);
     const strength = Number.isFinite(Number(p.strength)) && Number(p.strength) > 0 ? Number(p.strength) : quantity;
-    const price = Number(p.price) || 0;
+    let unitPrice = rowUnitPrice(p);
+    if (!(unitPrice > 0) && Array.isArray(existingRows) && existingRows.length) {
+      const key = productLineIdentity(p);
+      const name = productNameKey(p);
+      const priced = (e) => rowUnitPrice(e) > 0;
+      const match =
+        (key && existingRows.find((e) => priced(e) && productLineIdentity(e) === key)) ||
+        (key && existingRows.find((e) => productLineIdentity(e) === key)) ||
+        (name && existingRows.find((e) => priced(e) && productNameKey(e) === name)) ||
+        existingRows[idx];
+      if (match) unitPrice = rowUnitPrice(match) || unitPrice;
+    }
     const rawClass =
       p.class !== undefined && p.class !== null && String(p.class).trim() !== ''
         ? String(p.class).trim()
@@ -154,8 +175,9 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       deliveredQuantity,
       shortageQuantity,
       strength,
-      price,
-      total: Number(p.total) || (price * strength),
+      price: unitPrice,
+      unit_price: unitPrice,
+      total: quantity * unitPrice,
       level: displayLevelValue(p.level),
       specs,
       subject: p.subject || undefined,
@@ -164,6 +186,7 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
       availableQuantity: Number.isFinite(Number(p.availableQuantity)) ? Number(p.availableQuantity) : undefined,
       deliverableQuantity: Number.isFinite(Number(p.deliverableQuantity)) ? Number(p.deliverableQuantity) : undefined,
       remainingQuantity: Number.isFinite(Number(p.remainingQuantity)) ? Number(p.remainingQuantity) : undefined,
+      lineId: p.lineId,
       ...(p.closeLeadDestination === 'MY_CLIENT' || p.closeLeadDestination === 'TERM_WISE_DC'
         ? { closeLeadDestination: p.closeLeadDestination }
         : {}),
@@ -172,6 +195,40 @@ const normalizeProductDetails = (rows = [], { isShortage = false } = {}) =>
 
 const calculateTotalQuantity = (rows = []) =>
   (Array.isArray(rows) ? rows : []).reduce((sum, row) => sum + qtyFromRow(row), 0);
+
+function orderProductsAsPriceRows(products = []) {
+  return (Array.isArray(products) ? products : []).map((p) => ({
+    ...p,
+    product: p.product_name || p.product || p.productName,
+    productName: p.product_name || p.productName || p.product,
+    unit_price: p.unit_price,
+    price: p.price != null ? p.price : p.unit_price,
+    quantity: p.quantity,
+    strength: p.strength,
+    class: p.class,
+    level: p.level,
+    specs: p.specs,
+    subject: p.subject,
+    term: p.term,
+    productCategory: p.productCategory,
+    category: p.category,
+    lineId: p.lineId,
+  }));
+}
+
+function serializeProductDetailsForApi(rows = []) {
+  return (Array.isArray(rows) ? rows : []).map((p) => {
+    const row = p && typeof p.toObject === 'function' ? p.toObject() : { ...p };
+    const unitPrice = rowUnitPrice(row);
+    const qty = qtyFromRow(row);
+    return {
+      ...row,
+      price: unitPrice,
+      unit_price: unitPrice,
+      total: qty * unitPrice,
+    };
+  });
+}
 
 /**
  * Persist per-product Close Lead routing for a sale:
@@ -306,7 +363,11 @@ async function setSaleWorkflowStage(dcOrderId, stage, options = {}) {
   const orderUpdate = { workflowStage: stage };
 
   // Closed Sales list uses status=dc_requested|dc_accepted. Leave those only on ClosedSales.
-  if (POST_CLOSED_SALES_STAGES.includes(stage)) {
+  // Update & Submit (CompletedDC) must mark the sale completed — dc_sent_to_senior is
+  // Closed Sales → Raise DC only, and it makes the school vanish from every warehouse list.
+  if (stage === WORKFLOW_STAGE.CompletedDC) {
+    orderUpdate.status = 'completed';
+  } else if (POST_CLOSED_SALES_STAGES.includes(stage)) {
     orderUpdate.status = 'dc_sent_to_senior';
   }
   if (stage === WORKFLOW_STAGE.ClosedSales) {
@@ -330,47 +391,68 @@ async function setSaleWorkflowStage(dcOrderId, stage, options = {}) {
   return updated;
 }
 
-const PRE_CLOSED_SALES_ORDER_STATUSES = new Set([
-  'saved',
-  'pending',
-  'completed',
-  'hold',
-  'in_transit',
-]);
+function closedSalesProductsFromRequest(order, extra = {}) {
+  const details = extra?.dcRequestData?.productDetails;
+  if (Array.isArray(details) && details.length > 0) {
+    return details
+      .map((row) => dcDetailToOrderProduct(row, order.products))
+      .filter((p) => p && p.product_name);
+  }
+  const pending = order.pendingEdit;
+  if (
+    pending &&
+    pending.status === 'approved' &&
+    Array.isArray(pending.products) &&
+    pending.products.length > 0
+  ) {
+    return pending.products;
+  }
+  return Array.isArray(order.products) ? order.products : [];
+}
 
 /**
- * My Clients "Request DC" (DC → po_submitted) must place the sale on Super Admin Closed Sales.
- * Do not wait for a second frontend PUT /dc-orders (that call can 403 or fail validators).
+ * My Clients "Request DC" must persist the same DcOrder as Super Admin Closed Sales.
+ * Update in place — never insert a second sale row.
  */
 async function promoteOrderToClosedSalesQueue(dcOrderId, userId, extra = {}) {
   if (!dcOrderId) return null;
   const orderId = dcOrderId._id || dcOrderId;
   const order = await DcOrder.findById(orderId);
   if (!order) return null;
-  if (['dc_accepted', 'dc_approved', 'dc_sent_to_senior'].includes(order.status)) return order;
-  if (
-    order.status !== 'dc_requested' &&
-    !PRE_CLOSED_SALES_ORDER_STATUSES.has(order.status)
-  ) {
-    return order;
-  }
+  // Already past Closed Sales (Raise DC / Pending DC). Do not create a duplicate.
+  if (['dc_approved', 'dc_sent_to_senior'].includes(order.status)) return order;
 
+  const products = closedSalesProductsFromRequest(order, extra);
+  const nextStatus = order.status === 'dc_accepted' ? 'dc_accepted' : 'dc_requested';
   const update = {
-    status: 'dc_requested',
+    status: nextStatus,
     workflowStage: WORKFLOW_STAGE.ClosedSales,
     requestedAt: order.requestedAt || new Date(),
   };
   if (userId) update.requestedBy = userId;
   else if (order.requestedBy) update.requestedBy = order.requestedBy;
   if (extra.pod_proof_url) update.pod_proof_url = extra.pod_proof_url;
+  if (products.length > 0) {
+    update.products = products;
+    const amount = products.reduce(
+      (sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.unit_price) || Number(p.price) || 0),
+      0
+    );
+    if (amount > 0) update.total_amount = amount;
+  }
   if (extra.dcRequestData) {
     const raw = extra.dcRequestData;
     const employeeId =
       raw.employeeId && typeof raw.employeeId === 'object' ? raw.employeeId._id : raw.employeeId;
+    const prev =
+      order.dcRequestData && typeof order.dcRequestData.toObject === 'function'
+        ? order.dcRequestData.toObject()
+        : order.dcRequestData || {};
     update.dcRequestData = {
+      ...prev,
       requestedQuantity: raw.requestedQuantity,
-      productDetails: raw.productDetails,
-      employeeId: employeeId || userId,
+      productDetails: raw.productDetails || prev.productDetails,
+      employeeId: employeeId || userId || prev.employeeId,
       dcRemarks: raw.dcRemarks,
       dcNotes: raw.dcNotes,
       dcCategory: raw.dcCategory,
@@ -378,8 +460,11 @@ async function promoteOrderToClosedSalesQueue(dcOrderId, userId, extra = {}) {
     };
   }
 
-  const updated = await DcOrder.findByIdAndUpdate(orderId, { $set: update }, { new: true });
-  console.log(`📍 Closed Sales queue ← DcOrder ${orderId} (${order.status} → dc_requested)`);
+  const updated = await DcOrder.findByIdAndUpdate(orderId, { $set: update }, {
+    new: true,
+    runValidators: false,
+  });
+  console.log(`📍 Closed Sales queue ← DcOrder ${orderId} (${order.status} → ${updated?.status})`);
   return updated;
 }
 
@@ -402,9 +487,13 @@ async function syncDcWorkflowFromStatus(dc) {
   await dc.save({ validateBeforeSave: false });
   await DC.updateOne({ _id: dc._id }, { $unset: { workflowStage: 1 } });
   if (orderId) {
+    // created / po_submitted / scheduled_for_later are My Clients (or Term-Wise), not Closed Sales.
     await DcOrder.updateOne(
-      { _id: orderId },
-      { $set: { workflowStage: WORKFLOW_STAGE.ClosedSales } }
+      {
+        _id: orderId,
+        status: { $nin: ['dc_requested', 'dc_accepted', 'dc_approved', 'dc_sent_to_senior'] },
+      },
+      { $unset: { workflowStage: 1 } }
     );
   }
   return null;
@@ -420,16 +509,14 @@ async function syncWorkflowFromDc(dc) {
 
 const deriveUnitPrice = async (dc) => {
   const details = Array.isArray(dc.productDetails) ? dc.productDetails : [];
-  const detailPrices = details
-    .map((row) => Number(row.price))
-    .filter((value) => Number.isFinite(value) && value >= 0);
-  if (detailPrices.length > 0) {
-    return detailPrices[0];
+  for (const row of details) {
+    const n = rowUnitPrice(row);
+    if (n > 0) return n;
   }
   if (!dc.dcOrderId) return 0;
   const order = await DcOrder.findById(dc.dcOrderId).select('products').lean();
   const firstProduct = Array.isArray(order?.products) && order.products.length > 0 ? order.products[0] : null;
-  return Number(firstProduct?.unit_price) || 0;
+  return rowUnitPrice(firstProduct);
 };
 
 const deriveTotalLevels = async (dc) => {
@@ -604,8 +691,8 @@ const getDCs = async (req, res) => {
 
     // Optimize query - fetch without populate first, then populate if needed
     let dcs = await DC.find(filter)
-      .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdBy dc_code createdAt updatedAt')
-      .sort({ createdAt: -1 })
+      .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdBy dc_code createdAt updatedAt listedAt managerRequestedAt sentToManagerAt submittedAt poSubmittedAt')
+      .sort(DC_LIST_MONGO_SORT)
       .lean()
       .maxTimeMS(20000); // 20 second timeout
 
@@ -621,7 +708,7 @@ const getDCs = async (req, res) => {
           .populate('warehouseProcessedBy', 'name email')
           .populate('deliverySubmittedBy', 'name email')
           .populate('completedBy', 'name email')
-          .sort({ createdAt: -1 })
+          .sort(DC_LIST_MONGO_SORT)
           .maxTimeMS(15000)
           .lean();
         
@@ -768,7 +855,7 @@ const getDCs = async (req, res) => {
       }
     }
 
-    res.json(filteredDCs);
+    res.json(sortDcsNewestFirst(filteredDCs));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -820,12 +907,20 @@ const getDC = async (req, res) => {
     // Ensure productDetails always have specs and subject fields
     // Only set defaults if they're actually missing (undefined/null), not if they're empty strings
     if (dc.productDetails && Array.isArray(dc.productDetails)) {
-      dc.productDetails = dc.productDetails.map(p => ({
-        ...p,
-        specs: (p.specs !== undefined && p.specs !== null && p.specs !== '') ? p.specs : 'Regular',
-        subject: (p.subject !== undefined && p.subject !== null && p.subject !== '') ? p.subject : undefined,
-        term: persistProductTerm(p),
-      }));
+      dc.productDetails = dc.productDetails.map(p => {
+        const row = p && typeof p.toObject === 'function' ? p.toObject() : p;
+        const unitPrice = rowUnitPrice(row);
+        const qty = qtyFromRow(row);
+        return {
+          ...row,
+          specs: (row.specs !== undefined && row.specs !== null && row.specs !== '') ? row.specs : 'Regular',
+          subject: (row.subject !== undefined && row.subject !== null && row.subject !== '') ? row.subject : undefined,
+          term: persistProductTerm(row),
+          price: unitPrice,
+          unit_price: unitPrice,
+          total: qty * unitPrice,
+        };
+      });
     }
 
     res.json(dc);
@@ -882,7 +977,7 @@ const raiseDC = async (req, res) => {
           ? productDetailsFromBody.map(p => ({
               product_name: p.product || p.product_name || 'Abacus',
               quantity: Number(p.quantity) || Number(p.strength) || 1,
-              unit_price: Number(p.price) || 0,
+              unit_price: Number(p.unit_price) || Number(p.price) || 0,
               class: p.class ? String(p.class).trim() : '1',
               strength: Number(p.strength) || Number(p.quantity) || 0,
               level: p.level,
@@ -1300,7 +1395,14 @@ const raiseDC = async (req, res) => {
       if (req.body.employeeId || req.body.assignedTo) dc.employeeId = req.body.employeeId || req.body.assignedTo;
       if (!dc.poPhotoUrl && dcOrder.pod_proof_url) { dc.poPhotoUrl = dcOrder.pod_proof_url; dc.poDocument = dcOrder.pod_proof_url; }
       if (req.body.poPhotoUrl) { dc.poPhotoUrl = req.body.poPhotoUrl; dc.poDocument = req.body.poPhotoUrl; }
-      if (productDetailsFromBody && Array.isArray(productDetailsFromBody)) dc.productDetails = normalizeProductDetails(productDetailsFromBody);
+      if (productDetailsFromBody && Array.isArray(productDetailsFromBody)) {
+        dc.productDetails = normalizeProductDetails(productDetailsFromBody, {
+          existingRows: [
+            ...(Array.isArray(dc.productDetails) ? dc.productDetails : []),
+            ...orderProductsAsPriceRows(dcOrder.products),
+          ],
+        });
+      }
       dc.status = requestedStatus;
       dc.dcType = 'normal';
       dc.fulfillmentStatus = 'full';
@@ -1338,7 +1440,11 @@ const raiseDC = async (req, res) => {
         deliverableQuantity: 0,
         status: requestedStatus,
         createdBy: req.user._id,
-        productDetails: productDetailsFromBody ? normalizeProductDetails(productDetailsFromBody) : undefined,
+        productDetails: productDetailsFromBody
+          ? normalizeProductDetails(productDetailsFromBody, {
+              existingRows: orderProductsAsPriceRows(dcOrder.products),
+            })
+          : undefined,
         dcType: 'normal',
         fulfillmentStatus: 'full',
         ...(req.body.dcDate && { dcDate: new Date(req.body.dcDate), deliveryDate: new Date(req.body.dcDate) }),
@@ -1369,7 +1475,12 @@ const raiseDC = async (req, res) => {
       }
     }
     if (productDetailsFromBody && Array.isArray(productDetailsFromBody)) {
-      dc.productDetails = normalizeProductDetails(productDetailsFromBody);
+      dc.productDetails = normalizeProductDetails(productDetailsFromBody, {
+        existingRows: [
+          ...(Array.isArray(dc.productDetails) ? dc.productDetails : []),
+          ...orderProductsAsPriceRows(dcOrder.products),
+        ],
+      });
       if (req.body.requestedQuantity == null && productDetailsFromBody.length > 0) {
         const totalQty = productDetailsFromBody.reduce((sum, p) => sum + (Number(p.quantity) || Number(p.strength) || 0), 0);
         if (totalQty > 0) dc.requestedQuantity = totalQty;
@@ -1677,9 +1788,9 @@ const getPendingDCs = async (req, res) => {
       .populate('saleId', 'customerName product quantity status poDocument')
       .populate('employeeId', 'name email')
       .populate('submittedBy', 'name email')
-      .sort({ createdAt: -1 });
+      .sort(DC_LIST_MONGO_SORT);
 
-    res.json(dcs);
+    res.json(sortDcsNewestFirst(dcs));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -1739,22 +1850,22 @@ const getCompletedDCs = async (req, res) => {
       ],
     })
       .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdAt updatedAt')
-      .sort({ completedAt: -1, createdAt: -1 })
+      .sort(COMPLETED_DC_MONGO_SORT)
       .lean()
       .maxTimeMS(20000);
 
     // Populate if we got results
     if (dcs && dcs.length > 0) {
       try {
-        const populatedPromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) }, status: 'completed' })
-          .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdAt updatedAt')
+        const populatedPromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) } })
+          .select('_id saleId dcOrderId parentDcId clusterId dcType fulfillmentStatus employeeId customerName customerPhone customerEmail customerAddress product requestedQuantity availableQuantity deliverableQuantity status workflowStage poPhotoUrl poDocument productDetails dcDate dcRemarks deliveryNotes dcCategory dcNotes transport lrNo lrDate lrCost boxes transportArea deliveryStatus financeRemarks splApproval smeRemarks warehouseProcessedAt warehouseProcessedBy completedAt completedBy createdAt updatedAt')
           .populate('saleId', 'customerName product quantity status')
           .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code')
           .populate('parentDcId', '_id dc_code status requestedQuantity deliverableQuantity fulfillmentStatus dcType')
           .populate('employeeId', 'name email')
           .populate('completedBy', 'name email')
           .populate('warehouseProcessedBy', 'name email')
-          .sort({ completedAt: -1, createdAt: -1 }) // Sort by completedAt first, then createdAt as fallback
+          .sort(COMPLETED_DC_MONGO_SORT)
           .maxTimeMS(15000)
           .lean();
         
@@ -1778,8 +1889,13 @@ const getCompletedDCs = async (req, res) => {
       console.warn('getCompletedDCs: dcs is not an array, returning empty array');
       dcs = [];
     }
-    
-    res.json(dcs);
+
+    dcs = dcs.map((dc) => ({
+      ...dc,
+      productDetails: serializeProductDetailsForApi(dc.productDetails),
+    }));
+
+    res.json(sortDcsNewestFirst(dcs));
   } catch (error) {
     console.error('Error in getCompletedDCs:', error);
     // Return empty array on error to prevent frontend from breaking
@@ -1802,9 +1918,9 @@ const getHoldDCs = async (req, res) => {
       .populate('employeeId', 'name email')
       .populate('managerId', 'name email')
       .populate('warehouseId', 'name email')
-      .sort({ updatedAt: -1 });
+      .sort(DC_LIST_MONGO_SORT);
 
-    res.json(dcs);
+    res.json(sortDcsNewestFirst(dcs));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -2163,6 +2279,21 @@ const warehouseProcess = async (req, res) => {
       dc.deliverableQuantity = deliverableQuantity;
     }
 
+    let orderRows = [];
+    if (dc.dcOrderId) {
+      try {
+        const order = await DcOrder.findById(dc.dcOrderId._id || dc.dcOrderId)
+          .select('products')
+          .lean();
+        orderRows = orderProductsAsPriceRows(order?.products);
+      } catch (_) {
+        /* keep saved DC prices */
+      }
+    }
+    dc.productDetails = normalizeProductDetails(rows, {
+      existingRows: [...savedRows, ...orderRows],
+    });
+
     dc.status = 'completed';
     dc.warehouseId = req.user._id;
     dc.warehouseProcessedAt = new Date();
@@ -2241,10 +2372,10 @@ const getSentToManagerDCs = async (req, res) => {
       .populate('employeeId', 'name email')
       .populate('adminId', 'name email')
       .populate('adminReviewedBy', 'name email')
-      .sort({ sentToManagerAt: -1 });
+      .sort(WAREHOUSE_DC_MONGO_SORT);
 
     console.log(`Found ${dcs.length} DCs with status 'sent_to_manager'`);
-    res.json(dcs);
+    res.json(sortDcsNewestFirst(dcs));
   } catch (error) {
     console.error('Error in getSentToManagerDCs:', error);
     res.status(500).json({ message: error.message });
@@ -2276,21 +2407,29 @@ const getPendingWarehouseDCs = async (req, res) => {
       .populate('employeeId', 'name email cluster')
       .populate('managerId', 'name email')
       .populate('managerRequestedBy', 'name email')
-      .sort({ managerRequestedAt: -1, sentToManagerAt: -1, createdAt: -1 });
+      .sort(WAREHOUSE_DC_MONGO_SORT);
 
     // Ensure productDetails always have specs and subject fields
     // Only set defaults if they're actually missing (undefined/null), not if they're empty strings
     dcs.forEach(dc => {
       if (dc.productDetails && Array.isArray(dc.productDetails)) {
-        dc.productDetails = dc.productDetails.map(p => ({
-          ...p,
-          specs: (p.specs !== undefined && p.specs !== null && p.specs !== '') ? p.specs : 'Regular',
-          subject: (p.subject !== undefined && p.subject !== null && p.subject !== '') ? p.subject : undefined,
-        }));
+        dc.productDetails = dc.productDetails.map(p => {
+          const row = p && typeof p.toObject === 'function' ? p.toObject() : p;
+          const unitPrice = rowUnitPrice(row);
+          const qty = qtyFromRow(row);
+          return {
+            ...row,
+            specs: (row.specs !== undefined && row.specs !== null && row.specs !== '') ? row.specs : 'Regular',
+            subject: (row.subject !== undefined && row.subject !== null && row.subject !== '') ? row.subject : undefined,
+            price: unitPrice,
+            unit_price: unitPrice,
+            total: qty * unitPrice,
+          };
+        });
       }
     });
 
-    res.json(dcs);
+    res.json(sortDcsNewestFirst(dcs));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -2370,7 +2509,7 @@ const getMyDCs = async (req, res) => {
       try {
         const populatePromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code contact_person contact_mobile email address location zone products dc_code status school_type')
+          .populate('dcOrderId', 'school_name school_code contact_person contact_mobile email address location zone products dc_code status school_type pendingEdit requestedAt requestedBy pod_proof_url')
           .populate('employeeId', 'name email')
           .populate('parentDcId', '_id dc_code status requestedQuantity deliverableQuantity fulfillmentStatus dcType')
           .maxTimeMS(8000) // Shorter timeout for populate
@@ -2597,7 +2736,7 @@ const getMyDCs = async (req, res) => {
         status: { $ne: 'scheduled_for_later' },
       })
         .populate('saleId', 'customerName product quantity status poDocument')
-        .populate('dcOrderId', 'school_name school_code contact_person contact_mobile email address location zone products dc_code status school_type')
+        .populate('dcOrderId', 'school_name school_code contact_person contact_mobile email address location zone products dc_code status school_type pendingEdit requestedAt requestedBy pod_proof_url')
         .populate('employeeId', 'name email')
         .lean();
       const byId = new Map(refreshed.map((d) => [String(d._id), d]));
@@ -2755,7 +2894,21 @@ const updateDC = async (req, res) => {
             rows: incoming,
           });
         }
-        dc.productDetails = normalizeProductDetails(incoming, { isShortage: dc.dcType === 'shortage' });
+        let existingRows = Array.isArray(dc.productDetails) ? dc.productDetails : [];
+        if (dc.dcOrderId) {
+          try {
+            const order = await DcOrder.findById(dc.dcOrderId._id || dc.dcOrderId)
+              .select('products')
+              .lean();
+            existingRows = [...existingRows, ...orderProductsAsPriceRows(order?.products)];
+          } catch (_) {
+            /* keep existing DC rows */
+          }
+        }
+        dc.productDetails = normalizeProductDetails(incoming, {
+          isShortage: dc.dcType === 'shortage',
+          existingRows,
+        });
         // Also update requestedQuantity if productDetails are provided
         if (dc.productDetails.length > 0) {
           const totalQuantity = calculateTotalQuantity(dc.productDetails);
@@ -2834,7 +2987,7 @@ const updateDC = async (req, res) => {
     // Promote the linked sale into Closed Sales in this same request.
     if (req.body.status === 'po_submitted' && dc.dcOrderId) {
       try {
-        await promoteOrderToClosedSalesQueue(dc.dcOrderId, req.user?._id, {
+        const promoted = await promoteOrderToClosedSalesQueue(dc.dcOrderId, req.user?._id, {
           pod_proof_url: dc.poPhotoUrl,
           dcRequestData: {
             productDetails: dc.productDetails,
@@ -2842,12 +2995,25 @@ const updateDC = async (req, res) => {
             employeeId: req.user?._id,
           },
         });
+        if (!promoted) {
+          return res.status(500).json({
+            message: 'Request DC could not update Closed Sales: linked sale was not found.',
+          });
+        }
       } catch (promoteErr) {
-        console.warn(
-          'Failed to promote DcOrder to Closed Sales after po_submitted:',
+        if (promoteErr.statusCode === 400) {
+          return res.status(400).json({ message: promoteErr.message });
+        }
+        console.error(
+          'Failed to persist Closed Sales after Request DC:',
           dc._id,
           promoteErr?.message || promoteErr
         );
+        return res.status(500).json({
+          message:
+            promoteErr?.message ||
+            'Request DC saved the client DC but failed to create the Closed Sales record. Please retry Request DC.',
+        });
       }
     }
 

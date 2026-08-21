@@ -24,6 +24,7 @@ import StockReturnFromCompletedDcDialog from '@/components/warehouse/StockReturn
 import { toast } from 'sonner'
 import { Pencil, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
+import { sortDcsNewestFirst } from '@/lib/dcListSort'
 
 /** PO-stage remarks (dcRemarks) — shown read-only as PO Remarks in the edit modal. */
 function poStageRemarks(dc: { dcRemarks?: string }): string {
@@ -60,6 +61,10 @@ type Row = {
   deliveryStatus?: string
   remarks?: string
   completedDate?: string
+  createdAt?: string
+  updatedAt?: string
+  warehouseProcessedAt?: string
+  completedAt?: string
   poPhotoUrl?: string
   poDocument?: string
   dcId?: string // The actual DC model ID (if this row is from DcOrder)
@@ -219,14 +224,8 @@ export default function CompletedDCPage() {
       })
     }
     
-    // Sort by DC creation/delivery date descending so latest DC appears at the top
-    filtered.sort((a, b) => {
-      const aTime = a.dcDate ? new Date(a.dcDate).getTime() : 0
-      const bTime = b.dcDate ? new Date(b.dcDate).getTime() : 0
-      return bTime - aTime
-    })
-    
-    setRows(filtered)
+    // Newest pipeline submission first (completedAt / updatedAt). Do not sort by dcDate.
+    setRows(sortDcsNewestFirst(filtered))
   }
 
   // Apply filters when filters state changes
@@ -362,7 +361,11 @@ export default function CompletedDCPage() {
           transportArea: dc.transportArea || '',
           deliveryStatus: dc.deliveryStatus || '',
           remarks: listRemarks(dc),
-          completedDate: dc.completedAt || '',
+          completedDate: dc.completedAt || dc.warehouseProcessedAt || dc.updatedAt || '',
+          createdAt: dc.createdAt || '',
+          updatedAt: dc.updatedAt || '',
+          warehouseProcessedAt: dc.warehouseProcessedAt || '',
+          completedAt: dc.completedAt || '',
           poPhotoUrl: dc.poPhotoUrl || dc.poDocument || '',
           poDocument: dc.poDocument || dc.poPhotoUrl || '',
         }

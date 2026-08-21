@@ -54,8 +54,12 @@ function rowQuantity(p) {
 
 function rowUnitPrice(p) {
   const u = Number(p?.unit_price);
+  const pr = Number(p?.price);
+  if (Number.isFinite(u) && u > 0) return u;
+  if (Number.isFinite(pr) && pr > 0) return pr;
   if (Number.isFinite(u)) return u;
-  return Number(p?.price) || 0;
+  if (Number.isFinite(pr)) return pr;
+  return 0;
 }
 
 function sumProductQuantities(products) {
@@ -66,8 +70,7 @@ function sumProductAmounts(products) {
   return (products || []).reduce((sum, p) => {
     const qty = rowQuantity(p);
     const price = rowUnitPrice(p);
-    const stored = Number(p?.total);
-    return sum + (Number.isFinite(stored) && stored > 0 ? stored : qty * price);
+    return sum + qty * price;
   }, 0);
 }
 
@@ -85,7 +88,6 @@ function orderProductToDcDetail(p) {
   const price = rowUnitPrice(p);
   const strength = Number(p.strength) || qty;
   const level = displayLevelValue(p.level);
-  const storedTotal = Number(p.total);
   return {
     product: name,
     productName: name,
@@ -98,7 +100,7 @@ function orderProductToDcDetail(p) {
     strength,
     price,
     unit_price: price,
-    total: Number.isFinite(storedTotal) && storedTotal > 0 ? storedTotal : qty * price,
+    total: qty * price,
     level,
     term: persistProductTerm({ ...p, level }),
     closeLeadDestination: p.closeLeadDestination,
@@ -113,12 +115,11 @@ function dcDetailToOrderProduct(p, existing = []) {
   const prev = (existing || []).find((o) => productLineIdentity(o) === key);
   const qty = rowQuantity(p) || rowQuantity(prev);
   const price = rowUnitPrice(p) || rowUnitPrice(prev);
-  const storedTotal = Number(p.total);
   return {
     product_name: p.product || p.productName || p.product_name || prev?.product_name || '',
     quantity: qty,
     unit_price: price,
-    total: Number.isFinite(storedTotal) && storedTotal > 0 ? storedTotal : qty * price,
+    total: qty * price,
     class: p.class || prev?.class,
     specs: p.specs || prev?.specs,
     productCategory: p.productCategory || prev?.productCategory,
@@ -290,5 +291,7 @@ module.exports = {
   isSecondStageLine,
   sumProductQuantities,
   sumProductAmounts,
+  rowUnitPrice,
+  rowQuantity,
   logDcProductAssoc,
 };

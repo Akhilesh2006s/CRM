@@ -182,6 +182,7 @@ export default function LeavesReportPage() {
                 className="bg-white w-full"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                allowPastDates
               />
             </div>
             <div className="sm:col-span-2 lg:col-span-1 flex lg:justify-end">

@@ -17,6 +17,8 @@ const {
   mergeTermWiseProductsPreservingMyClients,
   sumProductQuantities,
   sumProductAmounts,
+  rowUnitPrice,
+  rowQuantity,
 } = require('../utils/productLineIdentity');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
 const { dealProductsToFollowUpSnapshot } = require('../utils/dealProductsToFollowUpSnapshot');
@@ -54,6 +56,84 @@ function plainProduct(p) {
     closeLeadDestination: row.closeLeadDestination || 'MY_CLIENT',
     lineId: row.lineId,
   };
+}
+
+function applySavedUnitPricesToDcDetails(details, orderProducts) {
+  const orders = Array.isArray(orderProducts) ? orderProducts : [];
+  const source =
+    Array.isArray(details) && details.length > 0
+      ? details
+      : orders.map((p) => orderProductToDcDetail(p));
+  const used = new Set();
+  return source.map((row, idx) => {
+    const plain = row && typeof row.toObject === 'function' ? row.toObject() : { ...row };
+    const key = productLineIdentity(plain);
+    let matchIdx = orders.findIndex(
+      (o, i) => !used.has(i) && productLineIdentity(o) === key
+    );
+    if (matchIdx < 0) {
+      const name = String(plain.product || plain.productName || plain.product_name || '')
+        .trim()
+        .toLowerCase();
+      const klass = String(plain.class ?? '').trim().toLowerCase();
+      matchIdx = orders.findIndex((o, i) => {
+        if (used.has(i)) return false;
+        const on = String(o.product_name || o.product || o.productName || '')
+          .trim()
+          .toLowerCase();
+        const oc = String(o.class ?? '').trim().toLowerCase();
+        if (on !== name || !name) return false;
+        if (klass && oc && klass !== oc) return false;
+        return rowUnitPrice(o) > 0;
+      });
+    }
+    if (matchIdx < 0) {
+      const name = String(plain.product || plain.productName || plain.product_name || '')
+        .trim()
+        .toLowerCase();
+      matchIdx = orders.findIndex((o, i) => {
+        if (used.has(i)) return false;
+        return String(o.product_name || o.product || '').trim().toLowerCase() === name;
+      });
+    }
+    if (matchIdx < 0 && orders[idx] && !used.has(idx)) matchIdx = idx;
+    if (matchIdx >= 0) used.add(matchIdx);
+    const match = matchIdx >= 0 ? orders[matchIdx] : null;
+    const price = rowUnitPrice(match) || rowUnitPrice(plain);
+    const qty = rowQuantity(plain);
+    return {
+      ...plain,
+      price,
+      unit_price: price,
+      total: qty * price,
+    };
+  });
+}
+
+async function syncSubmittedUnitPricesToAllDcs(orderId, submittedProducts) {
+  const submitted = (Array.isArray(submittedProducts) ? submittedProducts : [])
+    .map(plainProduct)
+    .filter(Boolean);
+  if (!orderId || submitted.length === 0) return;
+
+  const relatedDcs = await DC.find({
+    dcOrderId: orderId,
+    status: { $ne: 'scheduled_for_later' },
+  });
+  for (const dc of relatedDcs) {
+    dc.productDetails = applySavedUnitPricesToDcDetails(dc.productDetails, submitted);
+    await dc.save({ validateBeforeSave: false });
+  }
+
+  const order = await DcOrder.findById(orderId);
+  if (order && Array.isArray(order.products) && order.products.length > 0) {
+    const patchedDetails = applySavedUnitPricesToDcDetails(
+      order.products.map((p) => orderProductToDcDetail(p)),
+      submitted
+    );
+    order.products = patchedDetails.map((d) => dcDetailToOrderProduct(d, order.products));
+    await order.save({ validateBeforeSave: false });
+  }
 }
 
 function isRicherProductList(candidate, current) {
@@ -308,12 +388,15 @@ const list = async (req, res) => {
       ];
     }
 
-    const { WORKFLOW_STAGE, POST_CLOSED_SALES_STAGES } = require('../constants/dcWorkflow');
+    const {
+      WORKFLOW_STAGE,
+      POST_CLOSED_SALES_STAGES,
+      CLOSED_SALES_QUEUE_STATUSES,
+    } = require('../constants/dcWorkflow');
     // DC is already imported at top of this file
 
-    // Closed Sales = ONLY sales waiting for Raise DC.
-    // Frontend calls ?status=dc_requested|dc_accepted — enforce mutual exclusivity in backend.
-    const closedSalesStatuses = ['dc_requested', 'dc_accepted'];
+    // Closed Sales = sales the Executive requested (dc_requested / dc_accepted).
+    const closedSalesStatuses = CLOSED_SALES_QUEUE_STATUSES;
     const isClosedSalesQuery =
       workflowStage === WORKFLOW_STAGE.ClosedSales ||
       (status && closedSalesStatuses.includes(String(status)));
@@ -325,59 +408,7 @@ const list = async (req, res) => {
     }
 
     if (isClosedSalesQuery) {
-      // Heal Close Lead submit-po bug: DC is po_submitted but sale was marked completed
-      // (Closed Sales only lists dc_requested / dc_accepted).
-      try {
-        const stuckPoSubmittedIds = await DC.distinct('dcOrderId', {
-          status: 'po_submitted',
-          dcOrderId: { $ne: null },
-        });
-        if (stuckPoSubmittedIds && stuckPoSubmittedIds.length > 0) {
-          await DcOrder.updateMany(
-            {
-              _id: { $in: stuckPoSubmittedIds.filter(Boolean) },
-              status: { $in: ['completed', 'saved', 'pending'] },
-            },
-            {
-              $set: {
-                status: 'dc_requested',
-                workflowStage: WORKFLOW_STAGE.ClosedSales,
-              },
-            }
-          );
-        }
-      } catch (healErr) {
-        console.warn('Closed Sales heal (po_submitted/completed) failed:', healErr?.message || healErr);
-      }
-
-      try {
-        const pendingPoEdits = await DcOrder.find({
-          status: { $in: closedSalesStatuses },
-          'pendingEdit.status': 'pending',
-          'pendingEdit.products.0': { $exists: true },
-        }).select('school_name products pendingEdit dcRequestData total_amount');
-        for (const order of pendingPoEdits) {
-          if (!isRicherProductList(order.pendingEdit?.products, order.products)) continue;
-          // Persist products only — do not mark approved so school/contact edits still need EM accept.
-          await commitPoProductList(order, order.pendingEdit.products, null, { markApproved: false });
-        }
-      } catch (poHealErr) {
-        console.warn('Closed Sales heal (pending PO products) failed:', poHealErr?.message || poHealErr);
-      }
-
-      // Never return a sale that already has a raised pipeline DC
-      const raisedOrderIds = await DC.distinct('dcOrderId', {
-        status: {
-          $in: ['pending_dc', 'sent_to_manager', 'warehouse_processing', 'completed', 'hold'],
-        },
-      });
-
       filter.status = status || { $in: closedSalesStatuses };
-      // Do not exclude leftover EmpDC/CompletedDC workflowStage while the DC is still
-      // po_submitted / created — that hid valid Request DC rows from Super Admin.
-      if (raisedOrderIds && raisedOrderIds.length > 0) {
-        filter._id = { $nin: raisedOrderIds.filter(Boolean) };
-      }
     }
     // Pagination support
     const page = parseInt(req.query.page) || 1;
@@ -408,7 +439,7 @@ const list = async (req, res) => {
     // Query with pagination - optimized for performance
     // Only populate essential fields, skip updateHistory populate for list view
     const query = DcOrder.find(filter)
-      .select('school_name school_code contact_person contact_mobile zone status workflowStage follow_up_date location address branches strength createdAt updatedAt remarks school_type priority lead_status assigned_to created_by pendingEdit products dcRequestData total_amount') // products: used for follow-up list lead status from line items
+      .select('school_name school_code contact_person contact_mobile zone status workflowStage follow_up_date location address branches strength createdAt updatedAt remarks school_type priority lead_status assigned_to created_by pendingEdit products dcRequestData total_amount requestedAt requestedBy') // products: used for follow-up list lead status from line items
       .populate('assigned_to', 'name email') // Only populate assigned_to for list view
       .populate('pendingEdit.requestedBy', 'name email') // Populate pendingEdit.requestedBy for Executive Manager
       .sort(String(status) === 'dc_approved' || String(status) === 'saved' ? { updatedAt: -1, createdAt: -1 } : { createdAt: -1 })
@@ -1030,6 +1061,11 @@ const update = async (req, res) => {
       // Transport fields (new)
       'transport_name', 'transport_location', 'transportation_landmark'
     ];
+    // Edit PO saves product rows. Request DC sends status + dcRequestData only.
+    // Never treat an Edit PO payload as Request DC (Closed Sales).
+    if (Array.isArray(req.body.products) && req.body.products.length > 0 && req.body.status === 'dc_requested') {
+      delete req.body.status;
+    }
     fieldsToUpdate.forEach(field => {
       if (req.body[field] !== undefined) {
         if (field === 'average_fee' || field === 'branches' || field === 'strength') {
@@ -1075,8 +1111,15 @@ const update = async (req, res) => {
           mergeErr?.message || mergeErr
         );
       }
+      updateData.products = updateData.products.map((p) => plainProduct(p)).filter(Boolean);
     } else if (req.body.status === 'dc_requested') {
       delete updateData.products;
+      const requestDetails = req.body.dcRequestData?.productDetails;
+      if (Array.isArray(requestDetails) && requestDetails.length > 0) {
+        updateData.products = requestDetails
+          .map((row) => dcDetailToOrderProduct(row, item.products))
+          .filter((p) => p && p.product_name);
+      }
     }
 
     if (updateData.dcRequestData && typeof updateData.dcRequestData === 'object') {
@@ -1088,12 +1131,6 @@ const update = async (req, res) => {
 
     // When Executive requests DC (status → dc_requested), store requestedBy and requestedAt
     if (req.body.status === 'dc_requested') {
-      if (!isTransportCompleteForUpdate(item, req.body)) {
-        return res.status(400).json({
-          message:
-            'Transport Name, Transport Location, and Pincode are required before requesting DC.',
-        });
-      }
       updateData.requestedBy = req.user._id;
       updateData.requestedAt = new Date();
       updateData.workflowStage = 'ClosedSales';
@@ -1200,6 +1237,14 @@ const update = async (req, res) => {
         await closeOpenLeadsForConvertedOrder(updatedItem);
       } catch (closeLeadErr) {
         console.warn('Could not close matching open leads after conversion:', closeLeadErr?.message);
+      }
+    }
+
+    if (Array.isArray(updatedItem.products) && req.body.status !== 'dc_requested') {
+      try {
+        await syncSubmittedUnitPricesToAllDcs(updatedItem._id, updatedItem.products);
+      } catch (syncErr) {
+        console.warn('DcOrder update DC unit_price sync failed:', syncErr?.message || syncErr);
       }
     }
     
@@ -1422,6 +1467,14 @@ const submitEdit = async (req, res) => {
       console.error('Error updating related DC records with delivery address:', dcUpdateError);
     }
 
+    // Persist unit_price onto every related DC (including Completed DC) immediately.
+    // New-product / PDF changes still wait for EM approval; commercial prices must not stay 0.
+    try {
+      await syncSubmittedUnitPricesToAllDcs(item._id, req.body.products);
+    } catch (prodSyncErr) {
+      console.warn('submitEdit DC unit_price sync failed:', prodSyncErr?.message || prodSyncErr);
+    }
+
     // Persist the submitted product list onto this My Clients DC so Edit PO
     // reopen shows the quantities just saved (even while EM approval is pending).
     try {
@@ -1500,6 +1553,7 @@ const approveEdit = async (req, res) => {
       // so a DC validator cannot leave Closed Sales on the old product list.
       if (pendingProducts.length > 0) {
         await commitPoProductList(item, pendingProducts, req.user._id, { markApproved: true });
+        await syncSubmittedUnitPricesToAllDcs(item._id, pendingProducts);
       }
 
       // Apply the pending edit to the main document (school/contact/transport).

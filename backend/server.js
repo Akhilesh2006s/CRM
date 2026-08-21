@@ -195,6 +195,7 @@ app.use('/api/location', locationRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/deliverables', deliverableRoutes);
 app.use('/api/partners', partnerRoutes);
+app.use('/api/vendors', partnerRoutes);
 app.use('/api/partner-user', partnerUserRoutes);
 app.use('/api/partner-costs', partnerCostRoutes);
 app.use('/api/franchises', franchiseRoutes);

@@ -15,6 +15,7 @@ import { useProducts } from '@/hooks/useProducts'
 import { toast } from 'sonner'
 import { keepMyClientsOwnedProductRows } from '@/lib/clientDcProductRows'
 import { resolveExistingProductTerm } from '@/lib/productTerm'
+import { sortDcsNewestFirst } from '@/lib/dcListSort'
 
 type DcOrderData = {
   _id?: string
@@ -213,7 +214,7 @@ export default function PendingDCPage() {
         
         return true
       })
-      setItems(filteredDCs)
+      setItems(sortDcsNewestFirst(filteredDCs))
     } catch (e: any) {
       console.error('Failed to load DCs:', e)
       alert(`Error loading DCs: ${e?.message || 'Unknown error'}`)
@@ -379,7 +380,7 @@ export default function PendingDCPage() {
             level: p.level || getDefaultLevel(matchedProduct),
             specs: p.specs || 'Regular',
             subject: p.subject || undefined,
-            price: Number(p.price) || 0,
+            price: Number(p.unit_price) || Number(p.price) || 0,
             total: Number(p.total) || 0,
             term: resolveExistingProductTerm(p),
           }
@@ -606,6 +607,11 @@ export default function PendingDCPage() {
             specs: row.specs || '',
             subject: row.subject || undefined,
             term: row.term || 'Term 1',
+            unit_price: Number(row.price) || Number(row.unit_price) || 0,
+            price: Number(row.price) || Number(row.unit_price) || 0,
+            total:
+              pendingRowQty(row) *
+              (Number(row.price) || Number(row.unit_price) || 0),
           })),
         }),
       })
@@ -674,6 +680,11 @@ export default function PendingDCPage() {
             specs: row.specs || '',
             subject: row.subject || undefined,
             term: row.term || 'Term 1',
+            unit_price: Number(row.price) || Number(row.unit_price) || 0,
+            price: Number(row.price) || Number(row.unit_price) || 0,
+            total:
+              pendingRowQty(row) *
+              (Number(row.price) || Number(row.unit_price) || 0),
           })),
           requestedQuantity: totalQuantity,
         }),

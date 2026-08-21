@@ -278,20 +278,19 @@ export function mapInventoryIdentityOntoDcRow(
 }
 
 export function formatInsufficientStockMessage(
-  insufficient: Array<{ label: string; requiredQty: number; availableQty: number }>
+  insufficient: Array<{ label: string; requiredQty: number; availableQty: number; message?: string }>
 ): string {
-  const lines = (insufficient || []).map((entry) => {
-    if ((entry as { message?: string }).message) return (entry as { message: string }).message
+  const entries = insufficient || []
+  const lines = entries.map((entry) => {
+    const body = entry.message || `Required ${entry.requiredQty}, Available ${entry.availableQty}`
+    if (entries.length === 1) return body
     const label = entry.label || 'Product'
-    return `${label} requires ${entry.requiredQty} but only ${entry.availableQty} is available`
+    return `${label}: ${body}`
   })
   if (lines.length === 0) {
     return 'Insufficient stock. Please ensure sufficient stock before processing this DC.'
   }
-  if (lines.length === 1) {
-    return `Insufficient stock: ${lines[0]}. Please ensure sufficient stock before processing this DC.`
-  }
-  return `Insufficient stock: ${lines.join('; ')}. Please ensure sufficient stock before processing this DC.`
+  return `Insufficient stock: ${lines.join('; ')}`
 }
 
 function displayedAvailableQty(row: Record<string, any> | null | undefined): number | null {
@@ -313,13 +312,24 @@ function displayedStockPoolKey(row: Record<string, any> = {}): string {
   ].join('|')
 }
 
+function stockAvailableForRow(
+  inventoryItems: Record<string, any>[] | undefined,
+  row: Record<string, any>
+): number {
+  const computedQty = availableStockForRow(inventoryItems, row)
+  const displayedQty = displayedAvailableQty(row)
+  if (computedQty > 0) return computedQty
+  if (displayedQty != null) return displayedQty
+  return computedQty
+}
+
 export function validateDcStockAgainstInventory(
   rows: Record<string, any>[] | undefined,
   inventoryItems: Record<string, any>[] | undefined
 ): {
   ok: boolean
   message: string
-  insufficient: Array<{ label: string; requiredQty: number; availableQty: number }>
+  insufficient: Array<{ label: string; requiredQty: number; availableQty: number; message?: string }>
   allocations: Array<{
     row: Record<string, any>
     item: Record<string, any> | null
@@ -328,7 +338,52 @@ export function validateDcStockAgainstInventory(
     splits?: Array<{ item: Record<string, any>; qty: number }>
   }>
 } {
-  const insufficient: Array<{ label: string; requiredQty: number; availableQty: number }> = []
+  const remainingById = new Map<string, number>()
+  for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
+    const id = itemId(item)
+    if (id) remainingById.set(id, stockOf(item))
+  }
+
+  const groups = new Map<string, { label: string; requiredQty: number; availableQty: number }>()
+  const activeRows: Record<string, any>[] = []
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const requiredQty = requiredQtyFromDcRow(row)
+    if (requiredQty <= 0) continue
+    activeRows.push(row)
+
+    const poolKey = displayedStockPoolKey(row)
+    const availableQty = stockAvailableForRow(inventoryItems, row)
+    if (!groups.has(poolKey)) {
+      groups.set(poolKey, {
+        label: rowStockLabel(row),
+        requiredQty: 0,
+        availableQty,
+      })
+    }
+    groups.get(poolKey)!.requiredQty += requiredQty
+  }
+
+  const insufficient: Array<{ label: string; requiredQty: number; availableQty: number; message?: string }> = []
+  for (const group of groups.values()) {
+    if (group.requiredQty > group.availableQty) {
+      insufficient.push({
+        label: group.label,
+        requiredQty: group.requiredQty,
+        availableQty: group.availableQty,
+        message: `Required ${group.requiredQty}, Available ${group.availableQty}`,
+      })
+    }
+  }
+
+  if (insufficient.length > 0) {
+    return {
+      ok: false,
+      message: formatInsufficientStockMessage(insufficient),
+      insufficient,
+      allocations: [],
+    }
+  }
+
   const allocations: Array<{
     row: Record<string, any>
     item: Record<string, any> | null
@@ -336,41 +391,10 @@ export function validateDcStockAgainstInventory(
     availableQty: number
     splits?: Array<{ item: Record<string, any>; qty: number }>
   }> = []
-  const remainingById = new Map<string, number>()
-  const remainingByPool = new Map<string, number>()
-  for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
-    const id = itemId(item)
-    if (id) remainingById.set(id, stockOf(item))
-  }
-
-  for (const row of Array.isArray(rows) ? rows : []) {
+  for (const row of activeRows) {
     const requiredQty = requiredQtyFromDcRow(row)
-    if (requiredQty <= 0) continue
-
     const compatible = compatibleInventoryItems(inventoryItems, row)
-    const computedQty = availableStockForRow(inventoryItems, row, remainingById)
-    const displayedQty = displayedAvailableQty(row)
-    const poolKey = displayedStockPoolKey(row)
-
-    let availableQty = computedQty
-    if (displayedQty != null) {
-      if (!remainingByPool.has(poolKey)) remainingByPool.set(poolKey, displayedQty)
-      availableQty = remainingByPool.get(poolKey) ?? displayedQty
-    }
-
-    if (requiredQty > availableQty) {
-      insufficient.push({
-        label: rowStockLabel(row),
-        requiredQty,
-        availableQty,
-      })
-      continue
-    }
-
-    if (displayedQty != null) {
-      remainingByPool.set(poolKey, availableQty - requiredQty)
-    }
-
+    const availableQty = stockAvailableForRow(inventoryItems, row)
     const ranked = [...compatible].sort((a, b) => {
       const aStock = remainingById.get(itemId(a)) ?? stockOf(a)
       const bStock = remainingById.get(itemId(b)) ?? stockOf(b)
@@ -397,15 +421,6 @@ export function validateDcStockAgainstInventory(
       availableQty,
       splits,
     })
-  }
-
-  if (insufficient.length > 0) {
-    return {
-      ok: false,
-      message: formatInsufficientStockMessage(insufficient),
-      insufficient,
-      allocations: [],
-    }
   }
 
   return { ok: true, message: '', insufficient: [], allocations }

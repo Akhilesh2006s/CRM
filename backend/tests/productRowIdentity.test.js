@@ -10,6 +10,7 @@ const {
   sumProductAmounts,
   keepMyClientsOwnedProductRows,
   isSecondStageLine,
+  rowUnitPrice,
 } = require('../utils/productLineIdentity');
 
 function line(product_name, klass, subject, quantity, unit_price = 10) {
@@ -192,4 +193,23 @@ test('Term-2-only product on My Clients is kept when it has no Level 1 pair', ()
   assert.equal(kept.length, 1);
   assert.equal(sumProductQuantities(kept), 10);
   assert.equal(isSecondStageLine(kept[0]), true);
+});
+
+test('rowUnitPrice prefers a positive price when unit_price is 0', () => {
+  assert.equal(rowUnitPrice({ unit_price: 10, price: 0 }), 10);
+  assert.equal(rowUnitPrice({ unit_price: 0, price: 10 }), 10);
+  assert.equal(rowUnitPrice({ price: 10.5 }), 10.5);
+  assert.equal(rowUnitPrice({ unit_price: 99.99 }), 99.99);
+});
+
+test('orderProductToDcDetail writes unit_price and total = unit_price × quantity', () => {
+  const detail = orderProductToDcDetail({
+    product_name: 'P6',
+    quantity: 10,
+    unit_price: 10,
+  });
+  assert.equal(detail.unit_price, 10);
+  assert.equal(detail.price, 10);
+  assert.equal(detail.quantity, 10);
+  assert.equal(detail.total, 100);
 });

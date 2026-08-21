@@ -17,8 +17,9 @@
  * - DC enrollment categories (New Students, etc.) are not inventory SKU category.
  *
  * Available qty = sum of currentStock on all compatible Stock records
- * (same function as the DC @ Warehouse table). Earlier lines on this DC
- * reserve qty so Class 1 and Class 2 cannot both consume the full pool.
+ * (same function as the DC @ Warehouse table). Class is ignored.
+ * Validation compares TOTAL required qty for a stock key against that
+ * aggregated Stock qty — never a row-wise running remainder.
  */
 
 const STUDENT_ENROLLMENT_CATEGORIES = new Set([
@@ -296,18 +297,17 @@ function mapInventoryIdentityOntoDcRow(row, inventoryItems) {
 }
 
 function formatInsufficientStockMessage(insufficient) {
-  const lines = (insufficient || []).map((entry) => {
-    if (entry.message) return entry.message;
+  const entries = insufficient || [];
+  const lines = entries.map((entry) => {
+    const body = entry.message || `Required ${entry.requiredQty}, Available ${entry.availableQty}`;
+    if (entries.length === 1) return body;
     const label = entry.label || 'Product';
-    return `${label} requires ${entry.requiredQty} but only ${entry.availableQty} is available`;
+    return `${label}: ${body}`;
   });
   if (lines.length === 0) {
     return 'Insufficient stock. Please ensure sufficient stock before processing this DC.';
   }
-  if (lines.length === 1) {
-    return `Insufficient stock: ${lines[0]}. Please ensure sufficient stock before processing this DC.`;
-  }
-  return `Insufficient stock: ${lines.join('; ')}. Please ensure sufficient stock before processing this DC.`;
+  return `Insufficient stock: ${lines.join('; ')}`;
 }
 
 function displayedAvailableQty(row) {
@@ -330,52 +330,50 @@ function displayedStockPoolKey(row = {}) {
   ].join('|');
 }
 
+function stockAvailableForRow(inventoryItems, row) {
+  const computedQty = availableStockForRow(inventoryItems, row);
+  const displayedQty = displayedAvailableQty(row);
+  if (computedQty > 0) return computedQty;
+  if (displayedQty != null) return displayedQty;
+  return computedQty;
+}
+
 function validateDcStockAgainstInventory(rows, inventoryItems) {
-  const insufficient = [];
-  const allocations = [];
   const remainingById = new Map();
-  const remainingByPool = new Map();
   for (const item of Array.isArray(inventoryItems) ? inventoryItems : []) {
     const id = itemId(item);
     if (id) remainingById.set(id, stockOf(item));
   }
 
+  const groups = new Map();
+  const activeRows = [];
   for (const row of Array.isArray(rows) ? rows : []) {
     const requiredQty = requiredQtyFromDcRow(row);
     if (requiredQty <= 0) continue;
+    activeRows.push(row);
 
-    const compatible = compatibleInventoryItems(inventoryItems, row);
-    const computedQty = availableStockForRow(inventoryItems, row, remainingById);
-    const displayedQty = displayedAvailableQty(row);
     const poolKey = displayedStockPoolKey(row);
-
-    let availableQty = computedQty;
-    if (displayedQty != null) {
-      if (!remainingByPool.has(poolKey)) remainingByPool.set(poolKey, displayedQty);
-      availableQty = remainingByPool.get(poolKey);
-    }
-
-    if (requiredQty > availableQty) {
-      insufficient.push({
+    const availableQty = stockAvailableForRow(inventoryItems, row);
+    if (!groups.has(poolKey)) {
+      groups.set(poolKey, {
         label: rowStockLabel(row),
-        requiredQty,
+        requiredQty: 0,
         availableQty,
       });
-      continue;
     }
+    groups.get(poolKey).requiredQty += requiredQty;
+  }
 
-    if (displayedQty != null) {
-      remainingByPool.set(poolKey, availableQty - requiredQty);
+  const insufficient = [];
+  for (const group of groups.values()) {
+    if (group.requiredQty > group.availableQty) {
+      insufficient.push({
+        label: group.label,
+        requiredQty: group.requiredQty,
+        availableQty: group.availableQty,
+        message: `Required ${group.requiredQty}, Available ${group.availableQty}`,
+      });
     }
-
-    const splits = allocateSplits(compatible, requiredQty, remainingById);
-    allocations.push({
-      row,
-      item: splits[0]?.item || compatible[0] || null,
-      requiredQty,
-      availableQty,
-      splits,
-    });
   }
 
   if (insufficient.length > 0) {
@@ -385,6 +383,21 @@ function validateDcStockAgainstInventory(rows, inventoryItems) {
       insufficient,
       allocations: [],
     };
+  }
+
+  const allocations = [];
+  for (const row of activeRows) {
+    const requiredQty = requiredQtyFromDcRow(row);
+    const compatible = compatibleInventoryItems(inventoryItems, row);
+    const availableQty = stockAvailableForRow(inventoryItems, row);
+    const splits = allocateSplits(compatible, requiredQty, remainingById);
+    allocations.push({
+      row,
+      item: splits[0]?.item || compatible[0] || null,
+      requiredQty,
+      availableQty,
+      splits,
+    });
   }
 
   return { ok: true, message: '', insufficient: [], allocations };

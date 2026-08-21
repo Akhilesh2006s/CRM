@@ -43,7 +43,8 @@ test('C: required 5, available 0 → submission is blocked', () => {
     [inv({ _id: 'p1', productName: 'P1', currentStock: 0 })]
   );
   assert.equal(result.ok, false);
-  assert.match(result.message, /requires 5 but only 0 is available/i);
+  assert.match(result.message, /Required 5, Available 0/i);
+  assert.doesNotMatch(result.message, /only 0 is available/i);
 });
 
 test('D: required 10, available 5 → submission is blocked', () => {
@@ -52,7 +53,8 @@ test('D: required 10, available 5 → submission is blocked', () => {
     [inv({ _id: 'p1', productName: 'P1', currentStock: 5 })]
   );
   assert.equal(result.ok, false);
-  assert.match(result.message, /requires 10 but only 5 is available/i);
+  assert.match(result.message, /Required 10, Available 5/i);
+  assert.doesNotMatch(result.message, /only 5 is available/i);
 });
 
 test('E: mixed rows — one with stock and one with 0 — entire DC is blocked', () => {
@@ -68,8 +70,9 @@ test('E: mixed rows — one with stock and one with 0 — entire DC is blocked',
   );
   assert.equal(result.ok, false);
   assert.equal(result.allocations.length, 0);
-  assert.match(result.message, /Physics/i);
+  assert.match(result.message, /Required 10, Available 0/i);
   assert.doesNotMatch(result.message, /P1 requires/);
+  assert.doesNotMatch(result.message, /only \d+ is available/i);
 });
 
 test('F: Physics/Math/Chemistry with 0 stock are listed together', () => {
@@ -88,9 +91,10 @@ test('F: Physics/Math/Chemistry with 0 stock are listed together', () => {
     ]
   );
   assert.equal(result.ok, false);
-  assert.match(result.message, /Physics requires 10 but only 0 is available/i);
-  assert.match(result.message, /Math requires 10 but only 0 is available/i);
-  assert.match(result.message, /Chemistry requires 8 but only 0 is available/i);
+  assert.match(result.message, /Physics: Required 10, Available 0/i);
+  assert.match(result.message, /Math: Required 10, Available 0/i);
+  assert.match(result.message, /Chemistry: Required 8, Available 0/i);
+  assert.doesNotMatch(result.message, /only \d+ is available/i);
 });
 
 test('G: Level 1 stock is not used for Level 2', () => {
@@ -102,7 +106,8 @@ test('G: Level 1 stock is not used for Level 2', () => {
   assert.equal(matchWarehouseItem(inventory, l2Row)?._id, 'l2');
   const result = validateDcStockAgainstInventory([l2Row], inventory);
   assert.equal(result.ok, false);
-  assert.match(result.message, /only 0 is available/i);
+  assert.match(result.message, /Required 5, Available 0/i);
+  assert.doesNotMatch(result.message, /only 0 is available/i);
 
   const l1Ok = validateDcStockAgainstInventory(
     [{ productName: 'P3', level: 'Level 1', quantity: 5, specs: 'Regular' }],
@@ -120,7 +125,8 @@ test('H: Product P4 stock is not used for P1/P2/P3', () => {
   assert.equal(matchWarehouseItem(inventory, p1Row)?._id, 'p1');
   const result = validateDcStockAgainstInventory([p1Row], inventory);
   assert.equal(result.ok, false);
-  assert.match(result.message, /P1 requires 5 but only 0 is available/i);
+  assert.match(result.message, /Required 5, Available 0/i);
+  assert.doesNotMatch(result.message, /only 0 is available/i);
 });
 
 test('subject stock is independent — Physics stock does not cover Math', () => {
@@ -133,19 +139,33 @@ test('subject stock is independent — Physics stock does not cover Math', () =>
     inventory
   );
   assert.equal(result.ok, false);
-  assert.match(result.message, /Math requires 10 but only 0 is available/i);
+  assert.match(result.message, /Required 10, Available 0/i);
+  assert.doesNotMatch(result.message, /only 0 is available/i);
 });
 
-test('two lines sharing one SKU reserve stock cumulatively', () => {
-  const result = validateDcStockAgainstInventory(
-    [
-      { productName: 'P1', class: '1', quantity: 8, specs: 'Regular' },
-      { productName: 'P1', class: '2', quantity: 8, specs: 'Regular' },
-    ],
-    [inv({ _id: 'p1', productName: 'P1', currentStock: 10 })]
-  );
+test('class rows share one stock pool and validate the total required', () => {
+  const inventory = [inv({ _id: 'p3', productName: 'P3', level: 'Level 1', currentStock: 20 })];
+  const rows = [
+    { productName: 'P3', class: '1', level: 'Level 1', quantity: 15, specs: 'Regular' },
+    { productName: 'P3', class: '2', level: 'Level 1', quantity: 10, specs: 'Regular' },
+  ];
+  assert.equal(mapInventoryIdentityOntoDcRow(rows[0], inventory).availableQuantity, 20);
+  assert.equal(mapInventoryIdentityOntoDcRow(rows[1], inventory).availableQuantity, 20);
+
+  const result = validateDcStockAgainstInventory(rows, inventory);
   assert.equal(result.ok, false);
-  assert.match(result.message, /requires 8 but only 2 is available/i);
+  assert.equal(result.message, 'Insufficient stock: Required 25, Available 20');
+  assert.doesNotMatch(result.message, /only 5 is available/i);
+  assert.doesNotMatch(result.message, /only 2 is available/i);
+
+  const ok = validateDcStockAgainstInventory(
+    [
+      { productName: 'P3', class: '1', level: 'Level 1', quantity: 12, specs: 'Regular' },
+      { productName: 'P3', class: '2', level: 'Level 1', quantity: 8, specs: 'Regular' },
+    ],
+    inventory
+  );
+  assert.equal(ok.ok, true);
 });
 
 test('empty stock Level still covers a DC Level 1 row', () => {
@@ -310,7 +330,8 @@ test('insufficient stock message includes Product Category when mapped', () => {
   };
   const result = validateDcStockAgainstInventory([row], inventory);
   assert.equal(result.ok, false);
-  assert.match(result.message, /workbook/i);
+  assert.equal(result.message, 'Insufficient stock: Required 10, Available 5');
+  assert.doesNotMatch(result.message, /only 5 is available/i);
 });
 
 test('New Student enrollment is not used as Product Category', () => {
@@ -360,7 +381,8 @@ test('Update/Submit validates the same Available Qty the DC table shows', () => 
   const chem = validateDcStockAgainstInventory([p2chem], stock);
   assert.equal(mapInventoryIdentityOntoDcRow(p2chem, stock).availableQuantity, 0);
   assert.equal(chem.ok, false);
-  assert.match(chem.message, /only 0 is available/i);
+  assert.match(chem.message, /Required 10, Available 0/i);
+  assert.doesNotMatch(chem.message, /only 0 is available/i);
 });
 
 test('backend Update uses the table Available Qty even if a second lookup would return 0', () => {
@@ -406,7 +428,8 @@ test('backend Update uses the table Available Qty even if a second lookup would 
   assert.equal(validateDcStockAgainstInventory([p2chem], unmatchedStock).ok, true);
   const none = validateDcStockAgainstInventory([missing], unmatchedStock);
   assert.equal(none.ok, false);
-  assert.match(none.message, /only 0 is available/i);
+  assert.equal(none.message, 'Insufficient stock: Required 10, Available 0');
+  assert.doesNotMatch(none.message, /only 0 is available/i);
 });
 
 test('DC class does not block a Stock match on Product Category', () => {

@@ -2,6 +2,7 @@ const DcOrder = require('../models/DcOrder');
 const Lead = require('../models/Lead');
 const DC = require('../models/DC');
 const { persistProductTerm } = require('../utils/productTerm');
+const { sortDcsNewestFirst, DC_LIST_MONGO_SORT } = require('../utils/dcListSort');
 
 // Helper to transform DcOrder/Lead to warehouse DC format
 function transformToWarehouseDC(doc) {
@@ -55,6 +56,10 @@ function transformToWarehouseDC(doc) {
     schoolType: doc.school_type || doc.schoolType || '',
     remarks: doc.remarks || '',
     dcNotes: doc.dcNotes || '',
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    completedAt: doc.completedAt,
+    warehouseProcessedAt: doc.warehouseProcessedAt,
   };
 }
 
@@ -99,7 +104,7 @@ const getWarehouseDCList = async (req, res) => {
       // First fetch without populate
       dcOrders = await DcOrder.find(filter)
         .select('_id dc_code school_name contact_person contact_mobile email address location zone products dc_code status school_type assigned_to created_by createdAt updatedAt pod_proof_url')
-        .sort({ createdAt: -1 })
+        .sort(DC_LIST_MONGO_SORT)
         .lean()
         .maxTimeMS(20000); // 20 second timeout
 
@@ -109,7 +114,7 @@ const getWarehouseDCList = async (req, res) => {
           const populatedPromise = DcOrder.find({ _id: { $in: dcOrders.map(o => o._id) } })
             .populate('created_by', 'name email')
             .populate('assigned_to', 'name email')
-            .sort({ createdAt: -1 })
+            .sort(DC_LIST_MONGO_SORT)
             .maxTimeMS(15000)
             .lean();
           
@@ -138,7 +143,7 @@ const getWarehouseDCList = async (req, res) => {
 
     const transformed = dcOrders.map(transformToWarehouseDC);
     console.log(`Returning ${transformed.length} warehouse DCs`);
-    res.json(transformed);
+    res.json(sortDcsNewestFirst(transformed));
   } catch (error) {
     console.error('Error in getWarehouseDCList:', error);
     // Return empty array on error to prevent frontend from breaking
@@ -203,7 +208,7 @@ const updateWarehouseDC = async (req, res) => {
       updateData.products = items.map(it => ({
         product_name: it.product || it.productName || '',
         quantity: it.qty || it.quantity || 0,
-        unit_price: 0,
+        unit_price: Number(it.unit_price) || Number(it.price) || Number(it.unitPrice) || 0,
         class: it.class || 0,
         category: it.category || '',
       }));
@@ -291,7 +296,7 @@ const getHoldDCList = async (req, res) => {
     const dcOrders = await DcOrder.find({ status: 'hold' })
       .populate('created_by', 'name email')
       .populate('assigned_to', 'name email')
-      .sort({ createdAt: -1 });
+      .sort(DC_LIST_MONGO_SORT);
 
     const transformed = dcOrders.map(doc => {
       const dc = transformToWarehouseDC(doc);
@@ -301,7 +306,7 @@ const getHoldDCList = async (req, res) => {
       };
     });
 
-    res.json(transformed);
+    res.json(sortDcsNewestFirst(transformed));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -356,7 +361,7 @@ const moveDcOrderToWarehouse = async (req, res) => {
       const productDetails = (dcOrder.products && Array.isArray(dcOrder.products))
         ? dcOrder.products.map((p) => {
           const q = Number(p.quantity) || 0;
-          const price = Number(p.unit_price) || 0;
+          const price = Number(p.unit_price) || Number(p.price) || 0;
           return {
             product: p.product_name || '',
             class: (p.class || '1').toString(),
@@ -365,6 +370,7 @@ const moveDcOrderToWarehouse = async (req, res) => {
             quantity: q,
             strength: q,
             price,
+            unit_price: price,
             total: price * q,
             level: p.level || '',
             specs: p.specs || 'Regular',

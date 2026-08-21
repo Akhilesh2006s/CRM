@@ -20,6 +20,7 @@ type WarehouseItem = {
   subject?: string
   supplier?: string
   vendor?: string
+  vendorId?: string
   currentStock?: number
 }
 
@@ -154,26 +155,33 @@ export default function StockAddPage() {
   }
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const [partners, options] = await Promise.all([
+        apiRequest<VendorMaster[]>('/partners').catch(() => []),
+        apiRequest<{ vendors?: string[] }>('/metadata/inventory-options').catch(() => ({ vendors: [] })),
+      ])
+      const fromMaster = uniqueValues((Array.isArray(partners) ? partners : []).map((p) => p?.name))
+      const fromOptions = uniqueValues(options?.vendors || [])
+      // Union both sources. Do not prefer an empty Partner list over inventory-options.
+      const names = uniqueValues([...fromMaster, ...fromOptions]).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      )
+      console.log('fetched vendors', names)
+      if (!cancelled) setMasterVendors(names)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     originalItemIdRef.current = productId
     ;(async () => {
       try {
-        const [list, partners, options] = await Promise.all([
-          apiRequest<WarehouseItem[]>('/warehouse').catch(() => []),
-          apiRequest<VendorMaster[]>('/partners').catch(() => []),
-          apiRequest<{ vendors?: string[] }>('/metadata/inventory-options').catch(() => ({ vendors: [] })),
-        ])
+        const list = await apiRequest<WarehouseItem[]>('/warehouse').catch(() => [])
         const rows = Array.isArray(list) ? list : []
         setWarehouseItems(rows)
-
-        const fromMaster = uniqueValues(
-          (Array.isArray(partners) ? partners : []).map((p) => p?.name)
-        )
-        const fromOptions = uniqueValues(options?.vendors || [])
-        setMasterVendors(
-          (fromMaster.length ? fromMaster : fromOptions).sort((a, b) =>
-            a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-          )
-        )
 
         if (productId) {
           try {
@@ -196,7 +204,6 @@ export default function StockAddPage() {
           setLevel(blank(levelParam))
           setSpecs(blank(specsParam))
           setSubject(blank(subjectParam))
-          setVendor('')
           setSelectedItemId('')
           setItemMissing(false)
         }
@@ -245,10 +252,10 @@ export default function StockAddPage() {
   }, [showSubject, productName, getProductSubjects, subject])
 
   const vendorOptions = useMemo(() => {
-    return uniqueValues([...masterVendors, vendor]).sort((a, b) =>
+    return uniqueValues(masterVendors).sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
     )
-  }, [masterVendors, vendor])
+  }, [masterVendors])
 
   useEffect(() => {
     if (!identityReady || !vendor) {
@@ -499,21 +506,29 @@ export default function StockAddPage() {
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Vendor *</div>
-              <Select
-                value={vendor || undefined}
-                onValueChange={(v) => onIdentityChange({ vendor: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vendorOptions.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {v}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {vendorOptions.length === 0 ? (
+                <Select disabled>
+                  <SelectTrigger>
+                    <SelectValue placeholder="No vendors available" />
+                  </SelectTrigger>
+                </Select>
+              ) : (
+                <Select
+                  value={vendor || undefined}
+                  onValueChange={(v) => onIdentityChange({ vendor: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Vendor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vendorOptions.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div className="space-y-2">
