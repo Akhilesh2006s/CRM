@@ -197,6 +197,7 @@ app.use('/api/deliverables', deliverableRoutes);
 app.use('/api/partners', partnerRoutes);
 app.use('/api/vendors', partnerRoutes);
 app.use('/api/partner-user', partnerUserRoutes);
+app.use('/api/vendor-user', partnerUserRoutes);
 app.use('/api/partner-costs', partnerCostRoutes);
 app.use('/api/franchises', franchiseRoutes);
 // Explicit route so PO change list is never 404 (mobile: GET /api/executive-managers/po-change-requests)

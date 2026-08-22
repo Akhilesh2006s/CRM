@@ -64,10 +64,10 @@ const PAGE_ENTRIES = [
   { href: '/dashboard/warehouse/search-dc', module: 'warehouse', resource: 'search_dc', label: 'Search DC' },
   // Returns
   { href: '/dashboard/returns/employees', module: 'returns', resource: 'employees_list', label: 'Employee Returns List' },
-  { href: '/dashboard/returns/warehouse', module: 'returns', resource: 'warehouse_list', label: 'Warehouse Returns List' },
   { href: '/dashboard/returns/executive', module: 'returns', resource: 'executive', label: 'Executive Stock Returns' },
   { href: '/dashboard/returns/warehouse-executive', module: 'returns', resource: 'warehouse_executive', label: 'Warehouse Executive Returns' },
   { href: '/dashboard/returns/warehouse-manager', module: 'returns', resource: 'warehouse_manager', label: 'Warehouse Manager Returns' },
+  { href: '/dashboard/returns/warehouse', module: 'returns', resource: 'warehouse_list', label: 'Warehouse Returns List' },
   // Payments
   { href: '/dashboard/payments', module: 'payments', resource: 'pending', label: 'Pending Payments' },
   { href: '/dashboard/payments/add-payment', module: 'payments', resource: 'add', label: 'Add Payment' },
@@ -87,12 +87,13 @@ const PAGE_ENTRIES = [
   { href: '/dashboard/reports/leads', module: 'reports', resource: 'leads', label: 'Leads Report' },
   { href: '/dashboard/reports/sales-visit', module: 'reports', resource: 'sales_visit', label: 'Sales Visit' },
   { href: '/dashboard/reports/employee-track', module: 'reports', resource: 'employee_track', label: 'Employee Track' },
-  { href: '/dashboard/reports/contact-queries', module: 'reports', resource: 'contact_queries', label: 'Contact Queries' },
+  { href: '/dashboard/reports/contact-queries', module: 'reports', resource: 'contact_queries', label: 'Contact Enquiries' },
   { href: '/dashboard/reports/change-logs', module: 'reports', resource: 'change_logs', label: 'Change Logs' },
   { href: '/dashboard/reports/stock', module: 'reports', resource: 'stock', label: 'Stock Report' },
   { href: '/dashboard/reports/dc', module: 'reports', resource: 'dc', label: 'DC Report' },
   { href: '/dashboard/reports/returns', module: 'reports', resource: 'returns', label: 'Returns Report' },
   { href: '/dashboard/reports/expenses', module: 'reports', resource: 'expenses', label: 'All Expenses Report' },
+  { href: '/dashboard/reports/training-service', module: 'reports', resource: 'training_service', label: 'Training & Service' },
   // Products
   { href: '/dashboard/products', module: 'products', resource: 'list', label: 'All Products' },
   { href: '/dashboard/products/new', module: 'products', resource: 'new', label: 'Add New Product' },

@@ -244,6 +244,10 @@ dcOrderSchema.pre('save', function (next) {
   next();
 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(dcOrderSchema, 'DcOrder');
+} catch (_) {}
+
 module.exports = mongoose.model('DcOrder', dcOrderSchema);
 
 

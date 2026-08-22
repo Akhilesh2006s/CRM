@@ -32,6 +32,10 @@ serviceSchema.index({ serviceDate: 1 });
 serviceSchema.index({ status: 1 });
 serviceSchema.index({ zone: 1 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(serviceSchema, 'Service');
+} catch (_) {}
+
 module.exports = mongoose.model('Service', serviceSchema);
 
 

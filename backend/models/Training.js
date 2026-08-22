@@ -28,5 +28,9 @@ trainingSchema.index({ trainingDate: 1 });
 trainingSchema.index({ status: 1 });
 trainingSchema.index({ zone: 1 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(trainingSchema, 'Training');
+} catch (_) {}
+
 module.exports = mongoose.model('Training', trainingSchema);
 

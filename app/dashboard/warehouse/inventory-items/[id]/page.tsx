@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
+import { MappedVendorField } from '@/components/warehouse/MappedVendorField'
+import {
+  mappedVendorName,
+  vendorMapFromApiPayloads,
+  type AssignedVendor,
+  type PartnerAssignment,
+} from '@/lib/vendorProductAssignment'
 
 type Item = {
   _id: string
@@ -23,7 +30,8 @@ type Item = {
   currentStock?: number
 }
 
-type InventoryOptions = { vendors?: string[] }
+type InventoryOptions = { vendors?: string[]; productVendors?: Record<string, string[]> }
+type WarehouseVendors = { vendors?: Array<string | { name?: string }>; productVendors?: Record<string, string[]> }
 
 export default function InventoryEditItemPage() {
   const params = useParams<{ id: string }>()
@@ -43,6 +51,7 @@ export default function InventoryEditItemPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [vendors, setVendors] = useState<string[]>([])
+  const [vendorMap, setVendorMap] = useState<Map<string, AssignedVendor[]>>(new Map())
 
   const [productName, setProductName] = useState('')
   const [category, setCategory] = useState('')
@@ -65,16 +74,34 @@ export default function InventoryEditItemPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const opts = await apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({}))
-        if (opts?.vendors?.length) setVendors(opts.vendors)
+        const [opts, warehouseVendors, partners] = await Promise.all([
+          apiRequest<InventoryOptions>('/metadata/inventory-options').catch(() => ({})),
+          apiRequest<WarehouseVendors>('/warehouse/vendors').catch(() => ({})),
+          apiRequest<PartnerAssignment[]>('/partners').catch(() => []),
+        ])
+        const fromOptions = Array.isArray(opts?.vendors) ? opts.vendors : []
+        const fromWarehouse = (Array.isArray(warehouseVendors?.vendors) ? warehouseVendors.vendors : [])
+          .map((v) => (typeof v === 'string' ? v : String(v?.name || '').trim()))
+          .filter(Boolean)
+        if (fromOptions.length || fromWarehouse.length) {
+          setVendors(Array.from(new Set([...fromOptions, ...fromWarehouse])))
+        }
+        setVendorMap(
+          vendorMapFromApiPayloads({
+            partners,
+            productVendors: opts?.productVendors,
+            warehouseProductVendors: warehouseVendors?.productVendors,
+          })
+        )
       } catch (_) {}
     })()
   }, [])
 
-  const vendorOptions = useMemo(() => {
-    if (vendor && !vendors.includes(vendor)) return [vendor, ...vendors]
-    return vendors
-  }, [vendor, vendors])
+  useEffect(() => {
+    if (!productName) return
+    const next = mappedVendorName(productName, vendorMap, vendor)
+    if (next && next !== vendor) setVendor(next)
+  }, [productName, vendorMap])
 
   function applyProduct(value: string) {
     setProductName(value)
@@ -86,6 +113,7 @@ export default function InventoryEditItemPage() {
     setSpecs(specList.includes(specs) ? specs : specList[0] || '')
     if (!hasProductSubjects(value)) setSubject('')
     else if (!getProductSubjects(value).includes(subject)) setSubject('')
+    setVendor(mappedVendorName(value, vendorMap, vendor))
   }
 
   useEffect(() => {
@@ -151,7 +179,7 @@ export default function InventoryEditItemPage() {
           level: showLevel ? level : '',
           specs: showSpecs ? specs : '',
           subject: showSubject ? subject : '',
-          vendor: vendor || undefined,
+          vendor: vendor || mappedVendorName(productName, vendorMap, '') || undefined,
           unitPrice: price,
           currentStock: qty,
         }),
@@ -269,21 +297,13 @@ export default function InventoryEditItemPage() {
               </div>
             )}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Vendor</div>
-              <Select value={vendor || undefined} onValueChange={setVendor}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vendorOptions.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {v}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <MappedVendorField
+              productName={productName}
+              vendor={vendor}
+              onVendorChange={setVendor}
+              vendorMap={vendorMap}
+              fallbackVendors={vendors}
+            />
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Price</div>

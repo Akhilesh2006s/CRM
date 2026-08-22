@@ -44,6 +44,10 @@ import {
   editPoProductIdentity,
   ensureProductLineId,
   normalizeEditPoSubjectKey,
+  normalizeEditPoCategoryKey,
+  collectOriginalEditPoVariantKeys,
+  isOriginalEditPoLine,
+  editPoHasNewCommercialLines,
   dedupeSavedPoRows,
   requestDcRowQuantity,
   type ResolveClientDCRowOpts,
@@ -79,6 +83,7 @@ type DC = {
     status?: string // Status of the DcOrder (e.g., 'saved' for closed leads)
     school_type?: string // 'Existing' for renewal leads, otherwise 'New School'
     createdAt?: string // Date when lead was turned to client
+    pendingEdit?: { status?: string }
   }
   customerName?: string
   customerPhone?: string
@@ -230,11 +235,13 @@ export default function ClientDCPage() {
   const [addProductDialogOpen, setAddProductDialogOpen] = useState(false)
   const [addNewProductDialogOpen, setAddNewProductDialogOpen] = useState(false)
   const [addProductSelectedSpec, setAddProductSelectedSpec] = useState<Record<string, string>>({})
+  const [addProductSelectedCategory, setAddProductSelectedCategory] = useState<Record<string, string>>({})
   const [highlightedEditProductRowId, setHighlightedEditProductRowId] = useState<string | null>(null)
   const [originalPOProducts, setOriginalPOProducts] = useState<string[]>([])
   // Track original state for change detection
   const [originalPDFUrl, setOriginalPDFUrl] = useState<string>('')
   const [originalProductNames, setOriginalProductNames] = useState<string[]>([])
+  const [originalProductVariantKeys, setOriginalProductVariantKeys] = useState<string[]>([])
   // Track which DCs have pending changes (PDF changed or new products added)
   const [dcsWithPendingChanges, setDcsWithPendingChanges] = useState<Set<string>>(new Set())
   // Track DCs with pending edit requests from backend
@@ -298,9 +305,57 @@ export default function ClientDCPage() {
     setAddProductSelectedSpec(next)
   }
 
+  const resolveEditPoAdd = (
+    product: string,
+    rows = editProductRows,
+    preferred?: { productCategory?: string; specs?: string }
+  ) =>
+    resolveAddEditPoProduct(
+      product,
+      rows,
+      getConfiguredLevels(product),
+      getProductId,
+      resolveProductRowLevel,
+      getProductSubjects(product),
+      getProductCategories(product),
+      {
+        productCategory: preferred?.productCategory || addProductSelectedCategory[product],
+        specs: preferred?.specs || addProductSelectedSpec[product],
+      }
+    )
+
+  const initAddProductVariants = (productNames: string[]) => {
+    initAddProductSpecs(productNames)
+    const nextCats: Record<string, string> = {}
+    productNames.forEach((name) => {
+      const cats = getProductCategories(name)
+      if (cats.length === 0) return
+      const result = resolveAddEditPoProduct(
+        name,
+        editProductRows,
+        getConfiguredLevels(name),
+        getProductId,
+        resolveProductRowLevel,
+        getProductSubjects(name),
+        cats,
+        { specs: addProductSelectedSpec[name] || catalogSpecsForProduct(name)[0] }
+      )
+      nextCats[name] = result.productCategory || cats[0]
+    })
+    setAddProductSelectedCategory(nextCats)
+  }
+
+  const duplicateEditPoToast = (product: string) => {
+    if (hasProductCategories(product) && !hasProductSubjects(product)) {
+      return 'This product with this category is already added. Please edit the existing quantity.'
+    }
+    if (hasProductSubjects(product)) {
+      return 'This product with this subject is already added. Please edit the existing quantity.'
+    }
+    return 'This product is already added. Please edit the existing quantity.'
+  }
+
   const handleAddProductToEditPo = (product: string, closeDialog: () => void, selectedSpec?: string) => {
-    const configured = getConfiguredLevels(product)
-    const configuredSubjects = getProductSubjects(product)
     const catalogSpecs = catalogSpecsForProduct(product)
     const specs = persistEditPoSpecs(
       product,
@@ -310,18 +365,12 @@ export default function ClientDCPage() {
       toast.error(`Please select Specs for ${product}`)
       return
     }
-    const { level, subject, duplicateRow } = resolveAddEditPoProduct(
-      product,
-      editProductRows,
-      configured,
-      getProductId,
-      resolveProductRowLevel,
-      configuredSubjects
-    )
+    const { level, subject, productCategory, duplicateRow } = resolveEditPoAdd(product, editProductRows, {
+      productCategory: addProductSelectedCategory[product],
+      specs,
+    })
     if (duplicateRow) {
-      toast.error(
-        'This product with this subject is already added. Please edit the existing quantity.'
-      )
+      toast.error(duplicateEditPoToast(product))
       if (duplicateRow.id) setHighlightedEditProductRowId(String(duplicateRow.id))
       closeDialog()
       return
@@ -331,7 +380,6 @@ export default function ClientDCPage() {
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
         : Date.now().toString()
-    const categories = getProductCategories(product)
     const nextRows = [
       ...editProductRows,
       {
@@ -344,20 +392,13 @@ export default function ClientDCPage() {
         level,
         term,
         specs,
-        productCategory: categories[0] || undefined,
+        productCategory: productCategory || undefined,
         subject: subject || undefined,
         selected_subjects: subject ? [subject] : [],
       },
     ]
     setEditProductRows(nextRows)
-    const afterAdd = resolveAddEditPoProduct(
-      product,
-      nextRows,
-      configured,
-      getProductId,
-      resolveProductRowLevel,
-      configuredSubjects
-    )
+    const afterAdd = resolveEditPoAdd(product, nextRows, { specs })
     if (afterAdd.duplicateRow) closeDialog()
   }
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
@@ -614,21 +655,6 @@ export default function ClientDCPage() {
     // THEN: Load all DCs from API (this will merge with sessionStorage items if they exist)
     load()
   }, [])
-
-  // Watch editProductRows for new products and mark DC as having changes
-  useEffect(() => {
-    if (!currentEditingDCId || editProductRows.length === 0) return
-    
-    const currentProductNames = editProductRows
-      .map(row => row.product_name)
-      .filter(name => name && name.trim() !== '')
-    
-    const hasNewProducts = currentProductNames.some(name => !originalProductNames.includes(name))
-    
-    if (hasNewProducts) {
-      setDcsWithPendingChanges(prev => new Set(prev).add(currentEditingDCId))
-    }
-  }, [editProductRows, currentEditingDCId, originalProductNames])
 
   // Keep Edit PO Total Amount in sync with sum of product row totals (qty × unit price)
   useEffect(() => {
@@ -1883,13 +1909,16 @@ export default function ClientDCPage() {
     }
   }
 
-  // Helper function to check if new products were added and mark DC as having changes
-  const checkForNewProducts = (currentProducts: Array<{ product_name: string }>) => {
+  // Helper function to check if new products / subject variants were added
+  const checkForNewProducts = (currentProducts: Array<{ product_name: string; subject?: string; selected_subjects?: string[] }>) => {
     if (!currentEditingDCId) return
-    
-    const currentProductNames = currentProducts.map(p => p.product_name).filter(Boolean)
-    const hasNewProducts = currentProductNames.some(name => !originalProductNames.includes(name))
-    
+
+    const hasNewProducts = editPoHasNewCommercialLines(
+      currentProducts,
+      originalProductVariantKeys,
+      getProductId
+    )
+
     if (hasNewProducts) {
       setDcsWithPendingChanges(prev => new Set(prev).add(currentEditingDCId))
     }
@@ -2078,7 +2107,10 @@ export default function ClientDCPage() {
       // that array still holds the unsplit lead (P3 L1+L2 summed to 14).
       setEditProductRows(expandedDetails)
 
-      // Original PO product names (committed on DcOrder) — for price lock + "new product" detection
+      // Close Lead lines are the commercial original. If there is no pending EM request,
+      // also snapshot whatever is already on this DC so empty-subject Close Lead rows
+      // stay price-locked. Do not snapshot pendingEdit products — new P2+math / p6
+      // must stay editable and keep going to the executive manager until approved.
       const originalProducts = Array.from(
         new Set((dcOrder.products || []).map((p: any) => p.product_name).filter(Boolean))
       )
@@ -2087,6 +2119,14 @@ export default function ClientDCPage() {
       const originalPDF = dcOrder.pod_proof_url || dc.poPhotoUrl || ''
       setOriginalPDFUrl(originalPDF)
       setOriginalProductNames(originalProducts)
+      setOriginalProductVariantKeys(
+        Array.from(
+          new Set([
+            ...collectOriginalEditPoVariantKeys(dcOrder.products || [], getProductId, getProductCategories),
+            ...(pe ? [] : collectOriginalEditPoVariantKeys(expandedDetails, getProductId, getProductCategories)),
+          ])
+        )
+      )
 
       setEditPODialogOpen(true)
     } catch (e: any) {
@@ -2166,7 +2206,9 @@ export default function ClientDCPage() {
             total: qty * (Number(row.unit_price) || 0),
             class: row.class && String(row.class).trim() !== '' ? String(row.class).trim() : '1',
             specs: persistEditPoSpecs(row.product_name || row.product, row.specs),
-            productCategory: row.productCategory || undefined,
+            productCategory: hasProductCategories(row.product_name)
+              ? (String(row.productCategory || '').trim() || getProductCategories(row.product_name)[0] || undefined)
+              : undefined,
             category: row.category || undefined,
             strength: qty,
             term: persistProductTerm({ term: row.term, level }),
@@ -2185,15 +2227,17 @@ export default function ClientDCPage() {
 
       // Check if PDF changed or new products were added (compared to original Close Lead state)
       const pdfChanged = editFormData.pod_proof_url !== originalPDFUrl
-      const currentProductNames = products.map(p => p.product_name).filter(Boolean)
-      const hasNewProducts = currentProductNames.some(name => !originalProductNames.includes(name))
+      const hasNewProducts = editPoHasNewCommercialLines(
+        products,
+        originalProductVariantKeys,
+        getProductId
+      )
       
       console.log('🔍 Change Detection:', {
         pdfChanged,
         hasNewProducts,
-        originalProductNames,
-        currentProductNames,
-        newProducts: currentProductNames.filter(name => !originalProductNames.includes(name))
+        originalProductVariantKeys,
+        newLines: products.filter((p) => !isOriginalEditPoLine(p, originalProductVariantKeys, getProductId))
       })
       
       // Prepare the payload with all fields including transport details
@@ -2235,7 +2279,9 @@ export default function ClientDCPage() {
                 ? [String(row.subject).trim()]
                 : [],
             category: row.category || undefined,
-            productCategory: row.productCategory || undefined,
+            productCategory: hasProductCategories(row.product_name)
+              ? (String(row.productCategory || '').trim() || getProductCategories(row.product_name)[0] || undefined)
+              : undefined,
             price: Number(row.unit_price) || 0,
             unit_price: Number(row.unit_price) || 0,
             total: qty * (Number(row.unit_price) || 0),
@@ -2312,6 +2358,7 @@ export default function ClientDCPage() {
       setCurrentEditingDCId(null)
       setOriginalPDFUrl('')
       setOriginalProductNames([])
+      setOriginalProductVariantKeys([])
       // Reload to refresh pending edit status
       load()
     } catch (e: any) {
@@ -2772,10 +2819,12 @@ export default function ClientDCPage() {
                     const product = getDcProductsText(d) || '-'
                     const dcOrderStatus =
                       typeof d.dcOrderId === 'object' ? d.dcOrderId?.status : undefined
-                    const status =
+                    const rawStatus =
                       dcOrderStatus === 'dc_requested' || dcOrderStatus === 'dc_accepted'
                         ? dcOrderStatus
                         : d.status || 'created'
+                    const awaitingManagerApproval = dcsWithPendingEditRequests.has(d._id)
+                    const status = awaitingManagerApproval ? 'sent_to_manager' : rawStatus
                     const createdDate = d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '-'
                     // Client turned date: use dcOrderId.createdAt for converted leads, otherwise use createdAt
                     const turnedDate = (typeof d.dcOrderId === 'object' && d.dcOrderId?.createdAt)
@@ -2837,7 +2886,7 @@ export default function ClientDCPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {status === 'created' || status === 'po_submitted' || status === 'dc_requested' ? (
+                          {rawStatus === 'created' || rawStatus === 'po_submitted' || rawStatus === 'dc_requested' ? (
                           <div className="flex items-center gap-2 justify-center">
                             {d.poPhotoUrl && (
                               <Button 
@@ -2862,8 +2911,8 @@ export default function ClientDCPage() {
                                   Edit PO
                                 </Button>
                               )}
-                              {/* Hide Request DC button if DC has pending changes (PDF changed or new products added) or pending edit request */}
-                              {status !== 'dc_requested' && (
+                              {/* Hide Request DC while a new product / new subject PO edit awaits EM approval */}
+                              {rawStatus !== 'dc_requested' && !awaitingManagerApproval && (
                             <Button 
                               size="sm" 
                               onClick={() => openClientDCDialog(d)}
@@ -2873,7 +2922,12 @@ export default function ClientDCPage() {
                               Request DC
                             </Button>
                               )}
-                              {status === 'dc_requested' && (
+                              {awaitingManagerApproval && (
+                                <span className="text-xs text-purple-700 max-w-[140px]">
+                                  Awaiting executive manager approval
+                                </span>
+                              )}
+                              {rawStatus === 'dc_requested' && (
                                 <span className="text-xs text-amber-700 max-w-[140px]">
                                   Awaiting Closed Sales review
                                 </span>
@@ -3921,6 +3975,11 @@ export default function ClientDCPage() {
                 {(() => {
                   const renderProductRow = (row: typeof editProductRows[0], idx: number) => {
                     const actualIdx = editProductRows.findIndex(r => r.id === row.id)
+                    const isOriginalLine = isOriginalEditPoLine(
+                      row,
+                      originalProductVariantKeys,
+                      getProductId
+                    )
                     return (
                         <TableRow
                           key={row.id}
@@ -3941,6 +4000,68 @@ export default function ClientDCPage() {
                             placeholder="Enter product name"
                             className={row.product_name && availableProducts.includes(row.product_name) ? "bg-neutral-50" : ""}
                           />
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const productName = row.product_name || ''
+                            if (!hasProductCategories(productName)) {
+                              return <span className="text-sm text-neutral-500">-</span>
+                            }
+                            const catalogCats = getProductCategories(productName)
+                            const current = String(row.productCategory || '').trim()
+                            const options =
+                              current && !catalogCats.includes(current)
+                                ? [current, ...catalogCats]
+                                : catalogCats
+                            const value = current && options.includes(current)
+                              ? current
+                              : (catalogCats[0] || undefined)
+                            return (
+                              <Select
+                                value={value}
+                                onValueChange={(next) => {
+                                  const thisSubject = normalizeEditPoSubjectKey(row.subject)
+                                  const thisSpecs = normalizeEditPoSubjectKey(row.specs)
+                                  const dup = editProductRows.some((other) => {
+                                    if (other.id === row.id) return false
+                                    if (
+                                      editPoProductIdentity(other.product_name || '', getProductId) !==
+                                      editPoProductIdentity(row.product_name || '', getProductId)
+                                    ) {
+                                      return false
+                                    }
+                                    const otherClass = String(other.class || '1').trim() || '1'
+                                    const thisClass = String(row.class || '1').trim() || '1'
+                                    if (otherClass !== thisClass) return false
+                                    if (normalizeEditPoSubjectKey(other.subject) !== thisSubject) return false
+                                    if (normalizeEditPoSubjectKey(other.specs) !== thisSpecs) return false
+                                    return (
+                                      normalizeEditPoCategoryKey(other.productCategory) ===
+                                      normalizeEditPoCategoryKey(next)
+                                    )
+                                  })
+                                  if (dup) {
+                                    toast.error(duplicateEditPoToast(productName))
+                                    return
+                                  }
+                                  const updated = [...editProductRows]
+                                  updated[actualIdx].productCategory = next
+                                  setEditProductRows(updated)
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {options.map((cat) => (
+                                    <SelectItem key={cat} value={cat}>
+                                      {cat}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Select
@@ -3983,6 +4104,10 @@ export default function ClientDCPage() {
                               <Select
                                 value={value || undefined}
                                 onValueChange={(next) => {
+                                  const thisCat = normalizeEditPoCategoryKey(
+                                    row.productCategory || getProductCategories(row.product_name || '')[0]
+                                  )
+                                  const thisSpecs = normalizeEditPoSubjectKey(row.specs)
                                   const dup = editProductRows.some((other) => {
                                     if (other.id === row.id) return false
                                     if (
@@ -3994,12 +4119,15 @@ export default function ClientDCPage() {
                                     const otherClass = String(other.class || '1').trim() || '1'
                                     const thisClass = String(row.class || '1').trim() || '1'
                                     if (otherClass !== thisClass) return false
+                                    const otherCat = normalizeEditPoCategoryKey(
+                                      other.productCategory || getProductCategories(other.product_name || '')[0]
+                                    )
+                                    if (otherCat !== thisCat) return false
+                                    if (normalizeEditPoSubjectKey(other.specs) !== thisSpecs) return false
                                     return normalizeEditPoSubjectKey(other.subject) === normalizeEditPoSubjectKey(next)
                                   })
                                   if (dup) {
-                                    toast.error(
-                                      'This product with this subject is already added. Please edit the existing quantity.'
-                                    )
+                                    toast.error(duplicateEditPoToast(row.product_name || ''))
                                     return
                                   }
                                   const updated = [...editProductRows]
@@ -4127,10 +4255,10 @@ export default function ClientDCPage() {
                               min="0"
                               step="0.01"
                             required
-                            readOnly={originalProductNames.includes(row.product_name)}
-                            className={`${row.product_name && (!row.unit_price || Number(row.unit_price) <= 0) ? "border-red-500" : ""} ${originalProductNames.includes(row.product_name) ? "bg-neutral-50 cursor-not-allowed" : ""} [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:m-0`}
+                            readOnly={isOriginalLine}
+                            className={`${row.product_name && (!row.unit_price || Number(row.unit_price) <= 0) ? "border-red-500" : ""} ${isOriginalLine ? "bg-neutral-50 cursor-not-allowed" : ""} [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-inner-spin-button]:m-0`}
                             placeholder=""
-                            title={originalProductNames.includes(row.product_name) ? "Unit price cannot be changed for original PO products" : ""}
+                            title={isOriginalLine ? "Unit price cannot be changed for original PO products" : ""}
                             />
                           </TableCell>
                           <TableCell>
@@ -4171,6 +4299,7 @@ export default function ClientDCPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Product Name</TableHead>
+                              <TableHead>Product Category</TableHead>
                               <TableHead>Class</TableHead>
                               <TableHead>Subject</TableHead>
                               <TableHead>Level</TableHead>
@@ -4184,7 +4313,7 @@ export default function ClientDCPage() {
                           <TableBody>
                             {editProductRows.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={9} className="text-center text-neutral-500 py-4">
+                                <TableCell colSpan={10} className="text-center text-neutral-500 py-4">
                                   No products added yet
                                 </TableCell>
                               </TableRow>
@@ -4218,6 +4347,7 @@ export default function ClientDCPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
+                                <TableHead>Product Category</TableHead>
                                 <TableHead>Class</TableHead>
                                 <TableHead>Subject</TableHead>
                                 <TableHead>Level</TableHead>
@@ -4231,7 +4361,7 @@ export default function ClientDCPage() {
                             <TableBody>
                               {term1Products.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={9} className="text-center text-neutral-500 py-4">
+                                  <TableCell colSpan={10} className="text-center text-neutral-500 py-4">
                                     No Level 1 products added yet
                                   </TableCell>
                                 </TableRow>
@@ -4251,6 +4381,7 @@ export default function ClientDCPage() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Product Name</TableHead>
+                                <TableHead>Product Category</TableHead>
                                 <TableHead>Class</TableHead>
                                 <TableHead>Subject</TableHead>
                                 <TableHead>Level</TableHead>
@@ -4264,7 +4395,7 @@ export default function ClientDCPage() {
                             <TableBody>
                               {term2Products.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={9} className="text-center text-neutral-500 py-4">
+                                  <TableCell colSpan={10} className="text-center text-neutral-500 py-4">
                                     No Level 2 products added yet
                                   </TableCell>
                                 </TableRow>
@@ -4320,7 +4451,7 @@ export default function ClientDCPage() {
         open={addProductDialogOpen}
         onOpenChange={(open) => {
           setAddProductDialogOpen(open)
-          if (open) initAddProductSpecs(originalPOProducts)
+          if (open) initAddProductVariants(originalPOProducts)
         }}
       >
         <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
@@ -4345,14 +4476,9 @@ export default function ClientDCPage() {
                   {originalPOProducts.map((product, index) => {
                     const productSpecs = getProductSpecs(product)
                     const hasSpecs = productSpecs.length > 0
-                    const addResult = resolveAddEditPoProduct(
-                      product,
-                      editProductRows,
-                      getConfiguredLevels(product),
-                      getProductId,
-                      resolveProductRowLevel,
-                      getProductSubjects(product)
-                    )
+                    const productCategories = getProductCategories(product)
+                    const hasCategories = productCategories.length > 0
+                    const addResult = resolveEditPoAdd(product)
                     const isAlreadyAdded = Boolean(addResult.duplicateRow)
                     
                     return (
@@ -4363,6 +4489,11 @@ export default function ClientDCPage() {
                           {getProductSubjects(product).length > 0 && (
                             <span className="text-xs text-neutral-500">
                               ({getProductSubjects(product).join(', ')})
+                            </span>
+                          )}
+                          {hasCategories && (
+                            <span className="text-xs text-neutral-500">
+                              ({productCategories.join(', ')})
                             </span>
                           )}
                           {isAlreadyAdded && (
@@ -4386,6 +4517,39 @@ export default function ClientDCPage() {
                           Add
                         </Button>
                         </div>
+                        {hasCategories && (
+                          <div className="mt-2 pt-2 border-t">
+                            <Label className="text-xs font-semibold mb-2 block">
+                              Select Product Category: *
+                            </Label>
+                            <div className="flex flex-wrap gap-2">
+                              {productCategories.map((cat) => {
+                                const selected = (addProductSelectedCategory[product] || addResult.productCategory || productCategories[0]) === cat
+                                return (
+                                  <div key={cat} className="flex items-center space-x-1">
+                                    <Checkbox
+                                      className="border-neutral-400"
+                                      id={`po-cat-${product}-${cat}`}
+                                      checked={selected}
+                                      onCheckedChange={(checked) => {
+                                        setAddProductSelectedCategory((prev) => ({
+                                          ...prev,
+                                          [product]: checked ? cat : prev[product] || cat,
+                                        }))
+                                      }}
+                                    />
+                                    <Label
+                                      htmlFor={`po-cat-${product}-${cat}`}
+                                      className="text-xs cursor-pointer"
+                                    >
+                                      {cat}
+                                    </Label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {hasSpecs && (
                           <div className="mt-2 pt-2 border-t">
                             <Label className="text-xs font-semibold mb-2 block">
@@ -4440,7 +4604,7 @@ export default function ClientDCPage() {
         open={addNewProductDialogOpen}
         onOpenChange={(open) => {
           setAddNewProductDialogOpen(open)
-          if (open) initAddProductSpecs(availableProducts)
+          if (open) initAddProductVariants(availableProducts)
         }}
       >
         <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
@@ -4465,16 +4629,10 @@ export default function ClientDCPage() {
                   {availableProducts.map((product, index) => {
                     const productSpecs = getProductSpecs(product)
                     const hasSpecs = productSpecs.length > 0
-                    const addResult = resolveAddEditPoProduct(
-                      product,
-                      editProductRows,
-                      getConfiguredLevels(product),
-                      getProductId,
-                      resolveProductRowLevel,
-                      getProductSubjects(product)
-                    )
+                    const productCategories = getProductCategories(product)
+                    const hasCategories = productCategories.length > 0
+                    const addResult = resolveEditPoAdd(product)
                     const isAlreadyAdded = Boolean(addResult.duplicateRow)
-                    // Check if this product is from original PO
                     const isFromPO = originalPOProducts.includes(product)
                     
                     return (
@@ -4485,6 +4643,11 @@ export default function ClientDCPage() {
                           {getProductSubjects(product).length > 0 && (
                             <span className="text-xs text-neutral-500">
                               ({getProductSubjects(product).join(', ')})
+                            </span>
+                          )}
+                          {hasCategories && (
+                            <span className="text-xs text-neutral-500">
+                              ({productCategories.join(', ')})
                             </span>
                           )}
                           {isFromPO && (
@@ -4511,6 +4674,39 @@ export default function ClientDCPage() {
                           Add
                         </Button>
                         </div>
+                        {hasCategories && (
+                          <div className="mt-2 pt-2 border-t">
+                            <Label className="text-xs font-semibold mb-2 block">
+                              Select Product Category: *
+                            </Label>
+                            <div className="flex flex-wrap gap-2">
+                              {productCategories.map((cat) => {
+                                const selected = (addProductSelectedCategory[product] || addResult.productCategory || productCategories[0]) === cat
+                                return (
+                                  <div key={cat} className="flex items-center space-x-1">
+                                    <Checkbox
+                                      className="border-neutral-400"
+                                      id={`new-cat-${product}-${cat}`}
+                                      checked={selected}
+                                      onCheckedChange={(checked) => {
+                                        setAddProductSelectedCategory((prev) => ({
+                                          ...prev,
+                                          [product]: checked ? cat : prev[product] || cat,
+                                        }))
+                                      }}
+                                    />
+                                    <Label
+                                      htmlFor={`new-cat-${product}-${cat}`}
+                                      className="text-xs cursor-pointer"
+                                    >
+                                      {cat}
+                                    </Label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {hasSpecs && (
                           <div className="mt-2 pt-2 border-t">
                             <Label className="text-xs font-semibold mb-2 block">

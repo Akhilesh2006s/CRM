@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { apiRequest } from '@/lib/api'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
+import { MappedVendorField } from '@/components/warehouse/MappedVendorField'
+import {
+  mappedVendorName,
+  vendorMapFromApiPayloads,
+  type AssignedVendor,
+  type PartnerAssignment,
+} from '@/lib/vendorProductAssignment'
 
 type WarehouseItem = {
   _id: string
@@ -33,9 +40,7 @@ type IdentityFields = {
   vendor: string
 }
 
-type VendorMaster = {
-  _id?: string
-  name?: string
+type VendorMaster = PartnerAssignment & {
   isActive?: boolean
 }
 
@@ -111,6 +116,7 @@ export default function StockAddPage() {
   const [itemMissing, setItemMissing] = useState(false)
   const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([])
   const [masterVendors, setMasterVendors] = useState<string[]>([])
+  const [vendorMap, setVendorMap] = useState<Map<string, AssignedVendor[]>>(new Map())
   const [selectedItemId, setSelectedItemId] = useState(productId)
 
   const [productName, setProductName] = useState('')
@@ -157,18 +163,33 @@ export default function StockAddPage() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const [partners, options] = await Promise.all([
+      const [partners, options, warehouseVendors] = await Promise.all([
         apiRequest<VendorMaster[]>('/partners').catch(() => []),
-        apiRequest<{ vendors?: string[] }>('/metadata/inventory-options').catch(() => ({ vendors: [] })),
+        apiRequest<{ vendors?: string[]; productVendors?: Record<string, string[]> }>('/metadata/inventory-options').catch(() => ({ vendors: [] })),
+        apiRequest<{ vendors?: Array<string | { name?: string }>; productVendors?: Record<string, string[]> }>('/warehouse/vendors').catch(() => ({})),
       ])
       const fromMaster = uniqueValues((Array.isArray(partners) ? partners : []).map((p) => p?.name))
       const fromOptions = uniqueValues(options?.vendors || [])
+      const fromWarehouse = uniqueValues(
+        (Array.isArray(warehouseVendors?.vendors) ? warehouseVendors.vendors : []).map((v) =>
+          typeof v === 'string' ? v : v?.name
+        )
+      )
       // Union both sources. Do not prefer an empty Partner list over inventory-options.
-      const names = uniqueValues([...fromMaster, ...fromOptions]).sort((a, b) =>
+      const names = uniqueValues([...fromMaster, ...fromOptions, ...fromWarehouse]).sort((a, b) =>
         a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
       )
       console.log('fetched vendors', names)
-      if (!cancelled) setMasterVendors(names)
+      if (!cancelled) {
+        setMasterVendors(names)
+        setVendorMap(
+          vendorMapFromApiPayloads({
+            partners,
+            productVendors: options?.productVendors,
+            warehouseProductVendors: warehouseVendors?.productVendors,
+          })
+        )
+      }
     })()
     return () => {
       cancelled = true
@@ -251,11 +272,11 @@ export default function StockAddPage() {
     return uniqueValues([...(productName ? getProductSubjects(productName) : []), subject])
   }, [showSubject, productName, getProductSubjects, subject])
 
-  const vendorOptions = useMemo(() => {
-    return uniqueValues(masterVendors).sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-    )
-  }, [masterVendors])
+  useEffect(() => {
+    if (!productName) return
+    const next = mappedVendorName(productName, vendorMap, vendor)
+    if (next && next !== vendor) setVendor(next)
+  }, [productName, vendorMap])
 
   useEffect(() => {
     if (!identityReady || !vendor) {
@@ -273,6 +294,7 @@ export default function StockAddPage() {
     setSpecs('')
     setLevel('')
     setSubject('')
+    setVendor(mappedVendorName(value, vendorMap, ''))
     setSelectedItemId('')
   }
 
@@ -323,18 +345,19 @@ export default function StockAddPage() {
       toast.error('Subject is required for this product')
       return
     }
-    if (!vendor) {
+    if (!vendor && !mappedVendorName(productName, vendorMap, '')) {
       toast.error('Vendor is required.')
       return
     }
 
+    const mappedVendor = vendor || mappedVendorName(productName, vendorMap, '')
     const amount = Number(qty)
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a positive quantity')
       return
     }
 
-    const fields = { productName, category, specs, level, subject, vendor }
+    const fields = { productName, category, specs, level, subject, vendor: mappedVendor }
     const targetId = selectedItemId || resolveExistingItemId(fields)
 
     try {
@@ -359,7 +382,7 @@ export default function StockAddPage() {
             level: showLevel ? level : '',
             specs: showSpecs ? specs : '',
             subject: showSubject ? subject : '',
-            vendor,
+            vendor: mappedVendor,
             currentStock: amount,
           }),
         })
@@ -375,7 +398,7 @@ export default function StockAddPage() {
 
   const canSubmit =
     Boolean(productName) &&
-    Boolean(vendor) &&
+    Boolean(vendor || mappedVendorName(productName, vendorMap, '')) &&
     Boolean(qty) &&
     (!showCategory || Boolean(category)) &&
     (!showLevel || Boolean(level)) &&
@@ -504,32 +527,14 @@ export default function StockAddPage() {
             </div>
             )}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Vendor *</div>
-              {vendorOptions.length === 0 ? (
-                <Select disabled>
-                  <SelectTrigger>
-                    <SelectValue placeholder="No vendors available" />
-                  </SelectTrigger>
-                </Select>
-              ) : (
-                <Select
-                  value={vendor || undefined}
-                  onValueChange={(v) => onIdentityChange({ vendor: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Vendor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vendorOptions.map((v) => (
-                      <SelectItem key={v} value={v}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+            <MappedVendorField
+              productName={productName}
+              vendor={vendor}
+              onVendorChange={(v) => onIdentityChange({ vendor: v })}
+              vendorMap={vendorMap}
+              fallbackVendors={masterVendors}
+              required
+            />
 
             <div className="space-y-2">
               <div className="text-sm font-medium">Quantity *</div>

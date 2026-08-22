@@ -142,4 +142,8 @@ const expenseSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(expenseSchema, 'Expense');
+} catch (_) {}
+
 module.exports = mongoose.model('Expense', expenseSchema);

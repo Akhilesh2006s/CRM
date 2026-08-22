@@ -397,4 +397,8 @@ dcSchema.pre('validate', function(next) {
   next();
 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(dcSchema, 'DC');
+} catch (_) {}
+
 module.exports = mongoose.model('DC', dcSchema);

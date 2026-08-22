@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const Lead = require('../models/Lead');
-const { listActiveVendorMaster } = require('../utils/vendorMaster');
+const { listActiveVendorMaster, loadProductVendorAssignments, productVendorNameMap } = require('../utils/vendorMaster');
 
 // Enum values for Lead, DcOrder, DC - must match backend models (Lead.js, DcOrder.js, DC.js)
 const ENUMS = {
@@ -38,6 +38,8 @@ const getInventoryOptions = async (req, res) => {
   try {
     const vendorRecords = await listActiveVendorMaster();
     const vendors = vendorRecords.map((v) => v.name);
+    const byProduct = await loadProductVendorAssignments();
+    const productVendors = productVendorNameMap(byProduct);
     console.log('[inventory-options] fetched vendors:', vendors);
     const options = {
       products: [
@@ -55,6 +57,7 @@ const getInventoryOptions = async (req, res) => {
       uoms: ['Pieces (pcs)', 'boxes'],
       vendors,
       vendorRecords,
+      productVendors,
     };
 
     res.json(options);

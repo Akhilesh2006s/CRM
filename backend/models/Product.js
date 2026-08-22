@@ -100,5 +100,9 @@ productSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'], function(next
 // Index for faster queries
 productSchema.index({ prodStatus: 1, productName: 1 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(productSchema, 'Product');
+} catch (_) {}
+
 module.exports = mongoose.model('Product', productSchema);
 

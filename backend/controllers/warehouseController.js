@@ -9,7 +9,7 @@ const {
 const { sanitizeWarehousePayload, ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
 const { consolidatedStockList } = require('../utils/warehouseInventoryIdentity');
 const { loadInventoryItemList } = require('../utils/warehouseStockRecords');
-const { listActiveVendorMaster } = require('../utils/vendorMaster');
+const { listActiveVendorMaster, loadProductVendorAssignments, productVendorNameMap, resolveAssignedVendor } = require('../utils/vendorMaster');
 
 // @desc    Get distinct warehouse locations (for return form dropdown)
 // @route   GET /api/warehouse/locations
@@ -28,8 +28,22 @@ const getWarehouseLocations = async (req, res) => {
 const getWarehouseVendors = async (req, res) => {
   try {
     const vendors = await listActiveVendorMaster();
-    console.log('[warehouse/vendors] fetched vendors:', vendors.map((v) => v.name));
-    res.json({ vendors, vendorRecords: vendors });
+    const byProduct = await loadProductVendorAssignments();
+    const productVendors = productVendorNameMap(byProduct);
+    const product = String(req.query.product || '').trim();
+    let filtered = vendors;
+    if (product) {
+      const resolved = resolveAssignedVendor(product, '', byProduct);
+      if (resolved.assigned.length) {
+        filtered = resolved.assigned.map((v) => ({ _id: v._id, name: v.name }));
+      }
+    }
+    console.log('[warehouse/vendors] fetched vendors:', filtered.map((v) => v.name));
+    res.json({
+      vendors: filtered,
+      vendorRecords: filtered,
+      productVendors,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

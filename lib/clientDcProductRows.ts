@@ -792,6 +792,85 @@ export function normalizeEditPoSubjectKey(subject: unknown): string {
   return s
 }
 
+export type EditPoVariantRow = {
+  product_name?: string
+  product?: string
+  productName?: string
+  subject?: string
+  selected_subjects?: string[]
+  productCategory?: string
+  specs?: string
+  class?: string
+}
+
+export function normalizeEditPoCategoryKey(category: unknown): string {
+  return normalizeEditPoSubjectKey(category)
+}
+
+/**
+ * Close Lead line identity for Edit PO price-lock / manager approval.
+ * A new subject or product category on an existing SKU is a new commercial line.
+ */
+export function editPoLineVariantKey(
+  row: EditPoVariantRow,
+  getProductId?: (name: string) => string | undefined
+): string {
+  const name = String(row.product_name || row.product || row.productName || '').trim()
+  const product = editPoProductIdentity(name, getProductId)
+  const listed = listSubjectsOnProductRow(row as Record<string, any>)
+  const subject = normalizeEditPoSubjectKey(listed[0] || row.subject)
+  const category = normalizeEditPoCategoryKey(row.productCategory)
+  return `${product}::subj:${subject}::cat:${category}`
+}
+
+export function collectOriginalEditPoVariantKeys(
+  products: EditPoVariantRow[] | undefined,
+  getProductId?: (name: string) => string | undefined,
+  getProductCategories?: (name: string) => string[]
+): string[] {
+  const keys = new Set<string>()
+  for (const p of Array.isArray(products) ? products : []) {
+    const name = String(p.product_name || p.product || p.productName || '').trim()
+    if (!name) continue
+    const subjects = listSubjectsOnProductRow(p as Record<string, any>)
+    const productCategory =
+      String(p.productCategory ?? '').trim() ||
+      (getProductCategories?.(name) || []).map((s) => String(s).trim()).filter(Boolean)[0] ||
+      ''
+    if (subjects.length === 0) {
+      keys.add(editPoLineVariantKey({ product_name: name, subject: '', productCategory }, getProductId))
+      continue
+    }
+    for (const s of subjects) {
+      keys.add(editPoLineVariantKey({ product_name: name, subject: s, productCategory }, getProductId))
+    }
+  }
+  return Array.from(keys)
+}
+
+export function isOriginalEditPoLine(
+  row: EditPoVariantRow,
+  originalKeys: Iterable<string>,
+  getProductId?: (name: string) => string | undefined
+): boolean {
+  const name = String(row.product_name || row.product || row.productName || '').trim()
+  if (!name) return false
+  const set = originalKeys instanceof Set ? originalKeys : new Set(originalKeys)
+  return set.has(editPoLineVariantKey(row, getProductId))
+}
+
+export function editPoHasNewCommercialLines(
+  rows: EditPoVariantRow[],
+  originalKeys: Iterable<string>,
+  getProductId?: (name: string) => string | undefined
+): boolean {
+  return (Array.isArray(rows) ? rows : []).some((row) => {
+    const name = String(row.product_name || row.product || row.productName || '').trim()
+    if (!name) return false
+    return !isOriginalEditPoLine(row, originalKeys, getProductId)
+  })
+}
+
 /** Subjects stored on a PO/DC line. A comma-joined `subject` is treated as multiple. */
 export function listSubjectsOnProductRow(p: Record<string, any>): string[] {
   const single = String(p.subject ?? '').trim()
@@ -901,27 +980,69 @@ export function expandEditPoRowsBySubject<T extends Record<string, any>>(
   return out
 }
 
+type AddEditPoExistingRow = {
+  id?: string
+  product_name?: string
+  level?: string
+  subject?: string
+  class?: string
+  productCategory?: string
+  specs?: string
+}
+
+export type AddEditPoPreferred = {
+  subject?: string
+  productCategory?: string
+  specs?: string
+}
+
+function addEditPoClassOf(row: { class?: string }) {
+  const c = String(row.class || '1').trim()
+  return c && c !== '0' ? c : '1'
+}
+
+function effectiveAddEditPoCategory(row: { productCategory?: string }, catalogCategories: string[]): string {
+  const current = String(row.productCategory || '').trim()
+  if (current && current !== '-') return current
+  return catalogCategories[0] || ''
+}
+
+function addEditPoClashKey(opts: {
+  subject?: string
+  productCategory?: string
+  specs?: string
+  class?: string
+}): string {
+  return [
+    normalizeEditPoSubjectKey(opts.subject),
+    normalizeEditPoCategoryKey(opts.productCategory),
+    normalizeEditPoSubjectKey(opts.specs),
+    addEditPoClassOf({ class: opts.class }),
+  ].join('::')
+}
+
 /**
- * Add Product does not choose a level. Duplicate = same catalog product + same subject.
- * Products with multiple master subjects may appear once per unused subject.
+ * Add Product does not choose a level.
+ * Duplicate = same catalog product + same subject + same product category + same specs.
+ * Unused master subjects or product categories may each get their own row (P2 Phy/math, P1 workbook/hi).
  */
 export function resolveAddEditPoProduct(
   productName: string,
-  existingRows: Array<{ id?: string; product_name?: string; level?: string; subject?: string; class?: string }>,
+  existingRows: AddEditPoExistingRow[],
   configuredLevels: string[],
   getProductId?: (name: string) => string | undefined,
   _resolveDisplayedLevel?: (productName: string, savedLevel?: string) => string,
-  configuredSubjects: string[] = []
+  configuredSubjects: string[] = [],
+  configuredCategories: string[] = [],
+  preferred: AddEditPoPreferred = {}
 ): {
   level: string
   subject: string
-  duplicateRow?: { id?: string; product_name?: string; level?: string; subject?: string; class?: string }
+  productCategory: string
+  specs: string
+  duplicateRow?: AddEditPoExistingRow
 } {
   const rows = Array.isArray(existingRows) ? existingRows : []
-  const classOf = (row: { class?: string }) => {
-    const c = String(row.class || '1').trim()
-    return c && c !== '0' ? c : '1'
-  }
   const sameProduct = rows.filter(
     (row) =>
       editPoProductIdentity(row.product_name || '', getProductId) ===
@@ -929,25 +1050,62 @@ export function resolveAddEditPoProduct(
   )
   const defaultLevel = configuredLevels.length ? configuredLevels[0] : '-'
   const catalogSubjects = (configuredSubjects || []).map((s) => String(s).trim()).filter(Boolean)
-
-  if (catalogSubjects.length === 0) {
-    const clash = sameProduct.find((row) => classOf(row) === '1')
-    if (clash) return { level: defaultLevel, subject: '', duplicateRow: clash }
-    return { level: defaultLevel, subject: '' }
-  }
+  const catalogCategories = (configuredCategories || []).map((s) => String(s).trim()).filter(Boolean)
+  const subjects = catalogSubjects.length ? catalogSubjects : ['']
+  const categories = catalogCategories.length ? catalogCategories : ['']
+  const specs = String(preferred.specs || '').trim()
 
   const used = new Set(
-    sameProduct.map((row) => `${normalizeEditPoSubjectKey(row.subject)}::${classOf(row)}`)
+    sameProduct.map((row) =>
+      addEditPoClashKey({
+        subject: row.subject,
+        productCategory: effectiveAddEditPoCategory(row, catalogCategories),
+        specs: row.specs,
+        class: addEditPoClassOf(row),
+      })
+    )
   )
-  const nextSubject = catalogSubjects.find(
-    (s) => !used.has(`${normalizeEditPoSubjectKey(s)}::1`)
-  )
-  if (!nextSubject) {
-    return {
-      level: defaultLevel,
-      subject: catalogSubjects[0],
-      duplicateRow: sameProduct.find((row) => classOf(row) === '1') || sameProduct[0],
+
+  const preferredCategory = String(preferred.productCategory || '').trim()
+  const preferredSubject = String(preferred.subject || '').trim()
+  const candidates: { subject: string; category: string }[] = []
+  for (const subject of subjects) {
+    for (const category of categories) {
+      candidates.push({ subject, category })
     }
   }
-  return { level: defaultLevel, subject: nextSubject }
+  candidates.sort((a, b) => {
+    const score = (c: { subject: string; category: string }) => {
+      let n = 0
+      if (preferredCategory && normalizeEditPoCategoryKey(c.category) === normalizeEditPoCategoryKey(preferredCategory)) n -= 2
+      if (preferredSubject && normalizeEditPoSubjectKey(c.subject) === normalizeEditPoSubjectKey(preferredSubject)) n -= 1
+      return n
+    }
+    return score(a) - score(b)
+  })
+
+  for (const cand of candidates) {
+    const key = addEditPoClashKey({
+      subject: cand.subject,
+      productCategory: cand.category,
+      specs,
+      class: '1',
+    })
+    if (!used.has(key)) {
+      return {
+        level: defaultLevel,
+        subject: cand.subject,
+        productCategory: cand.category,
+        specs,
+      }
+    }
+  }
+
+  return {
+    level: defaultLevel,
+    subject: preferredSubject || catalogSubjects[0] || '',
+    productCategory: preferredCategory || catalogCategories[0] || '',
+    specs,
+    duplicateRow: sameProduct.find((row) => addEditPoClassOf(row) === '1') || sameProduct[0],
+  }
 }

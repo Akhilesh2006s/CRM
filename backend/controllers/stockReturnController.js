@@ -639,6 +639,11 @@ const listExecutiveReturns = async (req, res) => {
   try {
     const filter = { sourceType: 'Executive' };
     if (req.query.dcOrderId) filter.dcOrderId = req.query.dcOrderId;
+    if (req.query.fromDate || req.query.toDate) {
+      filter.createdAt = {};
+      if (req.query.fromDate) filter.createdAt.$gte = new Date(req.query.fromDate);
+      if (req.query.toDate) filter.createdAt.$lte = new Date(String(req.query.toDate) + 'T23:59:59.999Z');
+    }
     const items = await StockReturn.find(filter)
       .populate('createdBy', 'name email')
       .populate('executiveId', 'name email')

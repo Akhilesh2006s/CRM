@@ -205,5 +205,9 @@ const leadSchema = new mongoose.Schema(
 leadSchema.index({ lead_type: 1, status: 1 });
 leadSchema.index({ school_id: 1, lead_type: 1 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(leadSchema, 'Lead');
+} catch (_) {}
+
 module.exports = mongoose.model('Lead', leadSchema);
 

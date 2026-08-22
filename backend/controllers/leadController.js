@@ -150,8 +150,8 @@ const getLeads = async (req, res) => {
     let query = Lead.find(filter)
       .select(
         isFollowUpPipeline
-          ? 'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority products managed_by assigned_by createdBy lead_type school_id renewalSource'
-          : 'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
+          ? 'school_name school_code contact_person contact_person2 contact_mobile zone status follow_up_date location strength createdAt updatedAt remarks priority products managed_by assigned_by createdBy lead_type school_id renewalSource'
+          : 'school_name school_code contact_person contact_person2 contact_mobile zone status follow_up_date location strength createdAt updatedAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
       ) // Only select needed fields
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -634,8 +634,10 @@ const exportLeads = async (req, res) => {
       fromDate, 
       toDate,
       lead_type: leadTypeExport,
+      pipeline,
     } = req.query;
     const filter = {};
+    const isFollowUpExport = String(pipeline || '').toLowerCase() === 'followup';
 
     if (leadTypeExport) {
       if (String(leadTypeExport).includes(',')) {
@@ -645,7 +647,9 @@ const exportLeads = async (req, res) => {
       }
     }
 
-    if (status) {
+    if (isFollowUpExport) {
+      filter.status = { $in: ['Pending', 'Processing'] };
+    } else if (status) {
       // Handle multiple statuses (comma-separated)
       if (status.includes(',')) {
         filter.status = { $in: status.split(',').map(s => s.trim()) };
@@ -709,7 +713,7 @@ const exportLeads = async (req, res) => {
         location: lead.location || '',
         schoolName: lead.school_name || '',
         contactPerson: lead.contact_person || '',
-        decisionMaker: lead.contact_person || '',
+        decisionMaker: lead.contact_person2 || '',
         mobile: lead.contact_mobile || '',
         followUpOn: lead.follow_up_date ? new Date(lead.follow_up_date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
         schoolStrength: lead.strength || 0,

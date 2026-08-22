@@ -264,12 +264,13 @@ const NAV: NavItem[] = [
       { label: 'Leads', href: '/dashboard/reports/leads' },
       { label: 'Sales Visit', href: '/dashboard/reports/sales-visit' },
       { label: 'Employee Track', href: '/dashboard/reports/employee-track' },
-      { label: 'Contact Queries', href: '/dashboard/reports/contact-queries' },
+      { label: 'Contact Enquiries', href: '/dashboard/reports/contact-queries' },
       { label: 'Change Logs', href: '/dashboard/reports/change-logs' },
       { label: 'Stock', href: '/dashboard/reports/stock' },
       { label: 'DC', href: '/dashboard/reports/dc' },
       { label: 'Returns', href: '/dashboard/reports/returns' },
       { label: 'All Expenses', href: '/dashboard/reports/expenses' },
+      { label: 'Training & Service', href: '/dashboard/reports/training-service' },
     ],
   },
   {
@@ -279,7 +280,15 @@ const NAV: NavItem[] = [
       { label: 'All Products', href: '/dashboard/products', icon: Database },
       { label: 'Add New Product', href: '/dashboard/products/new', icon: PlusCircle },
       { label: 'Deliverables', href: '/dashboard/products/deliverables', icon: Eye, adminOnly: true },
-      { label: 'Partner', href: '/dashboard/products/vendors', icon: Building2, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Vendor',
+    icon: Building2,
+    children: [
+      { label: 'Vendors', href: '/dashboard/products/vendors' },
+      { label: 'Stocks', href: '/dashboard/stocks' },
+      { label: 'My DCs', href: '/dashboard/dcs' },
     ],
   },
   {
@@ -313,7 +322,7 @@ const RBAC_MODULE_ICONS: Record<string, typeof LayoutDashboard> = {
   settings: Settings,
   executive_managers: Users,
   samples: Package,
-  vendor: Boxes,
+  vendor: Building2,
 }
 
 function filterNavByPermissions(
@@ -351,6 +360,37 @@ function rbacBuiltToNavItems(built: BuiltRbacNavItem[]): NavItem[] {
 const ASSIGN_MANAGERS_HREF = '/dashboard/executive-managers'
 const ASSIGN_MANAGERS_NAV = { label: 'Assign Managers', href: ASSIGN_MANAGERS_HREF }
 
+const SUPERADMIN_HIDDEN_TRAINING_LABELS = new Set([
+  'Add Trainer',
+  'Active Trainers',
+  'Trainers Dashboard',
+  'Inactive Trainers',
+])
+
+const SUPERADMIN_HIDDEN_TRAINING_HREFS = new Set([
+  '/dashboard/training/trainers/new',
+  '/dashboard/training/trainers/active',
+  '/dashboard/training/dashboard',
+  '/dashboard/training',
+  '/dashboard/training/trainers/inactive',
+])
+
+/** Super Admin: hide trainer-admin pages from Trainings & Services. */
+function applySuperAdminTrainingNav(nav: NavItem[]): NavItem[] {
+  return nav
+    .map((item) => {
+      if (item.label !== 'Trainings & Services' || !item.children) return item
+      const children = item.children.filter((child) => {
+        const href = (child.href || '').replace(/\/$/, '')
+        if (SUPERADMIN_HIDDEN_TRAINING_LABELS.has(child.label)) return false
+        if (SUPERADMIN_HIDDEN_TRAINING_HREFS.has(href)) return false
+        return true
+      })
+      return { ...item, children }
+    })
+    .filter((item) => item.label !== 'Trainings & Services' || (item.children && item.children.length > 0))
+}
+
 /** Super Admin: drop Executive Managers section; surface Assign Managers under Users / Employees. */
 function applySuperAdminExecutiveManagersNav(nav: NavItem[]): NavItem[] {
   const withoutEmSection = nav.filter((item) => item.label !== 'Executive Managers')
@@ -383,6 +423,67 @@ function applySuperAdminNavOrder(nav: NavItem[]): NavItem[] {
   const signOut = nav.filter(isSignOut)
   const rest = nav.filter((item) => item.label !== 'Settings' && !isSignOut(item))
   return [...rest, ...settings, ...signOut]
+}
+
+const VENDOR_MASTER_HREF = '/dashboard/products/vendors'
+
+const VENDOR_SECTION_CHILDREN: { label: string; href: string }[] = [
+  { label: 'Vendors', href: VENDOR_MASTER_HREF },
+  { label: 'Stocks', href: '/dashboard/stocks' },
+  { label: 'My DCs', href: '/dashboard/dcs' },
+]
+
+function isVendorMasterNavChild(child: { label?: string; href?: string }) {
+  const href = (child.href || '').replace(/\/$/, '')
+  if (href === VENDOR_MASTER_HREF) return true
+  return child.label === 'Vendor' || child.label === 'Vendors' || child.label === 'Partner'
+}
+
+/** Keep vendor master, Stocks, and My DCs in the Vendor section — never nested under Products. */
+function applyVendorSectionNav(nav: NavItem[]): NavItem[] {
+  const withoutProductsVendor = nav.map((item) => {
+    if (item.label !== 'Products' || !item.children) return item
+    return {
+      ...item,
+      children: item.children.filter((child) => !isVendorMasterNavChild(child)),
+    }
+  })
+
+  const existingVendor = withoutProductsVendor.find((item) => item.label === 'Vendor')
+  const seen = new Set<string>()
+  const children: { label: string; href: string }[] = []
+
+  const addChild = (label: string, href: string) => {
+    const key = href.replace(/\/$/, '')
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    children.push({ label, href })
+  }
+
+  for (const child of VENDOR_SECTION_CHILDREN) {
+    addChild(child.label, child.href)
+  }
+  for (const child of existingVendor?.children || []) {
+    if (child.href) addChild(child.label, child.href)
+  }
+  if (existingVendor?.href) {
+    addChild(existingVendor.label === 'Vendor' ? 'Vendors' : existingVendor.label, existingVendor.href)
+  }
+
+  const vendorItem: NavItem = {
+    label: 'Vendor',
+    icon: Building2,
+    children,
+  }
+
+  const withoutVendorSection = withoutProductsVendor.filter((item) => item.label !== 'Vendor')
+  const productsIdx = withoutVendorSection.findIndex((item) => item.label === 'Products')
+  if (productsIdx >= 0) {
+    withoutVendorSection.splice(productsIdx + 1, 0, vendorItem)
+  } else {
+    withoutVendorSection.push(vendorItem)
+  }
+  return withoutVendorSection
 }
 
 /** Executive: preferred sidebar order; Settings before Samples, then Sign out. */
@@ -948,8 +1049,12 @@ export function Sidebar() {
         children.every((c) => (c.href || '').startsWith('/dashboard/leads'))
       return !isOperationalLeads
     })
+    finalNav = applySuperAdminTrainingNav(finalNav)
     finalNav = applySuperAdminExecutiveManagersNav(finalNav)
+    finalNav = applyVendorSectionNav(finalNav)
     finalNav = applySuperAdminNavOrder(finalNav)
+  } else if (user?.role === 'Admin' || permUser?.role === 'Admin') {
+    finalNav = applyVendorSectionNav(finalNav)
   }
 
   const navReady = mounted && (!rbacActive || permissionsReady)

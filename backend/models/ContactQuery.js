@@ -70,5 +70,9 @@ const contactQuerySchema = new mongoose.Schema({
   timestamps: true,
 });
 
+try {
+  require('../utils/changeLogPlugin').attachChangeLog(contactQuerySchema, 'ContactQuery');
+} catch (_) {}
+
 module.exports = mongoose.model('ContactQuery', contactQuerySchema);
 

@@ -8,6 +8,11 @@ const Product = require('../models/Product');
 const StockMovement = require('../models/StockMovement');
 const { blank, normText, normLevel } = require('./warehouseInventoryIdentity');
 const { ensureDuplicatesConsolidated } = require('./warehouseDuplicateConsolidate');
+const {
+  loadProductVendorAssignments,
+  remapWarehouseVendorsFromAssignments,
+  resolveAssignedVendor,
+} = require('./vendorMaster');
 
 function asStringArray(value) {
   if (Array.isArray(value)) {
@@ -234,6 +239,11 @@ async function ensureInventoryMatchesProductMaster() {
 
 async function ensureWarehouseInventoryIntegrity() {
   const result = await ensureInventoryMatchesProductMaster();
+  try {
+    await remapWarehouseVendorsFromAssignments();
+  } catch (err) {
+    console.warn('Warehouse vendor assignment remap skipped:', err?.message || err);
+  }
   await ensureDuplicatesConsolidated();
   return result;
 }
@@ -261,6 +271,22 @@ async function sanitizeWarehousePayload(body) {
   next.specs = applied.payload.specs;
   next.subject = applied.payload.subject;
   next.class = applied.payload.class;
+
+  try {
+    const byProduct = await loadProductVendorAssignments();
+    const resolved = resolveAssignedVendor(
+      next.productName,
+      next.supplier || next.vendor,
+      byProduct
+    );
+    if (resolved.assigned.length && resolved.selectedName) {
+      next.supplier = resolved.selectedName;
+      if (resolved.vendorId) next.vendorId = resolved.vendorId;
+    }
+  } catch (err) {
+    console.warn('Warehouse vendor assignment skipped:', err?.message || err);
+  }
+
   return { ok: true, payload: next };
 }
 

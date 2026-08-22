@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { runWithActor } = require('../utils/logChange');
 
 const authMiddleware = async (req, res, next) => {
   try {
@@ -17,7 +18,7 @@ const authMiddleware = async (req, res, next) => {
     }
 
     req.user = user;
-    next();
+    return runWithActor(user, () => next());
   } catch (error) {
     res.status(401).json({ message: 'Token is not valid' });
   }

@@ -6,10 +6,30 @@ const Sale = require('../models/Sale');
 const Warehouse = require('../models/Warehouse');
 const StockReturn = require('../models/StockReturn');
 const { ensureWarehouseInventoryIntegrity } = require('../utils/warehouseProductMaster');
+const { isSuperAdminUser } = require('../utils/permissions');
+const { VENDOR_MASTER_ROLES } = require('../utils/vendorMaster');
 
-// Ensure user is Partner role
+const VENDOR_DC_ROLES = [...VENDOR_MASTER_ROLES, 'Super Admin', 'Admin'];
+
+function userRoles(user) {
+  const roles = [];
+  if (user?.role) roles.push(user.role);
+  if (Array.isArray(user?.roles)) roles.push(...user.roles);
+  return roles;
+}
+
+function canViewVendorDCs(user) {
+  if (isSuperAdminUser(user)) return true;
+  return userRoles(user).some((role) => VENDOR_DC_ROLES.includes(role));
+}
+
+function isPrivilegedVendorViewer(user) {
+  return isSuperAdminUser(user) || userRoles(user).includes('Admin');
+}
+
+// Partner / Vendor users, plus Super Admin / Admin who open Vendor → My DCs
 const ensurePartner = (req, res, next) => {
-  if (req.user?.role !== 'Partner') {
+  if (!canViewVendorDCs(req.user)) {
     return res.status(403).json({ message: 'Access denied. Partner only.' });
   }
   next();
@@ -313,125 +333,139 @@ const getPartnerStocks = async (req, res) => {
 const getPartnerDCs = async (req, res) => {
   try {
     const productNames = await getPartnerProductNames(req.user._id);
-    if (productNames.length === 0) {
+    const showAllAssigned = isPrivilegedVendorViewer(req.user);
+    if (productNames.length === 0 && !showAllAssigned) {
       return res.json([]);
     }
 
-    // Get partner cost configuration
-    const PartnerCost = require('../models/VendorCost'); // TODO: Rename file to PartnerCost.js
-    const Product = require('../models/Product');
-    const partnerCost = await PartnerCost.findOne({ partnerId: req.user._id })
+    const PartnerCost = require('../models/VendorCost');
+    const costMap = {};
+    const addCostRow = (productCost) => {
+      let productName = null;
+      if (productCost.productId && typeof productCost.productId === 'object' && productCost.productId.productName) {
+        productName = productCost.productId.productName;
+      } else if (productCost.productName) {
+        productName = productCost.productName;
+      }
+      if (!productName) return;
+      if (productNames.length && !productNames.includes(productName)) return;
+
+      const enterpriseMap = {};
+      const groups = [
+        ...(Array.isArray(productCost.franchises) ? productCost.franchises : []),
+        ...(Array.isArray(productCost.enterprises) ? productCost.enterprises : []),
+      ];
+      groups.forEach((group) => {
+        const cost = group.franchiseCost ?? group.enterpriseCost;
+        (group.schools || []).forEach((school) => {
+          let schoolId = null;
+          if (school.schoolId) {
+            schoolId = typeof school.schoolId === 'object' && school.schoolId._id
+              ? school.schoolId._id.toString()
+              : school.schoolId.toString();
+          }
+          if (schoolId && cost !== undefined && cost !== null) {
+            enterpriseMap[schoolId] = cost;
+          }
+        });
+      });
+      const row = {
+        defaultCost: Number(productCost.defaultCost) || 0,
+        enterpriseMap,
+      };
+      costMap[productName] = row;
+      costMap[String(productName).toLowerCase()] = row;
+    };
+
+    const ownCost = await PartnerCost.findOne({ partnerId: req.user._id })
       .populate('products.productId', 'productName')
       .lean();
+    (ownCost?.products || []).forEach(addCostRow);
 
-    // Create a map for quick lookup: productName -> { defaultCost, enterpriseMap: schoolId -> enterpriseCost }
-    const costMap = {};
-    if (partnerCost && partnerCost.products) {
-      partnerCost.products.forEach((productCost) => {
-        // Get product name - could be from populated productId or productName field
-        let productName = null;
-        if (productCost.productId) {
-          if (typeof productCost.productId === 'object' && productCost.productId.productName) {
-            productName = productCost.productId.productName;
-          } else if (productCost.productName) {
-            productName = productCost.productName;
-          }
-        } else if (productCost.productName) {
-          productName = productCost.productName;
-        }
-        
-        // Only add to map if product name matches partner's assigned products
-        if (productName && productNames.includes(productName)) {
-          const enterpriseMap = {};
-          // Build map of schoolId -> enterpriseCost
-          if (productCost.enterprises && Array.isArray(productCost.enterprises)) {
-            productCost.enterprises.forEach((enterprise) => {
-              if (enterprise.schools && Array.isArray(enterprise.schools)) {
-                enterprise.schools.forEach((school) => {
-                  let schoolId = null;
-                  if (school.schoolId) {
-                    if (typeof school.schoolId === 'object' && school.schoolId._id) {
-                      schoolId = school.schoolId._id.toString();
-                    } else {
-                      schoolId = school.schoolId.toString();
-                    }
-                  }
-                  if (schoolId) {
-                    enterpriseMap[schoolId] = enterprise.enterpriseCost;
-                  }
-                });
-              }
-            });
-          }
-          costMap[productName] = {
-            defaultCost: productCost.defaultCost || 0,
-            enterpriseMap: enterpriseMap,
-          };
-        }
+    if (showAllAssigned) {
+      const allCosts = await PartnerCost.find({})
+        .populate('products.productId', 'productName')
+        .lean();
+      allCosts.forEach((doc) => {
+        (doc.products || []).forEach(addCostRow);
       });
     }
 
-    // Get DCs that have partner's assigned products
-    const dcs = await DC.find({
-      $or: [
-        { product: { $in: productNames } },
-        { 'productDetails.productName': { $in: productNames } },
-      ],
-    })
-      .populate('dcOrderId', 'school_name school_code zone location contact_person contact_mobile email address dc_code _id')
+    const allowAllProducts = productNames.length === 0;
+    const matchesAssigned = (name) => Boolean(name) && (allowAllProducts || productNames.includes(name));
+
+    const lineUnitPrice = (line) => {
+      if (!line) return 0;
+      for (const v of [line.unit_price, line.unitPrice, line.price]) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+      return 0;
+    };
+
+    const assignedUnitPrice = (productName, schoolId, line, order) => {
+      const costInfo = costMap[productName] || costMap[String(productName).toLowerCase()] || { defaultCost: 0, enterpriseMap: {} };
+      if (schoolId && costInfo.enterpriseMap[schoolId] !== undefined) {
+        const schoolCost = Number(costInfo.enterpriseMap[schoolId]);
+        if (schoolCost > 0) return schoolCost;
+      }
+      if (Number(costInfo.defaultCost) > 0) return Number(costInfo.defaultCost);
+      const fromLine = lineUnitPrice(line);
+      if (fromLine > 0) return fromLine;
+      const orderRow = (order?.products || []).find((p) => {
+        const n = p.product_name || p.productName || p.product;
+        return n && String(n).toLowerCase() === String(productName).toLowerCase();
+      });
+      return lineUnitPrice(orderRow);
+    };
+
+    const dcQuery = allowAllProducts
+      ? {}
+      : {
+          $or: [
+            { product: { $in: productNames } },
+            { 'productDetails.productName': { $in: productNames } },
+          ],
+        };
+    const dcs = await DC.find(dcQuery)
+      .populate('dcOrderId', 'school_name school_code zone location contact_person contact_mobile email address dc_code _id products')
       .populate('employeeId', 'name email')
-      .select('_id dcOrderId product productDetails deliverableQuantity requestedQuantity status dcDate createdAt employeeId')
+      .select('_id dcOrderId product productDetails deliverableQuantity requestedQuantity status dcDate createdAt employeeId customerName')
       .sort({ createdAt: -1 })
       .lean();
 
-    // Transform DCs to include school and product information with pricing
     const transformed = dcs.map((dc) => {
       const school = dc.dcOrderId || {};
       const schoolId = school._id ? school._id.toString() : null;
       const products = [];
       let totalPrice = 0;
-      
-      // Add main product if it matches partner's products
-      if (dc.product && productNames.includes(dc.product)) {
-        const quantity = dc.deliverableQuantity || dc.requestedQuantity || 0;
-        const costInfo = costMap[dc.product] || { defaultCost: 0, enterpriseMap: {} };
-        const unitPrice = schoolId && costInfo.enterpriseMap[schoolId] !== undefined 
-          ? costInfo.enterpriseMap[schoolId] 
-          : costInfo.defaultCost;
-        const price = unitPrice * quantity;
+      const details = Array.isArray(dc.productDetails) ? dc.productDetails : [];
+
+      const seen = new Set();
+      const pushProduct = (productName, quantity, line) => {
+        if (!matchesAssigned(productName) || seen.has(productName)) return;
+        seen.add(productName);
+        const unitPrice = assignedUnitPrice(productName, schoolId, line, school);
+        const qty = Number(quantity) || 0;
+        const price = unitPrice * qty;
         totalPrice += price;
-        
         products.push({
-          productName: dc.product,
-          quantity: quantity,
-          unitPrice: unitPrice,
-          price: price,
-          isEnterprise: schoolId && costInfo.enterpriseMap[schoolId] !== undefined,
+          productName,
+          quantity: qty,
+          unitPrice,
+          price,
+          isEnterprise: Boolean(schoolId && (costMap[productName] || costMap[String(productName).toLowerCase()])?.enterpriseMap?.[schoolId] !== undefined),
         });
-      }
-      
-      // Add productDetails if they match partner's products
-      if (dc.productDetails && Array.isArray(dc.productDetails)) {
-        dc.productDetails.forEach((pd) => {
-          if (pd.productName && productNames.includes(pd.productName)) {
-            const quantity = pd.quantity || 0;
-            const costInfo = costMap[pd.productName] || { defaultCost: 0, enterpriseMap: {} };
-            const unitPrice = schoolId && costInfo.enterpriseMap[schoolId] !== undefined 
-              ? costInfo.enterpriseMap[schoolId] 
-              : costInfo.defaultCost;
-            const price = unitPrice * quantity;
-            totalPrice += price;
-            
-            products.push({
-              productName: pd.productName,
-              quantity: quantity,
-              unitPrice: unitPrice,
-              price: price,
-              isEnterprise: schoolId && costInfo.enterpriseMap[schoolId] !== undefined,
-            });
-          }
-        });
-      }
+      };
+
+      const headerMatch = details.find((pd) => {
+        const n = pd.productName || pd.product;
+        return n && dc.product && String(n).toLowerCase() === String(dc.product).toLowerCase();
+      });
+      pushProduct(dc.product, dc.deliverableQuantity || dc.requestedQuantity, headerMatch);
+      details.forEach((pd) => {
+        pushProduct(pd.productName || pd.product, pd.quantity, pd);
+      });
 
       return {
         _id: dc._id,
@@ -439,7 +473,7 @@ const getPartnerDCs = async (req, res) => {
         status: dc.status,
         school: {
           _id: school._id,
-          name: school.school_name || 'N/A',
+          name: school.school_name || dc.customerName || 'N/A',
           code: school.school_code || '-',
           zone: school.zone || '-',
           location: school.location || '-',
@@ -455,7 +489,7 @@ const getPartnerDCs = async (req, res) => {
         totalQuantity: products.reduce((sum, p) => sum + (p.quantity || 0), 0),
         totalPrice: totalPrice,
       };
-    }).filter(dc => dc.products.length > 0); // Only return DCs with matching products
+    }).filter(dc => dc.products.length > 0);
 
     res.json(transformed);
   } catch (error) {

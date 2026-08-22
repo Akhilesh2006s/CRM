@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { apiRequest } from '@/lib/api'
 import { Pencil } from 'lucide-react'
+import {
+  remapAndMergeInventoryRows,
+  vendorMapFromApiPayloads,
+  type PartnerAssignment,
+} from '@/lib/vendorProductAssignment'
 
 type WarehouseItem = {
   _id: string
@@ -31,8 +36,20 @@ export default function WarehouseInventoryItems() {
   useEffect(() => {
     ;(async () => {
       try {
-        const data = await apiRequest<WarehouseItem[]>('/warehouse')
-        setItems(data)
+        const [data, opts, warehouseVendors, partners, products] = await Promise.all([
+          apiRequest<WarehouseItem[]>('/warehouse'),
+          apiRequest<{ productVendors?: Record<string, string[]> }>('/metadata/inventory-options').catch(() => ({})),
+          apiRequest<{ productVendors?: Record<string, string[]> }>('/warehouse/vendors').catch(() => ({})),
+          apiRequest<PartnerAssignment[]>('/partners').catch(() => []),
+          apiRequest<Array<{ _id?: string; productName?: string }>>('/products').catch(() => []),
+        ])
+        const vendorMap = vendorMapFromApiPayloads({
+          partners,
+          productVendors: opts?.productVendors,
+          warehouseProductVendors: warehouseVendors?.productVendors,
+          products: Array.isArray(products) ? products : [],
+        })
+        setItems(remapAndMergeInventoryRows(Array.isArray(data) ? data : [], vendorMap))
       } catch (_) {}
       setLoading(false)
     })()

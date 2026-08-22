@@ -69,6 +69,7 @@ export const HREF_PERMISSION_MAP: Record<string, string> = {
   '/dashboard/reports/dc': 'reports.dc.page.view',
   '/dashboard/reports/returns': 'reports.returns.page.view',
   '/dashboard/reports/expenses': 'reports.expenses.page.view',
+  '/dashboard/reports/training-service': 'reports.training_service.page.view',
   '/dashboard/products': 'products.list.page.view',
   '/dashboard/products/new': 'products.new.page.view',
   '/dashboard/products/deliverables': 'products.deliverables.page.view',

@@ -701,7 +701,7 @@ const getDCs = async (req, res) => {
       try {
         const populatedPromise = DC.find({ _id: { $in: dcs.map(dc => dc._id) } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt pendingEdit')
           .populate('employeeId', 'name email role')
           .populate('createdBy', 'name email role')
           .populate('submittedBy', 'name email')
@@ -830,7 +830,7 @@ const getDCs = async (req, res) => {
         const existingIds = filteredDCs.map((dc) => dc._id);
         let refreshed = await DC.find({ _id: { $in: existingIds } })
           .populate('saleId', 'customerName product quantity status poDocument')
-          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt')
+          .populate('dcOrderId', 'school_name school_code school_type contact_person contact_mobile email address location zone products dc_code status assigned_to created_by createdAt pendingEdit')
           .populate('employeeId', 'name email role')
           .populate('createdBy', 'name email role')
           .lean();
