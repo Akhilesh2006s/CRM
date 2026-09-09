@@ -113,12 +113,12 @@ To verify if the endpoint is available:
 ```powershell
 $headers = @{ "Authorization" = "Bearer YOUR_JWT_TOKEN" }
 $body = @{ name = "Test"; expiresInDays = 365; permissions = @("read", "write") } | ConvertTo-Json
-Invoke-WebRequest -Uri "https://crm-backend-production-fc85.up.railway.app/api/api-keys" -Method POST -Headers $headers -Body $body -ContentType "application/json"
+Invoke-WebRequest -Uri "https://crm-backend-production-c967.up.railway.app/api/api-keys" -Method POST -Headers $headers -Body $body -ContentType "application/json"
 ```
 
 **cURL (if available):**
 ```bash
-curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
+curl -X POST https://crm-backend-production-c967.up.railway.app/api/api-keys \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Test","expiresInDays":365,"permissions":["read","write"]}'
@@ -136,6 +136,6 @@ curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
 Use it for rnxa.ai connection:
 
 - **Provider Name:** `CRM-FORGE`
-- **Base URL:** `https://crm-backend-production-fc85.up.railway.app/api`
+- **Base URL:** `https://crm-backend-production-c967.up.railway.app/api`
 - **Authentication Type:** `API Key`
 - **API Key:** `cf_live_...` (your generated key)

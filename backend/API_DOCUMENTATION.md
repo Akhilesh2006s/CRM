@@ -7,7 +7,7 @@ The C-FORGIA Automation API provides programmatic access to all AI-powered autom
 ## Base URL
 
 ```
-Production: https://crm-backend-production-fc85.up.railway.app/api
+Production: https://crm-backend-production-c967.up.railway.app/api
 Development: http://localhost:5000/api
 ```
 

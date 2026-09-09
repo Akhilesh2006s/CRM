@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 /** Same production host as `navbar-landing/lib/api.ts` */
-export const PROD_API_URL = 'https://crm-backend-production-fc85.up.railway.app/api';
+export const PROD_API_URL = 'https://crm-backend-production-c967.up.railway.app/api';
 
 const LOCAL_API_URL = 'http://localhost:5001/api';
 

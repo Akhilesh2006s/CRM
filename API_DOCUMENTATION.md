@@ -21,7 +21,7 @@ https://crm-backend-production-2ffd.up.railway.app/api
 
 **Alternative Production URL:**
 ```
-https://crm-backend-production-fc85.up.railway.app/api
+https://crm-backend-production-c967.up.railway.app/api
 ```
 
 ### Development

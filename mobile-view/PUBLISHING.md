@@ -1,6 +1,6 @@
 # Publish CRM Forge Mobile
 
-Production API (same as web): `https://crm-backend-production-fc85.up.railway.app/api`
+Production API (same as web): `https://crm-backend-production-c967.up.railway.app/api`
 
 EAS project: [@akhilesh26/crm-mobile-app](https://expo.dev/accounts/akhilesh26/projects/crm-mobile-app)  
 Project ID: `6fbb940c-2bbd-4d25-ae08-68d19179063c`
@@ -68,7 +68,7 @@ npm run build:production
 Production builds inject:
 
 ```
-EXPO_PUBLIC_API_URL=https://crm-backend-production-fc85.up.railway.app/api
+EXPO_PUBLIC_API_URL=https://crm-backend-production-c967.up.railway.app/api
 ```
 
 via `eas.json` → `production` profile. Local dev still uses `mobile-view/.env` when running `expo start`.

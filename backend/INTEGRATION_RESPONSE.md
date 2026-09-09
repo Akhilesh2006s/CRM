@@ -10,7 +10,7 @@ Thank you for your interest in integrating with C-FORGIA Automation System. Belo
 
 **Production:**
 ```
-https://crm-backend-production-fc85.up.railway.app/api
+https://crm-backend-production-c967.up.railway.app/api
 ```
 
 **Development (if needed):**
@@ -27,7 +27,7 @@ http://localhost:5000/api
 **Option 1: Via API (Recommended)**
 
 ```http
-POST https://crm-backend-production-fc85.up.railway.app/api/api-keys
+POST https://crm-backend-production-c967.up.railway.app/api/api-keys
 Authorization: Bearer <your_jwt_token>
 Content-Type: application/json
 
@@ -123,7 +123,7 @@ Complete API documentation is available in:
 - **`backend/API_DOCUMENTATION.md`** - Full API reference with all endpoints, request/response examples, error codes, and rate limiting
 
 **Quick Reference:**
-- Base URL: `https://crm-backend-production-fc85.up.railway.app/api`
+- Base URL: `https://crm-backend-production-c967.up.railway.app/api`
 - Authentication: Bearer token or X-API-Key header
 - Content-Type: `application/json`
 - Response Format: JSON
@@ -136,7 +136,7 @@ Complete API documentation is available in:
 
 **Request:**
 ```http
-GET https://crm-backend-production-fc85.up.railway.app/api/automation/revenue-at-risk
+GET https://crm-backend-production-c967.up.railway.app/api/automation/revenue-at-risk
 Authorization: Bearer cf_live_your_api_key_here
 ```
 
@@ -170,7 +170,7 @@ Authorization: Bearer cf_live_your_api_key_here
 
 **Request:**
 ```http
-GET https://crm-backend-production-fc85.up.railway.app/api/automation/executive-dashboard?days=30
+GET https://crm-backend-production-c967.up.railway.app/api/automation/executive-dashboard?days=30
 Authorization: Bearer cf_live_your_api_key_here
 ```
 
@@ -197,7 +197,7 @@ Authorization: Bearer cf_live_your_api_key_here
 
 **Request:**
 ```http
-GET https://crm-backend-production-fc85.up.railway.app/api/automation/priority-engine
+GET https://crm-backend-production-c967.up.railway.app/api/automation/priority-engine
 Authorization: Bearer cf_live_your_api_key_here
 ```
 
@@ -240,7 +240,7 @@ Authorization: Bearer cf_live_your_api_key_here
 ### Register Webhook:
 
 ```http
-POST https://crm-backend-production-fc85.up.railway.app/api/webhooks
+POST https://crm-backend-production-c967.up.railway.app/api/webhooks
 Authorization: Bearer cf_live_your_api_key_here
 Content-Type: application/json
 
@@ -284,7 +284,7 @@ Complete field mapping between DMS Pro and C-FORGIA is available in:
 ### Step 1: Generate API Key
 
 ```bash
-curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
+curl -X POST https://crm-backend-production-c967.up.railway.app/api/api-keys \
   -H "Authorization: Bearer <your_jwt_token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -297,14 +297,14 @@ curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
 ### Step 2: Test API Connection
 
 ```bash
-curl -X GET https://crm-backend-production-fc85.up.railway.app/api/automation/health \
+curl -X GET https://crm-backend-production-c967.up.railway.app/api/automation/health \
   -H "Authorization: Bearer cf_live_your_api_key_here"
 ```
 
 ### Step 3: Call Automation Endpoint
 
 ```bash
-curl -X GET https://crm-backend-production-fc85.up.railway.app/api/automation/revenue-at-risk \
+curl -X GET https://crm-backend-production-c967.up.railway.app/api/automation/revenue-at-risk \
   -H "Authorization: Bearer cf_live_your_api_key_here"
 ```
 
@@ -321,7 +321,7 @@ curl -X GET https://crm-backend-production-fc85.up.railway.app/api/automation/re
 
 ## Summary
 
-✅ **API Base URL**: `https://crm-backend-production-fc85.up.railway.app/api`  
+✅ **API Base URL**: `https://crm-backend-production-c967.up.railway.app/api`  
 ✅ **API Key**: Generate via `/api/api-keys` endpoint  
 ✅ **Authentication**: Bearer token, X-API-Key header, or query parameter  
 ✅ **10 Automation Endpoints**: All available under `/api/automation/`  

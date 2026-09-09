@@ -7,7 +7,7 @@
  *   node generate-api-key.js
  * 
  * Or with environment variables:
- *   API_BASE_URL=https://crm-backend-production-fc85.up.railway.app/api \
+ *   API_BASE_URL=https://crm-backend-production-c967.up.railway.app/api \
  *   EMAIL=admin@example.com \
  *   PASSWORD=yourpassword \
  *   node generate-api-key.js
@@ -18,7 +18,7 @@ const http = require('http');
 const readline = require('readline');
 
 // Configuration
-const API_BASE_URL = process.env.API_BASE_URL || 'https://crm-backend-production-fc85.up.railway.app/api';
+const API_BASE_URL = process.env.API_BASE_URL || 'https://crm-backend-production-c967.up.railway.app/api';
 const API_KEY_NAME = process.env.API_KEY_NAME || 'rnxa.ai Integration';
 const EXPIRES_IN_DAYS = process.env.EXPIRES_IN_DAYS || 365;
 const PERMISSIONS = process.env.PERMISSIONS ? process.env.PERMISSIONS.split(',') : ['read', 'write', 'webhook'];

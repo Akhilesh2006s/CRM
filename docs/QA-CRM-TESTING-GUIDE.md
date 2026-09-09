@@ -21,7 +21,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5001
 ```
 
 (or your staging/production API URL). Production API referenced in code/docs:  
-`https://crm-backend-production-fc85.up.railway.app` (see `lib/api.ts`).
+`https://crm-backend-production-c967.up.railway.app` (see `lib/api.ts`).
 
 **Backend:** MongoDB URI and secrets in `backend/.env`; start with `npm run dev` or `npm start` from `backend/`.
 

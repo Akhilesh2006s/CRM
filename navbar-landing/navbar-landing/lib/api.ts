@@ -1,6 +1,6 @@
 /** Local dev API — must match `backend/.env` PORT (5001 avoids macOS AirPlay on :5000). */
 export const LOCAL_API_BASE_URL = "http://localhost:5001";
-export const PROD_API_BASE_URL = "https://crm-backend-production-fc85.up.railway.app";
+export const PROD_API_BASE_URL = "https://crm-backend-production-c967.up.railway.app";
 
 function isBrowserDevProxy(): boolean {
   if (typeof window === "undefined") return false;

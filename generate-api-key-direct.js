@@ -167,7 +167,7 @@ async function generateApiKeyDirect() {
     console.log(`   X-API-Key: ${apiKey.key}`);
     console.log('\n📋 For rnxa.ai connection:');
     console.log(`   Provider Name: CRM-FORGE`);
-    console.log(`   Base URL: https://crm-backend-production-fc85.up.railway.app/api`);
+    console.log(`   Base URL: https://crm-backend-production-c967.up.railway.app/api`);
     console.log(`   Authentication Type: API Key`);
     console.log(`   API Key: ${apiKey.key}`);
     console.log('\n');

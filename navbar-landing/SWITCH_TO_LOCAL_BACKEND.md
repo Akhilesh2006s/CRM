@@ -27,7 +27,7 @@ The following mobile screens still have hardcoded Railway URLs and need to be up
 ### Pattern to Replace:
 ```typescript
 import ApiService from '../../services/api';
-const apiService = new ApiService('https://crm-backend-production-fc85.up.railway.app/api');
+const apiService = new ApiService('https://crm-backend-production-c967.up.railway.app/api');
 ```
 
 ### Replace With:

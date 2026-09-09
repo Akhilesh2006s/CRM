@@ -52,7 +52,7 @@ const DEV_API_URL = getApiUrl();
 export { getApiUrl, DEV_API_URL };
 
 // Production API URL (Railway backend) - used only when explicitly configured
-const PROD_API_URL = 'https://crm-backend-production-fc85.up.railway.app/api';
+const PROD_API_URL = 'https://crm-backend-production-c967.up.railway.app/api';
 
 // Use local/dev URL by default; switch to PROD_API_URL only when env flag is set
 const API_BASE_URL =

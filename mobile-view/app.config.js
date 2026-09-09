@@ -38,7 +38,7 @@ module.exports = ({ config }) => ({
     },
     apiUrl:
       process.env.EXPO_PUBLIC_API_URL ||
-      'https://crm-backend-production-fc85.up.railway.app/api',
+      'https://crm-backend-production-c967.up.railway.app/api',
   },
   plugins: [
     [

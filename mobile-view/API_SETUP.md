@@ -4,7 +4,7 @@
 
 The mobile app uses the **same production API as web** by default:
 
-`https://crm-backend-production-fc85.up.railway.app/api`
+`https://crm-backend-production-c967.up.railway.app/api`
 
 No `.env` is required. Works from any network (phone on mobile data or WiFi).
 

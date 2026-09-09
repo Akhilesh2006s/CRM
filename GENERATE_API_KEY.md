@@ -30,7 +30,7 @@ The script will display your API key. **Save it immediately** - you won't be abl
 You can also set credentials as environment variables:
 
 ```bash
-API_BASE_URL=https://crm-backend-production-fc85.up.railway.app/api \
+API_BASE_URL=https://crm-backend-production-c967.up.railway.app/api \
 EMAIL=admin@example.com \
 PASSWORD=yourpassword \
 API_KEY_NAME="rnxa.ai Integration" \
@@ -44,7 +44,7 @@ node generate-api-key.js
 ### Step 1: Login to get JWT token
 
 ```bash
-curl -X POST https://crm-backend-production-fc85.up.railway.app/api/auth/login \
+curl -X POST https://crm-backend-production-c967.up.railway.app/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",
@@ -65,7 +65,7 @@ curl -X POST https://crm-backend-production-fc85.up.railway.app/api/auth/login \
 ### Step 2: Generate API key using the token
 
 ```bash
-curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
+curl -X POST https://crm-backend-production-c967.up.railway.app/api/api-keys \
   -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE" \
   -H "Content-Type: application/json" \
   -d '{
@@ -98,7 +98,7 @@ curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
 
 1. **Login Request:**
    - Method: `POST`
-   - URL: `https://crm-backend-production-fc85.up.railway.app/api/auth/login`
+   - URL: `https://crm-backend-production-c967.up.railway.app/api/auth/login`
    - Headers: `Content-Type: application/json`
    - Body:
      ```json
@@ -111,7 +111,7 @@ curl -X POST https://crm-backend-production-fc85.up.railway.app/api/api-keys \
 
 2. **Generate API Key Request:**
    - Method: `POST`
-   - URL: `https://crm-backend-production-fc85.up.railway.app/api/api-keys`
+   - URL: `https://crm-backend-production-c967.up.railway.app/api/api-keys`
    - Headers:
      - `Authorization: Bearer YOUR_JWT_TOKEN_HERE`
      - `Content-Type: application/json`
@@ -148,7 +148,7 @@ GET /api/automation/revenue-at-risk?api_key=cf_live_your_api_key_here
 When connecting to rnxa.ai, use:
 
 - **Provider Name:** `CRM-FORGE`
-- **Base URL:** `https://crm-backend-production-fc85.up.railway.app/api`
+- **Base URL:** `https://crm-backend-production-c967.up.railway.app/api`
 - **Authentication Type:** `API Key`
 - **API Key:** `cf_live_your_generated_key_here`
 
