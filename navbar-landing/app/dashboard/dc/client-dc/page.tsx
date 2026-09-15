@@ -23,6 +23,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
 import { useProducts } from '@/hooks/useProducts'
 import { applyPaymentDivisorsToBreakdown } from '@/lib/dcPaymentDivisors'
+import { aggregateInvoicePaymentTerms } from '@/lib/dcInvoiceData'
 import { persistProductTerm, termFromLevelLabel } from '@/lib/productTerm'
 import { shortageParentRowKey } from '@/lib/shortageDcRowKey'
 import {
@@ -4819,29 +4820,21 @@ export default function ClientDCPage() {
                   <span className="text-black">Rs.{invoiceData.totalDue?.toFixed(2) || '0.00'}</span>
                 </div>
 
-                {/* Products from Database */}
+                {/* Products from Database — one qty/price pair per product (not per class row) */}
                 {invoiceData.paymentBreakdown && invoiceData.paymentBreakdown.length > 0 ? (
-                  invoiceData.paymentBreakdown.map((product: any, index: number) => {
-                    // Use strength as quantity (number of students/items), fallback to quantity field
-                    const quantity = product.strength !== undefined ? product.strength : (product.quantity !== undefined ? product.quantity : 0)
-                    // Get price from database - unitPrice comes from DcOrder or DC productDetails (both from database)
-                    const price = product.unitPrice !== undefined && product.unitPrice !== null 
-                      ? Number(product.unitPrice) 
-                      : (product.price !== undefined && product.price !== null 
-                          ? Number(product.price) 
-                          : 0)
+                  aggregateInvoicePaymentTerms(invoiceData.paymentBreakdown).map((product, index) => {
+                    const quantity = product.quantity
+                    const price = product.unitPrice
                     const productName = product.product || 'Product'
                     const bgColor1 = (index * 2) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
                     const bgColor2 = (index * 2 + 1) % 2 === 0 ? 'bg-neutral-50' : 'bg-white'
                     
                     return (
-                      <div key={index}>
-                        {/* Product Quantity - show 0 if quantity is 0 */}
+                      <div key={`${productName}-${product.term || ''}-${price}-${index}`}>
                         <div className={`flex justify-between items-center p-4 ${bgColor1}`}>
                           <span className="text-teal-600 font-medium">{productName}:</span>
                           <span className="text-black">{quantity}</span>
                         </div>
-                        {/* Product Price - from database (DcOrder.unit_price or DC.productDetails.price) */}
                         <div className={`flex justify-between items-center p-4 ${bgColor2}`}>
                           <span className="text-teal-600 font-medium">{productName}Price:</span>
                           <span className="text-black">{price > 0 ? `Rs.${price.toFixed(2)}` : '-'}</span>

@@ -348,3 +348,46 @@ export async function fetchDcInvoiceData(dcId: string, opts: FetchOpts): Promise
     invoicePendingMessage: gate.message,
   }
 }
+
+/** Collapse per-class payment lines into one qty/price pair per product (+ term + unit price). */
+export type AggregatedInvoiceTerm = {
+  product: string
+  quantity: number
+  unitPrice: number
+  term?: string
+}
+
+export function aggregateInvoicePaymentTerms(
+  paymentBreakdown: Array<{
+    product?: string
+    strength?: number
+    quantity?: number
+    unitPrice?: number
+    price?: number
+    term?: string
+  }>
+): AggregatedInvoiceTerm[] {
+  const map = new Map<string, AggregatedInvoiceTerm>()
+  for (const line of paymentBreakdown || []) {
+    const product = String(line.product || 'Product').trim() || 'Product'
+    const unitPrice = Number(
+      line.unitPrice !== undefined && line.unitPrice !== null
+        ? line.unitPrice
+        : line.price !== undefined && line.price !== null
+          ? line.price
+          : 0
+    )
+    const quantity = Number(
+      line.strength !== undefined ? line.strength : line.quantity !== undefined ? line.quantity : 0
+    )
+    const term = line.term ? String(line.term) : undefined
+    const key = `${product}|${term || ''}|${unitPrice}`
+    const existing = map.get(key)
+    if (existing) {
+      existing.quantity += quantity
+    } else {
+      map.set(key, { product, quantity, unitPrice, term })
+    }
+  }
+  return Array.from(map.values())
+}

@@ -581,6 +581,7 @@ export function expandSectionsToProductDetails(
       out.push(parentRow)
 
       const selectedSpecs = line.selectedSpecs || []
+      const specsToUse = selectedSpecs.length > 0 ? selectedSpecs : ['']
       const selectedSubjects = line.selectedSubjects || []
       const hasSubjects =
         ctx.hasProductSubjects(line.product) && selectedSubjects.length > 0
@@ -592,49 +593,51 @@ export function expandSectionsToProductDetails(
       const parentId = line.parentRowId
       if (levelsToUse.length === 0) continue
 
-      // One row per (selected class × selected level × selected subject).
+      // One row per (selected class × level × spec × subject).
       for (const classSel of classSelections) {
         const strengthToUse = Number(classSel.strength) || 0
         const classNum = parseInt(classSel.class, 10)
         if (!classNum || strengthToUse <= 0) continue
 
         for (const level of levelsToUse) {
-          for (const subject of subjectsToUse) {
-            const classValue = classNum.toString()
-            const lineKey = productCategoryRowKey(classValue, level, subject)
-            const identity = productCategoryRowIdentity(
-              parentId,
-              line.product,
-              classValue,
-              level,
-              subject
-            )
-            const existingCategory = firstNonEmptyCategory(
-              categoryOverrides[identity],
-              line.productCategoryByKey?.[lineKey],
-              prevCategoryMap[identity]
-            )
-            const category = resolveRowProductCategory(existingCategory, defaultCategory)
-            if (category) {
-              categoryOverrides[identity] = category
+          for (const spec of specsToUse) {
+            for (const subject of subjectsToUse) {
+              const classValue = classNum.toString()
+              const lineKey = productCategoryRowKey(classValue, level, subject)
+              const identity = productCategoryRowIdentity(
+                parentId,
+                line.product,
+                classValue,
+                level,
+                subject
+              )
+              const existingCategory = firstNonEmptyCategory(
+                categoryOverrides[identity],
+                line.productCategoryByKey?.[lineKey],
+                prevCategoryMap[identity]
+              )
+              const category = resolveRowProductCategory(existingCategory, defaultCategory)
+              if (category) {
+                categoryOverrides[identity] = category
+              }
+              // Per-subject row stores strength×price; class list-price uses subject count via computeLineDisplayTotal.
+              out.push({
+                id: `${parentId}_${classNum}_${rowIdx++}`,
+                product: line.product,
+                class: classValue,
+                category,
+                productCategory: hasSkuCategories ? category : undefined,
+                quantity: strengthToUse || 1,
+                strength: strengthToUse,
+                price: priceToUse || 0,
+                total: strengthToUse * (priceToUse || 0),
+                level,
+                specs: spec || '',
+                subject,
+                isParentRow: false,
+                sameRateForAllClasses: false,
+              })
             }
-            // Per-subject row stores strength×price; class list-price uses subject count via computeLineDisplayTotal.
-            out.push({
-              id: `${parentId}_${classNum}_${rowIdx++}`,
-              product: line.product,
-              class: classValue,
-              category,
-              productCategory: hasSkuCategories ? category : undefined,
-              quantity: strengthToUse || 1,
-              strength: strengthToUse,
-              price: priceToUse || 0,
-              total: strengthToUse * (priceToUse || 0),
-              level,
-              specs: selectedSpecs[0] || '',
-              subject,
-              isParentRow: false,
-              sameRateForAllClasses: false,
-            })
           }
         }
       }

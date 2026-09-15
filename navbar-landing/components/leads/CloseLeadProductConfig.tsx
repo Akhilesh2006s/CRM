@@ -487,10 +487,8 @@ function CloseLeadProductConfigView({
                                               checked={selectedSpecs.includes(spec)}
                                               onCheckedChange={(checked) => {
                                                 const newSpecs = checked
-                                                  ? [spec]
-                                                  : selectedSpecs.length > 0
-                                                    ? selectedSpecs
-                                                    : [spec]
+                                                  ? [...selectedSpecs, spec]
+                                                  : selectedSpecs.filter((s) => s !== spec)
                                                 updateProductSectionLine(section.id, line.id, {
                                                   selectedSpecs: newSpecs,
                                                 })
