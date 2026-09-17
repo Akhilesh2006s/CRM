@@ -102,7 +102,7 @@ const expenseSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Pending', 'Executive Manager Approved', 'Manager Approved', 'Approved', 'Rejected'],
+    enum: ['Pending', 'Executive Manager Approved', 'Manager Approved', 'Approved', 'Rejected', 'Needs Correction'],
     default: 'Pending',
   },
   pendingMonth: {

@@ -278,6 +278,8 @@ function CloseLeadProductConfigView({
                         const selectedSpecs = line.selectedSpecs || []
                         const productLevels = getProductLevels(line.product)
                         const selectedLevels = line.selectedLevels || []
+                        const productCategories = getProductCategories(line.product)
+                        const selectedCategories = line.selectedCategories || []
                         // Display total = Σ (class strength × selected subjects × unit price).
                         const lineTotalAmount = computeLineDisplayTotal(line, section)
 
@@ -661,6 +663,39 @@ function CloseLeadProductConfigView({
                                           className="text-xs cursor-pointer"
                                         >
                                           {subject}
+                                        </Label>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {hasProductCategories(line.product) && productCategories.length > 0 && (
+                                <div className="mt-2 pt-2 border-t">
+                                  <Label className="text-xs font-semibold mb-2 block">
+                                    Select Product Category:
+                                  </Label>
+                                  <div className="flex flex-wrap gap-2">
+                                    {productCategories.map((category) => (
+                                      <div key={category} className="flex items-center space-x-1">
+                                        <Checkbox
+                                          className="border-neutral-400"
+                                          id={`category-${line.id}-${category}`}
+                                          checked={selectedCategories.includes(category)}
+                                          onCheckedChange={(checked) => {
+                                            const newCategories = checked
+                                              ? [...selectedCategories, category]
+                                              : selectedCategories.filter((c) => c !== category)
+                                            updateProductSectionLine(section.id, line.id, {
+                                              selectedCategories: newCategories,
+                                            })
+                                          }}
+                                        />
+                                        <Label
+                                          htmlFor={`category-${line.id}-${category}`}
+                                          className="text-xs cursor-pointer"
+                                        >
+                                          {category}
                                         </Label>
                                       </div>
                                     ))}

@@ -2242,25 +2242,35 @@ export default function ClosedSalesPage() {
                           </td>
                           <td className="py-4 px-5">
                             {row.product && getProductLevels(row.product).length > 0 ? (
+                              (() => {
+                                const levels = getProductLevels(row.product)
+                                const levelValue = levels.includes(row.level || '')
+                                  ? row.level
+                                  : levels.includes(getDefaultLevel(row.product))
+                                    ? getDefaultLevel(row.product)
+                                    : levels[0]
+                                return (
                               <Select
-                                value={row.level || getDefaultLevel(row.product)}
+                                value={levelValue}
                                 onValueChange={(value) => {
                                   const updated = [...productRows]
                                   updated[idx].level = value
                                   setProductRows(updated)
                                 }}
                               >
-                                <SelectTrigger className="h-9 text-sm bg-white border-slate-200 w-20">
-                                  <SelectValue />
+                                <SelectTrigger className="h-9 text-sm bg-white border-slate-200 min-w-[7.5rem] w-auto">
+                                  <SelectValue placeholder="Level" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {getProductLevels(row.product).map((level) => (
+                                  {levels.map((level) => (
                                     <SelectItem key={level} value={level}>
                                       {level}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
+                                )
+                              })()
                             ) : (
                               <span className="text-xs text-slate-400">-</span>
                             )}

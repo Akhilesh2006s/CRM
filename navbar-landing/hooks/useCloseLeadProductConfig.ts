@@ -18,6 +18,7 @@ import {
   parentRowIdForDetailRow,
   productCategoryRowIdentity,
   resolveRowProductCategory,
+  pickDefaultProductCategory,
   syncClassSelectionsFromDetailRows,
   sectionHasValidClassSelections,
   buildDcOrderProductsFromDetails,
@@ -341,11 +342,10 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
       const subjectsToUse = hasSubjects ? selectedSubjects : [undefined]
       const subjectPriceMult = hasSubjects ? selectedSubjects.length : 1
       const hasSkuCategories = hasProductCategories(parentRow.product)
-      const defaultCategory = hasSkuCategories
-        ? getProductCategories(parentRow.product)[0] || ''
-        : schoolType === 'Existing'
-          ? 'Existing Students'
-          : 'New Students'
+      const skuCategories = hasSkuCategories ? getProductCategories(parentRow.product) : []
+      const selectedCategories = parentRow.selectedCategories || []
+      const enrollmentDefault =
+        schoolType === 'Existing' ? 'Existing Students' : 'New Students'
 
       const strengthToUse =
         typeof defaultStrength === 'number' ? defaultStrength : parentRow.strength || 0
@@ -366,10 +366,7 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
         specsToUse.forEach((spec) => {
           subjectsToUse.forEach((subject) => {
             const classValue = classNum.toString()
-            const subjectDisplay =
-              hasSubjects && selectedSubjects.length > 0
-                ? selectedSubjects.join(', ')
-                : subject
+            const subjectDisplay = typeof subject === 'string' ? subject : undefined
             const existing = existingChildren.find(
               (p) =>
                 p.class === classValue &&
@@ -389,7 +386,16 @@ export function useCloseLeadProductConfig(options: UseCloseLeadProductConfigOpti
                 categoryValueFromRow(existing || { category: '', productCategory: undefined }),
               ''
             )
-            const category = resolveRowProductCategory(existingCategory, defaultCategory)
+            const subjectDefault = hasSkuCategories
+              ? pickDefaultProductCategory(skuCategories, {
+                  subject: subjectDisplay,
+                  level: parentRow.level,
+                  selectedCategories,
+                }) ||
+                skuCategories[0] ||
+                ''
+              : enrollmentDefault
+            const category = resolveRowProductCategory(existingCategory, subjectDefault)
             if (category) {
               productCategoryOverridesRef.current[identity] = category
             }

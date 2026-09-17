@@ -274,7 +274,7 @@ export default function DCCaptureScreen({ navigation, route }: any) {
           created_by: user?._id,
         };
 
-        const dcOrder = await apiService.post('/dc-orders', dcOrderData);
+        const dcOrder = await apiService.post('/dc-orders/create', dcOrderData);
         await apiService.post('/dc/raise', {
           dcOrderId: dcOrder._id,
           ...dcData,

@@ -167,6 +167,83 @@ export function resolveRowProductCategory(existing: string | undefined, fallback
   return typeof fallback === 'string' ? fallback.trim() : ''
 }
 
+function normalizeCategoryMatchText(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Digits from level labels like "Level -1", "Level-2", "L1". */
+export function extractLevelNumber(level?: string): string {
+  const match = String(level || '').match(/(\d+)/)
+  return match?.[1] || ''
+}
+
+/**
+ * Pick a Product Category for a row: prefer subject match (longest first),
+ * then level suffix, scoped to selectedCategories when provided.
+ */
+export function pickDefaultProductCategory(
+  categories: string[],
+  opts?: {
+    subject?: string
+    level?: string
+    selectedCategories?: string[]
+  }
+): string {
+  const catalog = (categories || []).map((c) => String(c || '').trim()).filter(Boolean)
+  if (catalog.length === 0) return ''
+
+  const selected = (opts?.selectedCategories || [])
+    .map((c) => String(c || '').trim())
+    .filter(Boolean)
+  const pool =
+    selected.length > 0
+      ? catalog.filter((c) =>
+          selected.some((s) => normalizeCategoryMatchText(s) === normalizeCategoryMatchText(c))
+        )
+      : catalog
+  const candidates = pool.length > 0 ? pool : catalog
+
+  const subjectNorm = normalizeCategoryMatchText(opts?.subject || '')
+  const levelNum = extractLevelNumber(opts?.level)
+
+  let matched = candidates
+  if (subjectNorm) {
+    const bySubject = candidates
+      .map((cat) => {
+        const catNorm = normalizeCategoryMatchText(cat)
+        const starts = catNorm.startsWith(subjectNorm)
+        const includes = catNorm.includes(subjectNorm)
+        return { cat, starts, includes, len: subjectNorm.length }
+      })
+      .filter((x) => x.starts || x.includes)
+      .sort((a, b) => {
+        if (a.starts !== b.starts) return a.starts ? -1 : 1
+        return b.len - a.len
+      })
+    if (bySubject.length > 0) {
+      matched = bySubject.map((x) => x.cat)
+    }
+  }
+
+  if (levelNum && matched.length > 1) {
+    const byLevel = matched.filter((cat) => {
+      const catNorm = normalizeCategoryMatchText(cat)
+      return (
+        catNorm.endsWith(` ${levelNum}`) ||
+        catNorm.endsWith(levelNum) ||
+        new RegExp(`(?:^|\\s|-)${levelNum}$`).test(catNorm)
+      )
+    })
+    if (byLevel.length > 0) matched = byLevel
+  }
+
+  return matched[0] || candidates[0] || ''
+}
+
 /** Group child product rows per product + class. For level_based / subject_based,
  * sum strengths across distinct levels/subjects; duplicate same level+subject uses max.
  */
@@ -550,8 +627,13 @@ export function expandSectionsToProductDetails(
       const hasSkuCategories = ctx.hasProductCategories(line.product)
       const skuCategories = hasSkuCategories ? ctx.getProductCategories(line.product) : []
       const enrollmentDefault = schoolExisting ? 'Existing Students' : 'New Students'
-      const defaultCategory = hasSkuCategories
-        ? skuCategories[0] || ''
+      const selectedCategories = line.selectedCategories || []
+      const parentDefaultCategory = hasSkuCategories
+        ? pickDefaultProductCategory(skuCategories, {
+            subject: (line.selectedSubjects || [])[0],
+            level: levelsToUse[0] || line.level,
+            selectedCategories,
+          }) || skuCategories[0] || ''
         : enrollmentDefault
 
       const parentRow: ProductDetailRow = {
@@ -560,7 +642,7 @@ export function expandSectionsToProductDetails(
         class: '0',
         fromClass,
         toClass,
-        category: defaultCategory,
+        category: parentDefaultCategory,
         quantity: 1,
         strength: classSelections[0]?.strength || 0,
         price: priceToUse,
@@ -572,7 +654,7 @@ export function expandSectionsToProductDetails(
         selectedSubjects: line.selectedSubjects || [],
         selectedSpecs: line.selectedSpecs || [],
         selectedDeliverables: line.selectedDeliverables || [],
-        selectedCategories: undefined,
+        selectedCategories: selectedCategories.length > 0 ? selectedCategories : undefined,
         term:
           line.term !== undefined && line.term !== ''
             ? normalizeProductTerm(line.term)
@@ -616,7 +698,26 @@ export function expandSectionsToProductDetails(
                 line.productCategoryByKey?.[lineKey],
                 prevCategoryMap[identity]
               )
-              const category = resolveRowProductCategory(existingCategory, defaultCategory)
+              const subjectDefault = hasSkuCategories
+                ? pickDefaultProductCategory(skuCategories, {
+                    subject: typeof subject === 'string' ? subject : undefined,
+                    level,
+                    selectedCategories,
+                  }) || skuCategories[0] || ''
+                : enrollmentDefault
+              // Drop stale defaults that don't match this row's subject (e.g. Star junior on a junior row).
+              const subjectNorm = normalizeCategoryMatchText(
+                typeof subject === 'string' ? subject : ''
+              )
+              const existingNorm = normalizeCategoryMatchText(existingCategory)
+              const existingFitsSubject =
+                !subjectNorm ||
+                !existingNorm ||
+                existingNorm.startsWith(subjectNorm)
+              const category = resolveRowProductCategory(
+                existingFitsSubject ? existingCategory : '',
+                subjectDefault
+              )
               if (category) {
                 categoryOverrides[identity] = category
               }
@@ -675,7 +776,7 @@ export function parentRowToSectionLine(p: ProductDetailRow): CloseProductSection
     selectedSpecs: p.selectedSpecs || [],
     selectedSubjects: p.selectedSubjects || [],
     selectedDeliverables: p.selectedDeliverables || [],
-    selectedCategories: undefined,
+    selectedCategories: p.selectedCategories || undefined,
     productCategoryByKey: undefined,
     sameRateForAllClasses: p.sameRateForAllClasses || false,
     price: Number(p.price) || 0,

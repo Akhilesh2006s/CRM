@@ -532,7 +532,7 @@ export default function WarehouseCompletedDCScreen({ navigation }: any) {
     try {
       let warehouses = DEFAULT_WAREHOUSES;
       try {
-        const whRes = await apiService.get('/warehouse/locations').catch(() => apiService.get('/warehouses'));
+        const whRes = await apiService.get('/warehouse/locations').catch(() => apiService.get('/warehouse'));
         const list = Array.isArray(whRes) ? whRes : whRes?.data || [];
         const names = list
           .map((w: any) => (typeof w === 'string' ? w : w.name || w.location || ''))

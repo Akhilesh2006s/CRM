@@ -66,22 +66,21 @@ export function useProducts() {
 
   // Get product levels for a specific product
   const getProductLevels = (productName: string): string[] => {
-    const product = products.find(p => p.productName === productName)
-    if (!product) return ['L1']
+    const product = findProduct(productName)
+    if (!product) return []
     return Array.isArray(product.productLevels)
       ? product.productLevels.map((l) => String(l || '').trim()).filter(Boolean)
       : []
   }
 
   const hasProductLevels = (productName: string): boolean => {
-    const product = products.find(p => p.productName === productName)
-    return Array.isArray(product?.productLevels) && product.productLevels.some((l) => String(l || '').trim())
+    return getProductLevels(productName).length > 0
   }
 
   // Get default level for a product
   const getDefaultLevel = (productName: string): string => {
     const levels = getProductLevels(productName)
-    return levels[0] || 'L1'
+    return levels[0] || ''
   }
 
   // Check if product exists and is active
