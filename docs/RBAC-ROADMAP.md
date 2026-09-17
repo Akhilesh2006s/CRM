@@ -135,7 +135,7 @@ node backend/scripts/seedPermissions.js
 
 ### Backend routes still on `roleMiddleware` or auth-only (backlog)
 
-`leaveRoutes`, `leadRoutes`, `trainingRoutes`, `trainerRoutes`, `serviceRoutes`, `warehouseRoutes`, `executiveManagerRoutes`, `sampleRequestRoutes`, `zoneRoutes`, `clusterRoutes`, `zoneClusterRoutes`, `vendorRoutes`, `vendorCostRoutes`, `deliverableRoutes`, `programBillingRoutes`, `reportRoutes`, `salesRoutes`, `dashboardRoutes`, `attendanceRoutes`, `contactQueryRoutes`, `franchiseRoutes`, `aiRoutes`, `apiKeyRoutes`, `empDcRoutes`, and others.
+`leaveRoutes`, `leadRoutes`, `trainingRoutes`, `trainerRoutes`, `serviceRoutes`, `warehouseRoutes`, `executiveManagerRoutes`, `sampleRequestRoutes`, `zoneRoutes`, `clusterRoutes`, `zoneClusterRoutes`, `vendorRoutes`, `vendorCostRoutes`, `deliverableRoutes`, `programBillingRoutes`, `reportRoutes`, `salesRoutes`, `dashboardRoutes`, `attendanceRoutes`, `contactQueryRoutes`, `franchiseRoutes`, `apiKeyRoutes`, `empDcRoutes`, and others.
 
 ---
 

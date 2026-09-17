@@ -11,7 +11,7 @@
 ## Active scope (May 2026)
 
 - **In scope:** Full CRM operational modules (leads through settings, partner, franchises).
-- **Excluded:** All DMS routes and **AI dashboard** (deferred).
+- **Removed:** Dealership DMS and AI dashboard (no longer part of the product).
 
 ## Implementation status
 
@@ -37,4 +37,3 @@ npm run dev:mobile
 
 - Root `app/` (legacy web duplicate)
 - `navbar-landing/backend/`, `navbar-landing/mobile-view/` nested copies
-- DMS pages until explicitly scheduled

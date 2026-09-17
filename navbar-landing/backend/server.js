@@ -29,7 +29,6 @@ const vendorRoutes = require('./routes/vendorRoutes');
 const vendorUserRoutes = require('./routes/vendorUserRoutes');
 const executiveManagerRoutes = require('./routes/executiveManagerRoutes');
 const sampleRequestRoutes = require('./routes/sampleRequestRoutes');
-const aiRoutes = require('./routes/aiRoutes');
 const zoneRoutes = require('./routes/zoneRoutes');
 const clusterRoutes = require('./routes/clusterRoutes');
 const zoneClusterRoutes = require('./routes/zoneClusterRoutes');
@@ -210,7 +209,6 @@ app.get('/api/executive-managers/po-change-requests', authMiddleware, listPoChan
 
 app.use('/api/executive-managers', executiveManagerRoutes);
 app.use('/api/sample-requests', sampleRequestRoutes);
-app.use('/api/ai', aiRoutes);
 app.use('/api/roles', require('./routes/roleRoutes'));
 app.use('/api/users', require('./routes/userRoleRoutes'));
 app.use('/api/settings', settingsRoutes);

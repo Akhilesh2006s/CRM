@@ -1,6 +1,6 @@
 /**
  * Mobile nav items — aligned with navbar-landing/components/dashboard/Sidebar.tsx
- * (non-DMS, AI excluded)
+ * (dealership DMS and AI dashboard removed)
  */
 
 import { getRoleFlags, type CrmUser } from '../utils/roles';
@@ -229,7 +229,7 @@ export function getNavSections(user: CrmUser | null | undefined): NavSection[] {
     ];
   }
 
-  // Admin / default — aligned with web Sidebar (non-DMS, non-AI)
+  // Admin / default — aligned with web Sidebar
   const sections: NavSection[] = [
     {
       title: 'Leads',

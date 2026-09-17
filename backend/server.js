@@ -31,7 +31,6 @@ const partnerCostRoutes = require('./routes/vendorCostRoutes'); // TODO: Rename 
 const franchiseRoutes = require('./routes/franchiseRoutes');
 const executiveManagerRoutes = require('./routes/executiveManagerRoutes');
 const sampleRequestRoutes = require('./routes/sampleRequestRoutes');
-const aiRoutes = require('./routes/aiRoutes');
 const apiKeyRoutes = require('./routes/apiKeyRoutes');
 const automationApiRoutes = require('./routes/automationApiRoutes');
 const programBillingRoutes = require('./routes/programBillingRoutes');
@@ -210,7 +209,6 @@ app.get('/api/executive-managers/po-change-requests', authMiddleware, listPoChan
 
 app.use('/api/executive-managers', executiveManagerRoutes);
 app.use('/api/sample-requests', sampleRequestRoutes);
-app.use('/api/ai', aiRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/automation', automationApiRoutes);
 app.use('/api/program-billing', programBillingRoutes);

@@ -1,6 +1,6 @@
 # Mobile ↔ Web parity checklist
 
-**Scope:** CRM modules only. **Excluded:** DMS (`branches`, `customers`, `vehicles`, `variants`, `wcx`, `working-capital`, `vin-financing`, `facilities`, `pricing-kb`), **AI** (`/dashboard/ai`).
+**Scope:** CRM modules only. **Removed from product:** dealership DMS and AI dashboard.
 
 **Reference web:** `navbar-landing/app/dashboard/`  
 **Reference mobile:** `mobile-view/src/screens/`  
@@ -18,8 +18,8 @@ Track live status in [`src/config/routeRegistry.ts`](../src/config/routeRegistry
 
 ## Module summary
 
-| Module | Web routes (non-DMS) | Mobile | Notes |
-|--------|----------------------|--------|-------|
+| Module | Web routes | Mobile | Notes |
+|--------|------------|--------|-------|
 | Auth | login | Login, FirstTimeAttendance | JWT via AsyncStorage |
 | Core | dashboard | MainDrawer + tabs | Home / Work / Reports / More |
 | Leads | 8 | 8 screens | Includes `LeadsRenewalList` |

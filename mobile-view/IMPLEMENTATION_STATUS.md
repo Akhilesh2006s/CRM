@@ -11,7 +11,7 @@
 | Mobile screens | ~114 |
 | Placeholder screens | **0** |
 
-Core CRM modules match web routes in `routeRegistry.ts` (DMS + AI excluded by scope).
+Core CRM modules match web routes in `routeRegistry.ts` (dealership DMS and AI dashboard removed).
 
 ## Recent parity (May 2026)
 
@@ -22,6 +22,7 @@ Core CRM modules match web routes in `routeRegistry.ts` (DMS + AI excluded by sc
 
 ## Out of scope (unchanged)
 
-- DMS modules, AI dashboard, Change Logs (coming soon on web + mobile)
+- Change Logs (coming soon on web + mobile)
+- Dealership DMS and AI dashboard — **removed** from the product
 
 Older checklists in `MOBILE_APP_GUIDE.md` / `IMPLEMENTATION_COMPLETE.md` are outdated; use the files above.

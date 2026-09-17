@@ -8,8 +8,7 @@
     "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "seed:saved-dc": "node scripts/seedSavedDC.js",
-    "seed:closed-sales": "node scripts/seedClosedSales.js",
-    "seed:ai-data": "node scripts/seedAITestData.js"
+    "seed:closed-sales": "node scripts/seedClosedSales.js"
   },
   "keywords": [
     "crm",

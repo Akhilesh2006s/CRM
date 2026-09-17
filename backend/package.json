@@ -16,7 +16,6 @@
     "seed:closed-sales": "node scripts/seedClosedSales.js",
     "seed:returns-demo": "node scripts/seedReturnsClientDemo.js",
     "seed:returns-workflow-demo": "node scripts/setupReturnsWorkflowDemo.js",
-    "seed:ai-data": "node scripts/seedAITestData.js",
     "reconcile:program-billing": "node scripts/reconcileProgramBilling.js",
     "backfill:program-billing": "node scripts/backfillProgramBilling.js"
   },

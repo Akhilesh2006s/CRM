@@ -404,21 +404,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 |--------|----------|-------------|---------------|
 | GET | `/api/schools` | Get all schools | Yes |
 
-### AI Services
-
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| GET | `/api/ai/revenue-at-risk` | Calculate revenue at risk | Yes |
-| GET | `/api/ai/executive-dashboard` | Get executive dashboard data | Yes |
-| GET | `/api/ai/priority-engine` | Calculate priority scores | Yes |
-| GET | `/api/ai/deal-risk-scoring` | Score deal risk | Yes |
-| GET | `/api/ai/performance-risk` | Detect performance anomalies | Yes |
-| GET | `/api/ai/fraud-detection` | Detect fraud anomalies | Yes |
-| GET | `/api/ai/cashflow-analyzer` | Analyze cashflow blockages | Yes |
-| GET | `/api/ai/delay-cost-calculator` | Calculate delay costs | Yes |
-| GET | `/api/ai/churn-predictor` | Predict churn | Yes |
-| GET | `/api/ai/narrative-bi` | Generate business narrative | Yes |
-
 ### Contact Queries
 
 | Method | Endpoint | Description | Auth Required |

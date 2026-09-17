@@ -297,8 +297,6 @@ Use these for **deep-link testing**, **bookmark checks**, and **role permission*
 | `/dashboard/stocks` | Partner stocks |
 | `/dashboard/dcs` | Partner DC list |
 | `/dashboard/franchises/[email]` | Franchise by email |
-| `/dashboard/wcx` | WCX/exposure-style page (ensure API exists for your env) |
-| `/dashboard/ai` | AI-related UI |
 | `/dashboard/executives/assign-areas` | Assign areas (“Executive” org role) |
 
 ### 4.15 Settings (menu items vs implementation)
@@ -375,7 +373,6 @@ After Super Admin changes role permissions, the test user must **sign out and si
 
 ## 7. Out of scope / known gaps for this app
 
-- **DMS-specific pages** under `navbar-landing` that call `/api/dms/...` are **not** part of the main `app/` sidebar. On the current backend, **DMS routes may not be mounted** in `server.js` — if you test those UIs, confirm API registration first.
 - **Placeholder** route pattern: `app/dashboard/[section]/page.tsx` shows a placeholder for section names not replaced by a real page; prefer the concrete paths in section 4.
 
 ---

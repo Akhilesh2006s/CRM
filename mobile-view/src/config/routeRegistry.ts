@@ -1,6 +1,6 @@
 /**
  * Web route (navbar-landing) ↔ mobile screen registry.
- * DMS and AI excluded from active scope.
+ * Dealership DMS and AI dashboard have been removed from the product.
  */
 
 export type ParityStatus = 'done' | 'partial' | 'missing' | 'excluded';
@@ -127,11 +127,6 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { webPath: '/dashboard/stocks', mobileScreen: 'PartnerStocks', module: 'Vendor', status: 'done' },
   { webPath: '/dashboard/dcs', mobileScreen: 'PartnerDCs', module: 'Vendor', status: 'done' },
   { webPath: '/dashboard/franchises/[email]', mobileScreen: 'FranchiseDetail', module: 'Franchises', status: 'done' },
-
-  { webPath: '/dashboard/ai', module: 'AI', status: 'excluded', notes: 'Deferred' },
-  { webPath: '/dashboard/working-capital', module: 'DMS', status: 'excluded' },
-  { webPath: '/dashboard/wcx', module: 'DMS', status: 'excluded' },
-  { webPath: '/dashboard/branches', module: 'DMS', status: 'excluded' },
 ];
 
 export function getParitySummary() {

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { apiRequest } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
 import { toast } from 'sonner'
-import { Users, TrendingUp, Package, ShoppingCart, Calendar, MapPin, Building2, UserPlus, ArrowLeft, Zap, DollarSign, Calculator, AlertTriangle, Award, BarChart3, Sparkles } from 'lucide-react'
+import { Users, TrendingUp, Package, ShoppingCart, Calendar, MapPin, Building2, UserPlus, ArrowLeft, Zap, DollarSign, AlertTriangle, Award, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
 import {
   Table,
@@ -85,7 +85,7 @@ export default function ExecutiveManagerDashboardPage() {
   const [updateManagerStateDialogOpen, setUpdateManagerStateDialogOpen] = useState(false)
   const [managerStateInput, setManagerStateInput] = useState('')
   const [availableZones, setAvailableZones] = useState<string[]>([])
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'leads' | 'analytics' | 'ai'>('dashboard')
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'leads' | 'analytics'>('dashboard')
 
   useEffect(() => {
     if (!currentUser) {
@@ -414,7 +414,7 @@ export default function ExecutiveManagerDashboardPage() {
 
       {/* Premium Tab Navigation */}
       <div className="flex items-center gap-1 border-b border-neutral-200/60">
-        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'dashboard' | 'leads' | 'analytics' | 'ai')} className="w-full">
+        <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'dashboard' | 'leads' | 'analytics')} className="w-full">
           <TabsList className="bg-transparent p-0 h-auto gap-0">
             <TabsTrigger
               value="dashboard"
@@ -452,22 +452,6 @@ export default function ExecutiveManagerDashboardPage() {
             >
               Comprehensive Analytics
               {activeTab === 'analytics' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="ai"
-              className={`px-5 py-3 rounded-t-lg font-medium text-sm transition-all duration-200 relative ${
-                activeTab === 'ai'
-                  ? 'text-neutral-900 bg-white'
-                  : 'text-neutral-500 hover:text-neutral-700'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4" />
-                AI Mode
-              </span>
-              {activeTab === 'ai' && (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full" />
               )}
             </TabsTrigger>
@@ -2061,64 +2045,6 @@ export default function ExecutiveManagerDashboardPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* AI Mode Tab Content */}
-      {activeTab === 'ai' && (
-        <div className="mt-6">
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Sparkles className="h-8 w-8 text-blue-600" />
-              <div>
-                <h2 className="text-2xl font-bold">AI Intelligence Mode</h2>
-                <p className="text-gray-600">Revenue & Risk Intelligence Platform</p>
-              </div>
-            </div>
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-lg mb-6">
-              <p className="text-gray-700 mb-4">
-                Access advanced AI-powered insights to protect revenue, reduce risk, and improve decision-making.
-              </p>
-              <Link href="/dashboard/ai">
-                <Button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Open AI Dashboard
-                </Button>
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <DollarSign className="h-6 w-6 text-rose-500 mb-2" />
-                <h3 className="font-semibold mb-1">Revenue at Risk</h3>
-                <p className="text-sm text-gray-600">Identify revenue likely to get stuck or lost</p>
-              </Card>
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <TrendingUp className="h-6 w-6 text-blue-500 mb-2" />
-                <h3 className="font-semibold mb-1">Executive Dashboard</h3>
-                <p className="text-sm text-gray-600">High-level view of revenue trends and issues</p>
-              </Card>
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <Sparkles className="h-6 w-6 text-amber-500 mb-2" />
-                <h3 className="font-semibold mb-1">Priority Engine</h3>
-                <p className="text-sm text-gray-600">Automatically rank actions by business impact</p>
-              </Card>
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <AlertTriangle className="h-6 w-6 text-red-500 mb-2" />
-                <h3 className="font-semibold mb-1">Deal Risk Scoring</h3>
-                <p className="text-sm text-gray-600">Identify deals at high risk of failing</p>
-              </Card>
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <Users className="h-6 w-6 text-purple-500 mb-2" />
-                <h3 className="font-semibold mb-1">Performance Risk</h3>
-                <p className="text-sm text-gray-600">Highlight managers showing performance drops</p>
-              </Card>
-              <Card className="p-4 border-2 border-blue-200 hover:border-blue-400 transition-colors">
-                <Calculator className="h-6 w-6 text-orange-500 mb-2" />
-                <h3 className="font-semibold mb-1">Delay Cost Calculator</h3>
-                <p className="text-sm text-gray-600">Calculate financial loss from delays</p>
-              </Card>
-            </div>
-          </Card>
-        </div>
-      )}
     </div>
   )
 }
