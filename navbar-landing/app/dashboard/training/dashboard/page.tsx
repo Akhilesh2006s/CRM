@@ -211,7 +211,7 @@ export default function TrainersDashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Viswam Edutech - Trainings Report</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Trainings Report</h1>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium text-neutral-700">Trainings History</h2>
           <Button onClick={exportToExcel}>Export to Excel</Button>

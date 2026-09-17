@@ -571,7 +571,7 @@ export default function TrainingAssignScreen({ navigation }: any) {
 
   return (
     <ScreenShell
-      title="Viswam Edutech - Existing Schools List"
+      title="Existing Schools List"
       subtitle="Existing Schools"
       loading={loading && !refreshing}
       refreshing={refreshing}

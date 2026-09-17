@@ -752,7 +752,7 @@ export default function PendingDCPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">Viswam Edutech - Raise DC</h1>
+            <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">Raise DC</h1>
             <div className="flex items-center gap-4 mt-2 text-sm">
               <span className="text-blue-700 font-semibold">
                 Products: <strong>{getProductsSummary(selectedDC)}</strong>

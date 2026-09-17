@@ -356,7 +356,7 @@ export default function ServiceEditScreen({ navigation, route }: any) {
 
   return (
     <ScreenShell
-      title="Viswam Edutech - Services"
+      title="Services"
       subtitle="Edit Service Details"
       loading={loading}
       noScroll

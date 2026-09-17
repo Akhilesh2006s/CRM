@@ -359,7 +359,7 @@ export default function TrainingEditScreen({ navigation, route }: any) {
 
   return (
     <ScreenShell
-      title="Viswam Edutech - Trainings"
+      title="Trainings"
       subtitle="Edit Training Details"
       loading={loading}
       noScroll

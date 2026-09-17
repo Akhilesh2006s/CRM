@@ -457,7 +457,7 @@ export default function AssignTrainingServicePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Viswam Edutech - Existing Schools List</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Existing Schools List</h1>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium text-neutral-700">Existing Schools</h2>
           <Button onClick={exportToExcel}>Export to Excel</Button>

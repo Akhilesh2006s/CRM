@@ -463,7 +463,12 @@ export default function WarehouseCompletedDCScreen({ navigation }: any) {
       return;
     }
     if (sel !== 'Shortage') {
-      Alert.alert('Not available', 'This student type is not available yet. Only Shortage is supported today.');
+      try {
+        await apiService.put(`/dc/${row.dcId}`, { studentType: sel });
+        Alert.alert('Saved', `Student type saved: ${sel}`);
+      } catch (e: any) {
+        Alert.alert('Error', e?.message || 'Failed to save student type');
+      }
       return;
     }
     try {

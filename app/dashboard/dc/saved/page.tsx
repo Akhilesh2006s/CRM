@@ -714,7 +714,7 @@ export default function SavedDCPage() {
         <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto bg-white border-slate-200 shadow-xl">
           <DialogHeader className="pb-4 border-b border-slate-200">
             <DialogTitle className="text-slate-900 text-xl font-semibold">
-              Viswam Edutech - {existingDC ? 'Update DC' : 'Raise DC'}
+              {existingDC ? 'Update DC' : 'Raise DC'}
             </DialogTitle>
             <DialogDescription className="text-slate-600 text-sm mt-1">
               {existingDC ? 'Update DC details and submit to Senior Coordinator' : 'Fill in DC details and submit to Senior Coordinator'}

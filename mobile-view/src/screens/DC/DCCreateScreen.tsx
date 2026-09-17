@@ -881,7 +881,7 @@ function RaiseDCForm({
         : 'Fill in DC details and submit to Senior Coordinator.';
 
   const screenTitle = isUpdateMode
-    ? 'Viswam Edutech - Update DC'
+    ? 'Update DC'
     : `Raise DC${deal?.school_name ? ` - ${deal.school_name}` : ''}`;
 
   const buildProductDetails = () =>
@@ -1177,7 +1177,7 @@ function RaiseDCForm({
   if (!deal && !loading) {
     return (
     <ScreenShell
-      title={isUpdateMode ? 'Viswam Edutech - Update DC' : 'Raise DC'}
+      title={isUpdateMode ? 'Update DC' : 'Raise DC'}
       loading={loading}
     >
 <View style={styles.errorBlock}>

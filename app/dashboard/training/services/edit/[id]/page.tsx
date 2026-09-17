@@ -177,7 +177,7 @@ export default function EditServicePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Viswam Edutech - Services</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900 mb-2">Services</h1>
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-medium text-neutral-700">Edit Service Details</h2>
         </div>

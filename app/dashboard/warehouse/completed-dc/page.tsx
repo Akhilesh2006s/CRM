@@ -26,7 +26,7 @@ import { Pencil, X, Upload, FileText, Download, Loader2 } from 'lucide-react'
 import jsPDF from 'jspdf'
 import { sortDcsNewestFirst } from '@/lib/dcListSort'
 
-/** PO-stage remarks (dcRemarks) — shown read-only as PO Remarks in the edit modal. */
+/** PO-stage remarks (dcRemarks) â shown read-only as PO Remarks in the edit modal. */
 function poStageRemarks(dc: { dcRemarks?: string }): string {
   return (dc.dcRemarks ?? '').trim()
 }
@@ -259,7 +259,7 @@ export default function CompletedDCPage() {
         // Try dedicated endpoint first, fallback to filtered endpoint
         try {
           const response = await apiRequest<any>(`/dc/completed`)
-          console.log('🔍 Raw API response from /dc/completed:', {
+          console.log('ð Raw API response from /dc/completed:', {
             type: typeof response,
             isArray: Array.isArray(response),
             hasData: response?.data !== undefined,
@@ -272,11 +272,11 @@ export default function CompletedDCPage() {
           } else if (response?.data && Array.isArray(response.data)) {
             dcModelData = response.data
           } else {
-            console.warn('⚠️ Unexpected response format, treating as empty')
+            console.warn('â ï¸ Unexpected response format, treating as empty')
             dcModelData = []
           }
           
-          console.log('✅ Loaded DC model data from /dc/completed:', dcModelData?.length || 0, 'entries')
+          console.log('â Loaded DC model data from /dc/completed:', dcModelData?.length || 0, 'entries')
         } catch (dedicatedErr) {
           // Fallback to filtered endpoint
           console.warn('Dedicated endpoint failed, trying filtered endpoint:', dedicatedErr)
@@ -290,7 +290,7 @@ export default function CompletedDCPage() {
             dcModelData = []
           }
           
-          console.log('✅ Loaded DC model data from /dc?status=completed:', dcModelData?.length || 0, 'entries')
+          console.log('â Loaded DC model data from /dc?status=completed:', dcModelData?.length || 0, 'entries')
         }
         
         if (dcModelData && dcModelData.length > 0) {
@@ -301,10 +301,10 @@ export default function CompletedDCPage() {
             completedAt: dcModelData[0].completedAt
           })
         } else {
-          console.warn('⚠️ No completed DCs found in API response')
+          console.warn('â ï¸ No completed DCs found in API response')
         }
       } catch (err: any) {
-        console.error('❌ Failed to load completed DCs:', {
+        console.error('â Failed to load completed DCs:', {
           error: err?.message,
           status: err?.status,
           details: err
@@ -315,12 +315,12 @@ export default function CompletedDCPage() {
 
       // Ensure dcModelData is an array
       if (!Array.isArray(dcModelData)) {
-        console.error('❌ dcModelData is not an array:', typeof dcModelData, dcModelData)
+        console.error('â dcModelData is not an array:', typeof dcModelData, dcModelData)
         dcModelData = []
       }
       
       // Transform DC model entries to match Row format
-      console.log('🔄 Transforming DC model data to Row format...', {
+      console.log('ð Transforming DC model data to Row format...', {
         dcModelDataLength: dcModelData?.length || 0,
         isArray: Array.isArray(dcModelData),
         firstItem: dcModelData?.[0] ? {
@@ -423,7 +423,7 @@ export default function CompletedDCPage() {
         allDataMap.set(dc._id, dc)
       })
       
-      console.log('📦 Added DC entries to map:', transformedDCs.length)
+      console.log('ð¦ Added DC entries to map:', transformedDCs.length)
       
       // Then add DcOrder entries only if they don't have a corresponding DC or if DC doesn't exist
       dcOrderRows.forEach(dcOrder => {
@@ -448,7 +448,7 @@ export default function CompletedDCPage() {
       // Apply filters to the data
       applyFilters(allData)
       
-      console.log('✅ Final data to display:', {
+      console.log('â Final data to display:', {
         totalRows: allData.length,
         dcEntries: transformedDCs.length,
         dcOrderEntries: dcOrderRows.length,
@@ -463,7 +463,7 @@ export default function CompletedDCPage() {
       })
       
       if (allData.length === 0) {
-        console.warn('⚠️ No data to display! Check:')
+        console.warn('â ï¸ No data to display! Check:')
         console.warn('  - dcModelData length:', dcModelData?.length || 0)
         console.warn('  - dcOrderData length:', dcOrderData?.length || 0)
         console.warn('  - transformedDCs length:', transformedDCs.length)
@@ -562,7 +562,7 @@ export default function CompletedDCPage() {
 
   const followUpRowKey = (row: Row) => row.dcId || row._id
 
-  const handleFollowUpStudentTypeContinue = (row: Row) => {
+  const handleFollowUpStudentTypeContinue = async (row: Row) => {
     const id = followUpRowKey(row)
     const sel = followUpStudentTypeByDcId[id]
     if (!sel) {
@@ -573,7 +573,16 @@ export default function CompletedDCPage() {
       openRecordShortageDialog(row)
       return
     }
-    toast.info('This student type is not available yet. Only Shortage is supported today.')
+    try {
+      const dcId = row.dcId || row._id
+      await apiRequest(`/dc/${dcId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ studentType: sel }),
+      })
+      toast.success(`Student type saved: ${sel}`)
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save student type')
+    }
   }
 
   const submitShortageDC = async () => {
@@ -941,14 +950,14 @@ export default function CompletedDCPage() {
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(8)
       pdf.setTextColor(0, 0, 0)
-      pdf.text('Viswam Edutech Solutions Pvt. Ltd', pageWidth - 10, yPos, { align: 'right' })
+      pdf.text('CRM', pageWidth - 10, yPos, { align: 'right' })
       
       // Footer bar
       yPos = pageHeight - 20
       pdf.setFillColor(0, 102, 204)
       
       // Footer text with proper wrapping
-      const footerText = 'Viswam Edutech Solutions Pvt. Ltd. Third Floor, PLOT NO 88, VISWAM TOWERS, The Matrusri Cooperative House Building Soceity Ltd, Miyapur, Hyderabad, Telangana, 500049'
+      const footerText = 'CRM  update company address in settings before printing'
       const maxFooterWidth = pageWidth - 30 // Leave margins on both sides
       const footerLines = pdf.splitTextToSize(footerText, maxFooterWidth)
       
@@ -1264,7 +1273,7 @@ export default function CompletedDCPage() {
         return
       }
 
-      // Prefer authenticated /api/dc/po-file — avoids 403 on static /uploads (AirPlay port, hosting, etc.).
+      // Prefer authenticated /api/dc/po-file â avoids 403 on static /uploads (AirPlay port, hosting, etc.).
       const fetchUrl =
         poFileApiUrl(String(raw)) ||
         poFileApiUrl(resolved) ||
@@ -1628,7 +1637,7 @@ export default function CompletedDCPage() {
                 {shortageRows.map((row, idx) => (
                   <TableRow key={row.id}>
                     <TableCell>{row.product || '-'}</TableCell>
-                    <TableCell className="text-sm text-neutral-600">{row.productCategory || '—'}</TableCell>
+                    <TableCell className="text-sm text-neutral-600">{row.productCategory || 'â'}</TableCell>
                     <TableCell>{row.class}</TableCell>
                     <TableCell>{row.orderedQuantity}</TableCell>
                     <TableCell>{row.deliveredQuantity}</TableCell>
@@ -1779,7 +1788,7 @@ export default function CompletedDCPage() {
                 <Input
                   value={editForm.poRemarks}
                   readOnly
-                  placeholder="—"
+                  placeholder="â"
                   className="mt-1 bg-neutral-50"
                 />
               </div>
@@ -1922,7 +1931,7 @@ export default function CompletedDCPage() {
             {pdfLoading && !pdfViewerSrc ? (
               <div className="flex flex-col items-center gap-2 text-neutral-600">
                 <Loader2 className="h-8 w-8 animate-spin" />
-                <span className="text-sm">Loading PDF…</span>
+                <span className="text-sm">Loading PDFâ¦</span>
               </div>
             ) : pdfViewerSrc ? (
               <iframe
