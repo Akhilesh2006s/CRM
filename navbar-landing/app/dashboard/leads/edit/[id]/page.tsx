@@ -120,6 +120,7 @@ type Lead = {
   contact_mobile?: string
   contact_person2?: string
   contact_mobile2?: string
+  decision_maker?: string
   email?: string
   location?: string
   city?: string
@@ -128,14 +129,20 @@ type Lead = {
   state?: string
   region?: string
   area?: string
+  mandal?: string
+  cluster?: string
+  latitude?: number
+  longitude?: number
   priority?: string
   zone?: string
   branches?: number
+  no_of_branches?: number
   strength?: number
   remarks?: string
   follow_up_date?: string
   estimated_delivery_date?: string
   average_fee?: number
+  avg_fee?: number
   products?: Array<SavedProductRow | string> | string
   status?: string
 }
@@ -169,6 +176,10 @@ export default function EditLeadPage() {
     state: '',
     region: '',
     area: '',
+    mandal: '',
+    cluster: '',
+    latitude: '',
+    longitude: '',
     priority: 'Hot',
     zone: '',
     branches: '',
@@ -248,7 +259,7 @@ export default function EditLeadPage() {
           contact_person: lead.contact_person || '',
           contact_mobile: lead.contact_mobile || '',
           email: lead.email || '',
-          decision_maker_name: lead.contact_person2 || '',
+          decision_maker_name: lead.decision_maker || lead.contact_person2 || '',
           decision_maker_mobile: lead.contact_mobile2 || '',
           location: lead.location || '',
           city: lead.city || '',
@@ -257,12 +268,16 @@ export default function EditLeadPage() {
           state: lead.state || '',
           region: lead.region || '',
           area: lead.area || '',
+          mandal: lead.mandal || '',
+          cluster: lead.cluster || '',
+          latitude: lead.latitude != null ? String(lead.latitude) : '',
+          longitude: lead.longitude != null ? String(lead.longitude) : '',
           priority: lead.priority || 'Hot',
           zone: lead.zone || '',
-          branches: lead.branches?.toString() || '',
+          branches: (lead.no_of_branches ?? lead.branches)?.toString() || '',
           strength: lead.strength?.toString() || '',
           remarks: lead.remarks || '',
-          average_fee: lead.average_fee?.toString() || '',
+          average_fee: (lead.avg_fee ?? lead.average_fee)?.toString() || '',
           follow_up_date: (lead.follow_up_date || lead.estimated_delivery_date) 
             ? new Date(lead.follow_up_date || lead.estimated_delivery_date!).toISOString().split('T')[0] 
             : '',
@@ -476,6 +491,7 @@ export default function EditLeadPage() {
         contact_mobile: form.contact_mobile,
         contact_person2: form.decision_maker_name || undefined, // Mapped for backend compatibility
         contact_mobile2: form.decision_maker_mobile || undefined, // Mapped for backend compatibility
+        decision_maker: form.decision_maker_name || undefined,
         location: form.location, // Landmark
         address: form.address || undefined,
         pincode: form.pincode || undefined,
@@ -483,12 +499,18 @@ export default function EditLeadPage() {
         city: form.city || undefined,
         region: form.region || undefined,
         area: form.area || undefined,
+        mandal: form.mandal || undefined,
+        cluster: form.cluster || undefined,
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
         zone: form.zone,
         priority: form.priority || 'Hot',
         branches: form.branches ? Number(form.branches) : undefined,
+        no_of_branches: form.branches ? Number(form.branches) : undefined,
         strength: form.strength ? Number(form.strength) : undefined,
         remarks: form.remarks || undefined,
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
+        avg_fee: form.average_fee ? Number(form.average_fee) : undefined,
         email: form.email,
         products: productsPayload,
         follow_up_date: parseFollowUp(form.follow_up_date), // Save as follow_up_date, NOT estimated_delivery_date
@@ -808,6 +830,23 @@ export default function EditLeadPage() {
               onChange={onChange}
               required
             />
+          </div>
+
+          <div>
+            <Label>Mandal</Label>
+            <Input className="bg-white text-neutral-900" name="mandal" value={form.mandal} onChange={onChange} placeholder="Enter mandal" />
+          </div>
+          <div>
+            <Label>Cluster</Label>
+            <Input className="bg-white text-neutral-900" name="cluster" value={form.cluster} onChange={onChange} placeholder="Enter cluster" />
+          </div>
+          <div>
+            <Label>Latitude</Label>
+            <Input className="bg-white text-neutral-900" type="number" step="any" name="latitude" value={form.latitude} onChange={onChange} placeholder="e.g. 17.3850" />
+          </div>
+          <div>
+            <Label>Longitude</Label>
+            <Input className="bg-white text-neutral-900" type="number" step="any" name="longitude" value={form.longitude} onChange={onChange} placeholder="e.g. 78.4867" />
           </div>
 
           {/* School Strength */}

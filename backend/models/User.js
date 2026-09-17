@@ -72,6 +72,26 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date,
   },
+  // Mobile device lock — first successful login with deviceId binds the account
+  boundDeviceId: {
+    type: String,
+    default: null,
+  },
+  boundDeviceAt: {
+    type: Date,
+    default: null,
+  },
+  // Forgot-password OTP (hashed). Cleared after successful reset.
+  resetOtpHash: {
+    type: String,
+    default: null,
+    select: false,
+  },
+  resetOtpExpires: {
+    type: Date,
+    default: null,
+    select: false,
+  },
   // Executive Manager hierarchy fields
   executiveManagerId: {
     type: mongoose.Schema.Types.ObjectId,

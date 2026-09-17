@@ -30,6 +30,7 @@ import LeadAddRenewalScreen from './src/screens/Leads/LeadAddRenewalScreen';
 import LeadFollowupScreen from './src/screens/Leads/LeadFollowupScreen';
 import LeadEditScreen from './src/screens/Leads/LeadEditScreen';
 import LeadCloseScreen from './src/screens/Leads/LeadCloseScreen';
+import SchoolVisitScreen from './src/screens/Visits/SchoolVisitScreen';
 import DCCreateScreen from './src/screens/DC/DCCreateScreen';
 import DCSavedScreen from './src/screens/DC/DCSavedScreen';
 import DCPendingScreen from './src/screens/DC/DCPendingScreen';
@@ -143,6 +144,10 @@ import SettingsSMSScreen from './src/screens/Settings/SettingsSMSScreen';
 import SettingsBackupScreen from './src/screens/Settings/SettingsBackupScreen';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { useEffect, useCallback } from 'react';
+import {
+  startForegroundTracking,
+  stopForegroundTracking,
+} from './src/services/tracking';
 
 const Stack = createNativeStackNavigator();
 
@@ -173,13 +178,22 @@ function AppNavigator() {
   useEffect(() => {
     if (!loading && navigationRef.isReady()) {
       if (!user) {
+        stopForegroundTracking();
         navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
       } else {
+        try {
+          startForegroundTracking();
+        } catch (err) {
+          console.warn('[tracking] failed to start:', err);
+        }
         navigationRef.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
       }
     }
   }, [user, loading, navigationRef]);
 
+  useEffect(() => {
+    return () => stopForegroundTracking();
+  }, []);
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -243,6 +257,8 @@ function AppNavigator() {
         <Stack.Screen name="LeadEdit" component={LeadEditScreen} />
         <Stack.Screen name="LeadClose" component={LeadCloseScreen} />
         <Stack.Screen name="LeadsRenewalList" component={LeadsRenewalListScreen} />
+        <Stack.Screen name="SchoolVisits" component={SchoolVisitScreen} />
+        <Stack.Screen name="Visits" component={SchoolVisitScreen} />
 
         {/* DC Management */}
         <Stack.Screen name="DCHub" component={DCHubScreen} />

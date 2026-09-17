@@ -191,6 +191,10 @@ export default function LeadEditScreen({ navigation, route }: any) {
     state: '',
     region: '',
     area: '',
+    mandal: '',
+    cluster: '',
+    latitude: '',
+    longitude: '',
     priority: 'Hot',
     zone: '',
     branches: '',
@@ -364,7 +368,11 @@ export default function LeadEditScreen({ navigation, route }: any) {
         contact_mobile: lead.contact_mobile || school?.contact_mobile || '',
         email: lead.email || school?.email || '',
         decision_maker_name:
-          lead.decision_maker_name || lead.contact_person2 || school?.contact_person2 || '',
+          lead.decision_maker ||
+          lead.decision_maker_name ||
+          lead.contact_person2 ||
+          school?.contact_person2 ||
+          '',
         decision_maker_mobile:
           lead.decision_maker_mobile || lead.contact_mobile2 || school?.contact_mobile2 || '',
         location: lead.location || school?.location || '',
@@ -374,14 +382,37 @@ export default function LeadEditScreen({ navigation, route }: any) {
         state: lead.state || school?.state || '',
         region: lead.region || school?.region || '',
         area: lead.area || school?.area || '',
+        mandal: lead.mandal || school?.mandal || '',
+        cluster: lead.cluster || school?.cluster || '',
+        latitude:
+          lead.latitude != null
+            ? String(lead.latitude)
+            : school?.latitude != null
+              ? String(school.latitude)
+              : '',
+        longitude:
+          lead.longitude != null
+            ? String(lead.longitude)
+            : school?.longitude != null
+              ? String(school.longitude)
+              : '',
         priority: lead.priority || lead.lead_status || 'Hot',
         zone: lead.zone || school?.zone || '',
-        branches: pickNum(fromOrder?.branches, fromLead?.branches, lead.branches, school?.branches),
+        branches: pickNum(
+          fromOrder?.branches,
+          fromLead?.no_of_branches,
+          fromLead?.branches,
+          lead.no_of_branches,
+          lead.branches,
+          school?.branches,
+        ),
         strength: pickNum(fromOrder?.strength, fromLead?.strength, lead.strength, school?.strength),
         remarks: lead.remarks || school?.remarks || '',
         average_fee: pickNum(
           fromOrder?.average_fee,
+          fromLead?.avg_fee,
           fromLead?.average_fee,
+          lead.avg_fee,
           lead.average_fee,
           school?.average_fee,
         ),
@@ -487,6 +518,7 @@ export default function LeadEditScreen({ navigation, route }: any) {
         contact_mobile: form.contact_mobile,
         contact_person2: form.decision_maker_name,
         contact_mobile2: form.decision_maker_mobile,
+        decision_maker: form.decision_maker_name,
         email: form.email,
         location: form.location,
         address: form.address,
@@ -495,12 +527,18 @@ export default function LeadEditScreen({ navigation, route }: any) {
         city: form.city,
         region: form.region,
         area: form.area,
+        mandal: form.mandal || undefined,
+        cluster: form.cluster || undefined,
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
         zone: form.zone,
         priority: form.priority,
         branches: form.branches ? Number(form.branches) : undefined,
+        no_of_branches: form.branches ? Number(form.branches) : undefined,
         strength: form.strength ? Number(form.strength) : undefined,
         remarks: form.remarks,
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
+        avg_fee: form.average_fee ? Number(form.average_fee) : undefined,
         products: productsPayload,
         follow_up_date: parseFollowUpDate(form.follow_up_date),
       };
@@ -712,6 +750,32 @@ export default function LeadEditScreen({ navigation, route }: any) {
           onChangeText={(text) => setForm((f) => ({ ...f, branches: text }))}
           placeholder="Enter number of branches"
           keyboardType="number-pad"
+        />
+        <FormField
+          label="Mandal"
+          value={form.mandal}
+          onChangeText={(text) => setForm((f) => ({ ...f, mandal: text }))}
+          placeholder="Enter mandal"
+        />
+        <FormField
+          label="Cluster"
+          value={form.cluster}
+          onChangeText={(text) => setForm((f) => ({ ...f, cluster: text }))}
+          placeholder="Enter cluster"
+        />
+        <FormField
+          label="Latitude"
+          value={form.latitude}
+          onChangeText={(text) => setForm((f) => ({ ...f, latitude: text }))}
+          placeholder="e.g. 17.3850"
+          keyboardType="decimal-pad"
+        />
+        <FormField
+          label="Longitude"
+          value={form.longitude}
+          onChangeText={(text) => setForm((f) => ({ ...f, longitude: text }))}
+          placeholder="e.g. 78.4867"
+          keyboardType="decimal-pad"
         />
         <FormField
           label="School Strength *"

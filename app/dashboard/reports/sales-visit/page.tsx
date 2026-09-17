@@ -25,33 +25,21 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-type DC = {
+type Visit = {
   _id: string
-  dcDate?: string
-  dcCategory?: string
-  dcRemarks?: string
-  dcNotes?: string
-  customerName?: string
-  customerAddress?: string
-  customerPhone?: string
+  schoolName?: string
+  schoolCode?: string
+  zone?: string
+  town?: string
+  category?: string
+  remarks?: string
+  visitDate?: string
+  contactMobile?: string
   createdAt?: string
-  employeeId?: { _id: string; name?: string }
-  createdBy?: { _id: string; name?: string }
-  dcOrderId?: {
-    _id: string
-    school_name?: string
-    school_type?: string
-    dc_code?: string
-    zone?: string
-    location?: string
-    contact_mobile?: string
-    address?: string
-  }
-  saleId?: {
-    _id: string
-    customerName?: string
-    zone?: string
-  }
+  outcome?: string
+  leadId?: string | { _id: string }
+  dcOrderId?: string | { _id: string }
+  executiveId?: { _id: string; name?: string }
 }
 
 type Employee = {
@@ -76,20 +64,19 @@ function looksLikeSchoolCode(value: string) {
 
 function categoryBadgeClass(category?: string) {
   const value = (category || '').trim()
-  if (value === 'New School') return 'bg-indigo-50 text-indigo-700 border-indigo-200'
-  if (value === 'Term 1') return 'bg-purple-50 text-purple-700 border-purple-200'
+  if (value === 'New Business' || value === 'New School') return 'bg-indigo-50 text-indigo-700 border-indigo-200'
+  if (value === 'Follow-up' || value === 'Term 1') return 'bg-purple-50 text-purple-700 border-purple-200'
   if (value === 'Term 2') return 'bg-cyan-50 text-cyan-700 border-cyan-200'
   return 'bg-slate-50 text-slate-700 border-slate-200'
 }
 
 export default function SalesVisitReportPage() {
-  const [visits, setVisits] = useState<DC[]>([])
+  const [visits, setVisits] = useState<Visit[]>([])
   const [loading, setLoading] = useState(true)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [zones, setZones] = useState<string[]>([])
-  const [selectedVisit, setSelectedVisit] = useState<DC | null>(null)
+  const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null)
 
-  // Filters — same state names and API params as before
   const [zone, setZone] = useState('')
   const [employee, setEmployee] = useState('')
   const [visitDate, setVisitDate] = useState('')
@@ -113,28 +100,21 @@ export default function SalesVisitReportPage() {
     try {
       const qs = new URLSearchParams()
       if (zone) qs.set('zone', zone)
-      if (employee) qs.set('employeeId', employee)
+      if (employee) qs.set('executiveId', employee)
       if (visitDate) {
         qs.set('fromDate', visitDate)
         qs.set('toDate', visitDate)
       }
       if (schoolName) qs.set('schoolName', schoolName)
       if (schoolCode) qs.set('schoolCode', schoolCode)
-      const data = await apiRequest<DC[]>(`/dc${qs.toString() ? `?${qs.toString()}` : ''}`)
-      const rows = (Array.isArray(data) ? data : []).filter((dc) => {
-        const name = (dc.dcOrderId?.school_name || dc.customerName || '').trim()
-        if (!name) return true
-        if (/ABCDEFGHIJKLMNOPQRSTUVWXYZ/i.test(name)) return false
-        if (/@{3,}|#{2,}|\$\$/.test(name)) return false
-        return true
-      })
+      const data = await apiRequest<Visit[]>(`/visits${qs.toString() ? `?${qs.toString()}` : ''}`)
+      const rows = Array.isArray(data) ? data : []
       setVisits(rows)
-      const uniqueZones = Array.from(new Set(
-        rows.map(dc => dc.dcOrderId?.zone || dc.saleId?.zone).filter(Boolean)
-      )) as string[]
+      const uniqueZones = Array.from(new Set(rows.map((v) => v.zone).filter(Boolean))) as string[]
       if (!zone) setZones(uniqueZones.sort())
     } catch (_) {
       toast.error('Failed to load sales visits')
+      setVisits([])
     }
     setLoading(false)
   }
@@ -147,14 +127,14 @@ export default function SalesVisitReportPage() {
     try {
       const qs = new URLSearchParams()
       if (zone) qs.append('zone', zone)
-      if (employee) qs.append('employeeId', employee)
+      if (employee) qs.append('executiveId', employee)
       if (visitDate) {
         qs.append('fromDate', visitDate)
         qs.append('toDate', visitDate)
       }
       if (schoolName) qs.append('schoolName', schoolName)
       if (schoolCode) qs.append('schoolCode', schoolCode)
-      await downloadReportFile(`/dc/export-sales-visit?${qs.toString()}`, 'Sales_Visit_Report.xlsx')
+      await downloadReportFile(`/visits/export?${qs.toString()}`, 'Sales_Visit_Report.xlsx')
       toast.success('Excel file downloaded')
     } catch (err: any) {
       toast.error(err?.message || 'Failed to export to Excel')
@@ -183,35 +163,19 @@ export default function SalesVisitReportPage() {
     })
   }
 
-  const getSchoolName = (dc: DC) => {
-    return dc.dcOrderId?.school_name || dc.customerName || '-'
+  const getSchoolName = (v: Visit) => v.schoolName || '-'
+  const getSchoolCode = (v: Visit) => v.schoolCode || '-'
+  const getSchoolType = (v: Visit) => {
+    if (v.category === 'New Business' || v.category === 'New School') return 'New'
+    if (v.dcOrderId) return 'Existing'
+    if (v.leadId) return 'New'
+    return 'Existing'
   }
-
-  const getSchoolCode = (dc: DC) => {
-    return dc.dcOrderId?.dc_code || '-'
-  }
-
-  const getSchoolType = (dc: DC) => {
-    return dc.dcOrderId?.school_type || (dc.dcOrderId ? 'Existing' : 'New')
-  }
-
-  const getZone = (dc: DC) => {
-    return dc.dcOrderId?.zone || dc.saleId?.zone || '-'
-  }
-
-  const getExecutive = (dc: DC) => {
-    return dc.employeeId?.name || dc.createdBy?.name || 'Not Assigned'
-  }
-
-  const getTown = (dc: DC) => {
-    return dc.dcOrderId?.location || dc.customerAddress || '-'
-  }
-
-  const getVisitRemarks = (dc: DC) => dc.dcRemarks || dc.dcNotes || ''
-
-  const getContactMobile = (dc: DC) => dc.dcOrderId?.contact_mobile || dc.customerPhone || '-'
-
-  const getAddress = (dc: DC) => dc.dcOrderId?.address || dc.customerAddress || '-'
+  const getZone = (v: Visit) => v.zone || '-'
+  const getExecutive = (v: Visit) => v.executiveId?.name || 'Not Assigned'
+  const getTown = (v: Visit) => v.town || '-'
+  const getVisitRemarks = (v: Visit) => v.remarks || ''
+  const getContactMobile = (v: Visit) => v.contactMobile || '-'
 
   const handleSchoolSearchChange = (value: string) => {
     if (!value) {
@@ -241,17 +205,14 @@ export default function SalesVisitReportPage() {
         .filter(Boolean)
     ).size
 
-    const newCount = visits.filter((v) => {
-      const category = v.dcCategory || ''
-      return category === 'New School' || getSchoolType(v) === 'New'
-    }).length
+    const newCount = visits.filter((v) => getSchoolType(v) === 'New').length
     const followUpCount = totalVisits - newCount
     const newPercent = totalVisits ? Math.round((newCount / totalVisits) * 100) : 0
     const followUpPercent = totalVisits ? Math.round((followUpCount / totalVisits) * 100) : 0
 
     const leadsConverted = visits.filter((v) => {
       const remarks = getVisitRemarks(v).toLowerCase()
-      return remarks.includes('converted') || remarks.includes('lead')
+      return remarks.includes('converted') || remarks.includes('lead') || v.outcome === 'Hot'
     }).length
 
     const activeZones = new Set(
@@ -276,7 +237,7 @@ export default function SalesVisitReportPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold text-neutral-900">Sales Visit Report</h1>
-          <p className="text-sm text-neutral-500 mt-1">School visits from DC records</p>
+          <p className="text-sm text-neutral-500 mt-1">School visits</p>
         </div>
         <Button onClick={handleExport} className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0">
           <Download className="mr-2 h-4 w-4" />
@@ -444,7 +405,7 @@ export default function SalesVisitReportPage() {
                     <tr key={visit._id} className="border-t border-slate-100 hover:bg-slate-50/80 transition-colors">
                       <td className="px-4 py-3 text-slate-500">{index + 1}</td>
                       <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
-                        {formatVisitDate(visit.dcDate || visit.createdAt)}
+                        {formatVisitDate(visit.visitDate || visit.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -480,8 +441,8 @@ export default function SalesVisitReportPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-700 truncate" title={townLabel}>{townLabel}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border ${categoryBadgeClass(visit.dcCategory)}`}>
-                          {visit.dcCategory || '-'}
+                        <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border ${categoryBadgeClass(visit.category)}`}>
+                          {visit.category || '-'}
                         </span>
                       </td>
                       <td className="px-4 py-3 max-w-[280px]">
@@ -534,7 +495,7 @@ export default function SalesVisitReportPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-slate-500">Date / Time</p>
-                  <p className="text-slate-800">{formatDateTime(selectedVisit.dcDate || selectedVisit.createdAt)}</p>
+                  <p className="text-slate-800">{formatDateTime(selectedVisit.visitDate || selectedVisit.createdAt)}</p>
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-slate-500">Contact Mobile</p>
@@ -542,8 +503,8 @@ export default function SalesVisitReportPage() {
                 </div>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">School Address</p>
-                <p className="text-slate-800">{getAddress(selectedVisit)}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Town</p>
+                <p className="text-slate-800">{getTown(selectedVisit)}</p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-500">Full Remarks</p>

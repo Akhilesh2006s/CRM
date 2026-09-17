@@ -56,6 +56,10 @@ export default function NewSchoolPage() {
     state: '',
     region: '',
     area: '',
+    mandal: '',
+    cluster: '',
+    latitude: '',
+    longitude: '',
     lead_status: 'Warm',
     zone: '',
     branches: '',
@@ -395,6 +399,7 @@ export default function NewSchoolPage() {
         contact_mobile: contactMobileCheck.digits,
         contact_person2: form.decision_maker_name || undefined,
         contact_mobile2: decisionMobileCheck.digits,
+        decision_maker: form.decision_maker_name || undefined,
         location: form.location || undefined,
         address: form.address || undefined,
         pincode: form.pincode || undefined,
@@ -402,12 +407,18 @@ export default function NewSchoolPage() {
         city: form.city || undefined,
         region: form.region || undefined,
         area: form.area || undefined,
+        mandal: form.mandal || undefined,
+        cluster: form.cluster || undefined,
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
         zone: form.zone || undefined,
         lead_status: form.lead_status || 'Warm',
         branches: form.branches ? Number(form.branches) : undefined,
+        no_of_branches: form.branches ? Number(form.branches) : undefined,
         strength: form.strength && form.strength.trim() ? Number(form.strength) : undefined,
         remarks: form.remarks || undefined,
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
+        avg_fee: form.average_fee ? Number(form.average_fee) : undefined,
         email: form.email,
         products: productsPayload,
         follow_up_date: toFollowUpDatePayload(form.follow_up_date), // Date only — no default time
@@ -611,6 +622,51 @@ export default function NewSchoolPage() {
               value={form.branches} 
               onChange={onChange} 
               required
+            />
+          </div>
+
+          <div>
+            <Label>Mandal</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="mandal"
+              value={form.mandal}
+              onChange={onChange}
+              placeholder="Enter mandal"
+            />
+          </div>
+          <div>
+            <Label>Cluster</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              name="cluster"
+              value={form.cluster}
+              onChange={onChange}
+              placeholder="Enter cluster"
+            />
+          </div>
+          <div>
+            <Label>Latitude</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              type="number"
+              step="any"
+              name="latitude"
+              value={form.latitude}
+              onChange={onChange}
+              placeholder="e.g. 17.3850"
+            />
+          </div>
+          <div>
+            <Label>Longitude</Label>
+            <Input
+              className="bg-white text-neutral-900"
+              type="number"
+              step="any"
+              name="longitude"
+              value={form.longitude}
+              onChange={onChange}
+              placeholder="e.g. 78.4867"
             />
           </div>
           

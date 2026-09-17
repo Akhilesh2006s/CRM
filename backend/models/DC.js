@@ -355,6 +355,12 @@ const dcSchema = new mongoose.Schema({
     default: 'normal',
     index: true,
   },
+  /** Follow-up student taxonomy (New/Old/Excess/Exchange/Shortage/…) */
+  studentType: {
+    type: String,
+    trim: true,
+    index: true,
+  },
   // Tracks whether fulfillment needed/used shortage follow-up DCs
   fulfillmentStatus: {
     type: String,

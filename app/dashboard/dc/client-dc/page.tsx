@@ -1286,7 +1286,7 @@ export default function ClientDCPage() {
     })
   }
 
-  const handleFollowUpStudentTypeContinue = (dc: DC) => {
+  const handleFollowUpStudentTypeContinue = async (dc: DC) => {
     const id = dc._id
     const sel = followUpStudentTypeByDcId[id]
     if (!sel) {
@@ -1297,7 +1297,16 @@ export default function ClientDCPage() {
       openRecordShortageDialog(dc)
       return
     }
-    toast.info('This student type is not available yet. Only Shortage is supported today.')
+    try {
+      await apiRequest(`/dc/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ studentType: sel }),
+      })
+      toast.success(`Student type saved: ${sel}`)
+      await loadDCs()
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save student type')
+    }
   }
 
   const handleCreateShortageDC = async () => {

@@ -9,10 +9,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Modal,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { apiService } from '../../services/api';
 import { colors, gradients } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 
@@ -22,6 +25,13 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
+
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'request' | 'reset'>('request');
+  const [forgotId, setForgotId] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleLogin = async () => {
     setError(null);
@@ -37,6 +47,56 @@ export default function LoginScreen() {
       setError(err.message || 'Invalid credentials');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestOtp = async () => {
+    if (!forgotId.trim()) {
+      Alert.alert('Required', 'Enter mobile or email');
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      const data = await apiService.post('/auth/forgot-password', {
+        mobile: forgotId.trim(),
+        email: forgotId.trim(),
+      });
+      if (data?.otp) {
+        Alert.alert('OTP sent', `Dev OTP: ${data.otp}`);
+        setForgotOtp(String(data.otp));
+      } else {
+        Alert.alert('OTP sent', data?.message || 'If account exists, OTP sent');
+      }
+      setForgotStep('reset');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to send OTP');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const submitReset = async () => {
+    if (!forgotOtp.trim() || !forgotNewPassword.trim()) {
+      Alert.alert('Required', 'OTP and new password are required');
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      await apiService.post('/auth/reset-password', {
+        mobile: forgotId.trim(),
+        email: forgotId.trim(),
+        otp: forgotOtp.trim(),
+        newPassword: forgotNewPassword,
+      });
+      Alert.alert('Success', 'Password reset. You can sign in now.');
+      setForgotOpen(false);
+      setForgotStep('request');
+      setForgotOtp('');
+      setForgotNewPassword('');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Reset failed');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -105,6 +165,17 @@ export default function LoginScreen() {
                 </View>
 
                 <Pressable
+                  onPress={() => {
+                    setForgotId(mobile);
+                    setForgotStep('request');
+                    setForgotOpen(true);
+                  }}
+                  style={styles.forgotLink}
+                >
+                  <Text style={styles.forgotText}>Forgot password?</Text>
+                </Pressable>
+
+                <Pressable
                   style={({ pressed }) => [styles.button, loading && styles.buttonDisabled, pressed && { opacity: 0.85 }]}
                   onPress={handleLogin}
                   disabled={loading}
@@ -131,6 +202,69 @@ export default function LoginScreen() {
           </View>
         </KeyboardAvoidingView>
       </View>
+
+      <Modal visible={forgotOpen} transparent animationType="fade" onRequestClose={() => setForgotOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Reset password</Text>
+            {forgotStep === 'request' ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mobile or email"
+                  placeholderTextColor={colors.textMuted}
+                  value={forgotId}
+                  onChangeText={setForgotId}
+                  autoCapitalize="none"
+                />
+                <Pressable style={styles.button} onPress={requestOtp} disabled={forgotLoading}>
+                  <LinearGradient colors={gradients.primary} style={styles.buttonGradient}>
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.buttonText}>Send OTP</Text>
+                    )}
+                  </LinearGradient>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="OTP"
+                  placeholderTextColor={colors.textMuted}
+                  value={forgotOtp}
+                  onChangeText={setForgotOtp}
+                  keyboardType="number-pad"
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 12 }]}
+                  placeholder="New password"
+                  placeholderTextColor={colors.textMuted}
+                  value={forgotNewPassword}
+                  onChangeText={setForgotNewPassword}
+                  secureTextEntry
+                />
+                <Pressable style={[styles.button, { marginTop: 12 }]} onPress={submitReset} disabled={forgotLoading}>
+                  <LinearGradient colors={gradients.primary} style={styles.buttonGradient}>
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.buttonText}>Reset password</Text>
+                    )}
+                  </LinearGradient>
+                </Pressable>
+                <Pressable onPress={() => setForgotStep('request')} style={{ marginTop: 12 }}>
+                  <Text style={styles.forgotText}>Back</Text>
+                </Pressable>
+              </>
+            )}
+            <Pressable onPress={() => setForgotOpen(false)} style={{ marginTop: 16 }}>
+              <Text style={[styles.forgotText, { textAlign: 'center' }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -233,6 +367,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+  },
+  forgotText: {
+    ...typography.body.medium,
+    color: colors.primary,
+  },
   button: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -271,5 +413,21 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     marginBottom: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: colors.backgroundLight,
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: {
+    ...typography.heading.h2,
+    color: colors.textPrimary,
+    marginBottom: 16,
   },
 });

@@ -15,6 +15,10 @@ const changeLogSchema = new mongoose.Schema(
     actorName: { type: String, trim: true, default: '' },
     actorEmail: { type: String, trim: true, default: '' },
     actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    ipAddress: { type: String, trim: true, default: '' },
+    userAgent: { type: String, trim: true, default: '' },
+    previousValues: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    newValues: { type: mongoose.Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 );

@@ -26,6 +26,7 @@ export const ROUTE_REGISTRY: RouteEntry[] = [
   { webPath: '/dashboard/leads/followup', mobileScreen: 'LeadFollowup', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/edit/[id]', mobileScreen: 'LeadEdit', module: 'Leads', status: 'done' },
   { webPath: '/dashboard/leads/close/[id]', mobileScreen: 'LeadClose', module: 'Leads', status: 'done' },
+  { webPath: '/dashboard/visits', mobileScreen: 'SchoolVisits', module: 'Leads', status: 'done' },
 
   { webPath: '/dashboard/dc/create', mobileScreen: 'DCCreateSale', module: 'Clients', status: 'done' },
   { webPath: '/dashboard/dc/closed', mobileScreen: 'DCClosed', module: 'Clients', status: 'done' },

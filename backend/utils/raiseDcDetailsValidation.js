@@ -34,6 +34,7 @@ function validatePendingDcDetails(body = {}) {
   const dcDateRaw = body.dcDate != null ? String(body.dcDate).trim() : '';
   const dcCategory = body.dcCategory != null ? String(body.dcCategory).trim() : '';
   const financeRemarks = body.financeRemarks != null ? String(body.financeRemarks).trim() : '';
+  const smeRemarks = body.smeRemarks != null ? String(body.smeRemarks).trim() : '';
   const splApproval = body.splApproval != null ? String(body.splApproval).trim() : '';
   const dcRemarks = body.dcRemarks != null ? String(body.dcRemarks).trim() : '';
   const dcNotes = body.dcNotes != null ? String(body.dcNotes).trim() : '';
@@ -51,6 +52,9 @@ function validatePendingDcDetails(body = {}) {
   if (!financeRemarks) {
     return { ok: false, message: 'Finance Remarks is required.' };
   }
+  if (!smeRemarks) {
+    return { ok: false, message: 'SME Remarks is required.' };
+  }
   if (!splApproval) {
     return { ok: false, message: 'SPL Approval is required.' };
   }
@@ -67,6 +71,7 @@ function validatePendingDcDetails(body = {}) {
       dcDate: dcDateRaw,
       dcCategory,
       financeRemarks,
+      smeRemarks,
       splApproval,
       dcRemarks,
       dcNotes,

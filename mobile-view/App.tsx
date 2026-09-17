@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { rootNavigationRef } from './src/navigation/navigationRef';
@@ -7,6 +7,10 @@ import MainTabs from './src/navigation/MainTabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import {
+  startForegroundTracking,
+  stopForegroundTracking,
+} from './src/services/tracking';
 import LoginScreen from './src/screens/Auth/LoginScreen';
 import FirstTimeAttendanceScreen from './src/screens/Attendance/FirstTimeAttendanceScreen';
 import DashboardScreen from './src/screens/Dashboard/DashboardScreen';
@@ -31,6 +35,7 @@ import LeadAddRenewalScreen from './src/screens/Leads/LeadAddRenewalScreen';
 import LeadFollowupScreen from './src/screens/Leads/LeadFollowupScreen';
 import LeadEditScreen from './src/screens/Leads/LeadEditScreen';
 import LeadCloseScreen from './src/screens/Leads/LeadCloseScreen';
+import SchoolVisitScreen from './src/screens/Visits/SchoolVisitScreen';
 import DCCreateScreen from './src/screens/DC/DCCreateScreen';
 import DCCreateSaleScreen from './src/screens/DC/DCCreateSaleScreen';
 import DCSavedScreen from './src/screens/DC/DCSavedScreen';
@@ -240,6 +245,8 @@ function AuthenticatedStack() {
         <Stack.Screen name="LeadEdit" component={LeadEditScreen} />
         <Stack.Screen name="LeadClose" component={LeadCloseScreen} />
         <Stack.Screen name="LeadsRenewalList" component={LeadsRenewalListScreen} />
+        <Stack.Screen name="SchoolVisits" component={SchoolVisitScreen} />
+        <Stack.Screen name="Visits" component={SchoolVisitScreen} />
 
         {/* DC Management */}
         <Stack.Screen name="DCHub" component={DCHubScreen} />
@@ -414,6 +421,19 @@ function AuthenticatedStack() {
 
 function AppNavigator() {
   const { user, loading } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      try {
+        startForegroundTracking();
+      } catch (err) {
+        console.warn('[tracking] failed to start:', err);
+      }
+      return () => stopForegroundTracking();
+    }
+    stopForegroundTracking();
+    return undefined;
+  }, [user]);
 
   return (
     <View style={{ flex: 1 }}>

@@ -108,6 +108,7 @@ export function getNavSections(user: CrmUser | null | undefined): NavSection[] {
           { label: 'Renewal Leads', screen: 'LeadsRenewalList' },
           { label: 'Followup Leads', screen: 'LeadFollowup' },
           { label: 'My Leads', screen: 'LeadsList' },
+          { label: 'School Visits', screen: 'SchoolVisits' },
         ],
       },
       {
@@ -257,6 +258,7 @@ export function getNavSections(user: CrmUser | null | undefined): NavSection[] {
         { label: 'Add Lead', screen: 'LeadAdd', icon: '➕' },
         { label: 'Renewal Leads', screen: 'LeadsRenewalList', icon: '🔄' },
         { label: 'Followup Leads', screen: 'LeadFollowup', icon: '📞' },
+        { label: 'School Visits', screen: 'SchoolVisits', icon: '📍' },
       ],
     },
     {

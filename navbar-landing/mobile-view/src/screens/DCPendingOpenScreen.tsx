@@ -249,6 +249,16 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
     if (!dc) return;
     setErrorMessage(null);
     setSuccessMessage(null);
+    if (!smeRemarks.trim()) {
+      setErrorMessage('SME Remarks * is required');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    if (!financeRemarks.trim()) {
+      setErrorMessage('Finance Remarks * is required');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -290,6 +300,16 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
 
   const handleSubmitToWarehouse = async () => {
     if (!dc) return;
+    if (!smeRemarks.trim()) {
+      setErrorMessage('SME Remarks * is required');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
+    if (!financeRemarks.trim()) {
+      setErrorMessage('Finance Remarks * is required');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
     const totalQuantity = productRows.reduce((sum, row) => sum + (Number(row.strength) || 0), 0);
     if (totalQuantity <= 0) {
       setErrorMessage('Please add at least one product with quantity (Strength) > 0');
@@ -621,7 +641,7 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
         {(isSeniorCoordinator || isAdmin) && !isTermWiseDc && (
           <View style={styles.section}>
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>SME Remarks</Text>
+              <Text style={styles.label}>SME Remarks *</Text>
               <WebInput
                 style={styles.input}
                 value={smeRemarks}

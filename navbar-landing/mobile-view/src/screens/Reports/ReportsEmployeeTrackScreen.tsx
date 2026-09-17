@@ -30,8 +30,32 @@ export default function ReportsEmployeeTrackScreen({ navigation }: any) {
   const loadTracking = async () => {
     try {
       setLoading(true);
-      const data = await apiService.get<TrackingData[]>('/employees/tracking');
-      setRecords(data || []);
+      try {
+        const latest = await apiService.get<any[]>('/tracking/latest');
+        const mapped = (Array.isArray(latest) ? latest : []).map((row) => {
+          const loc = row.lastLocation;
+          const lastLocation =
+            typeof loc === 'string'
+              ? loc
+              : loc?.latitude != null && loc?.longitude != null
+                ? `${Number(loc.latitude).toFixed(5)}, ${Number(loc.longitude).toFixed(5)}`
+                : '-';
+          return {
+            _id: String(row.employeeId),
+            employeeName: row.name || 'Unknown',
+            mobileNo: row.mobile || '',
+            zone: row.zone || '',
+            started: row.started || '',
+            lastUsed: row.lastUsed || '',
+            lastLocation,
+            logCount: Number(row.pings) || 0,
+          } as TrackingData;
+        });
+        setRecords(mapped);
+      } catch (_) {
+        const data = await apiService.get<TrackingData[]>('/employees/tracking');
+        setRecords(data || []);
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load tracking data');
       setRecords([]);

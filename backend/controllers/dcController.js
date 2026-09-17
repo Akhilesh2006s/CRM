@@ -2135,6 +2135,7 @@ const managerRequestWarehouse = async (req, res) => {
       dcDate: dc.dcDate ? new Date(dc.dcDate).toISOString().slice(0, 10) : '',
       dcCategory: dc.dcCategory || '',
       financeRemarks: dc.financeRemarks || '',
+      smeRemarks: dc.smeRemarks || '',
       splApproval: dc.splApproval || '',
       dcRemarks: dc.dcRemarks || '',
       dcNotes: dc.dcNotes || '',
@@ -2859,6 +2860,8 @@ const updateDC = async (req, res) => {
           req.body.financeRemarks !== undefined
             ? req.body.financeRemarks
             : dc.financeRemarks || '',
+        smeRemarks:
+          req.body.smeRemarks !== undefined ? req.body.smeRemarks : dc.smeRemarks || '',
         splApproval:
           req.body.splApproval !== undefined ? req.body.splApproval : dc.splApproval || '',
         dcRemarks:
@@ -2975,6 +2978,11 @@ const updateDC = async (req, res) => {
     if (req.body.boxes !== undefined) dc.boxes = req.body.boxes;
     if (req.body.transportArea !== undefined) dc.transportArea = req.body.transportArea;
     if (req.body.deliveryStatus !== undefined) dc.deliveryStatus = req.body.deliveryStatus;
+    if (req.body.studentType !== undefined) {
+      dc.studentType = req.body.studentType === null || req.body.studentType === ''
+        ? undefined
+        : String(req.body.studentType).trim();
+    }
     
     // Save without validating required fields that might not be present during update
     await dc.save({ validateBeforeSave: false });

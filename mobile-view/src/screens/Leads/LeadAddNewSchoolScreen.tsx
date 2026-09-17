@@ -73,6 +73,10 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
     state: '',
     region: '',
     area: '',
+    mandal: '',
+    cluster: '',
+    latitude: '',
+    longitude: '',
     lead_status: 'Warm',
     zone: '',
     branches: '',
@@ -348,6 +352,7 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
         contact_mobile: form.contact_mobile.trim(),
         contact_person2: form.decision_maker_name.trim(),
         contact_mobile2: form.decision_maker_mobile.trim(),
+        decision_maker: form.decision_maker_name.trim(),
         email: form.email?.trim() || undefined,
         location: form.location?.trim() || undefined,
         address: form.address.trim(),
@@ -356,12 +361,18 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
         city: form.city || undefined,
         region: form.region || undefined,
         area: form.area.trim(),
+        mandal: form.mandal?.trim() || undefined,
+        cluster: form.cluster?.trim() || undefined,
+        latitude: form.latitude ? Number(form.latitude) : undefined,
+        longitude: form.longitude ? Number(form.longitude) : undefined,
         zone: form.zone || undefined,
         lead_status: form.lead_status || 'Warm',
         branches: form.branches ? Number(form.branches) : undefined,
+        no_of_branches: form.branches ? Number(form.branches) : undefined,
         strength: form.strength ? Number(form.strength) : undefined,
         remarks: form.remarks.trim(),
         average_fee: form.average_fee ? Number(form.average_fee) : undefined,
+        avg_fee: form.average_fee ? Number(form.average_fee) : undefined,
         products: productsPayload,
         follow_up_date: parseFollowUpDate(form.follow_up_date),
         assigned_to: user?._id,
@@ -549,6 +560,32 @@ export default function LeadAddNewSchoolScreen({ navigation }: any) {
           onChangeText={(text) => setForm((f) => ({ ...f, branches: text }))}
           placeholder="Enter number of branches"
           keyboardType="number-pad"
+        />
+        <FormField
+          label="Mandal"
+          value={form.mandal}
+          onChangeText={(text) => setForm((f) => ({ ...f, mandal: text }))}
+          placeholder="Enter mandal"
+        />
+        <FormField
+          label="Cluster"
+          value={form.cluster}
+          onChangeText={(text) => setForm((f) => ({ ...f, cluster: text }))}
+          placeholder="Enter cluster"
+        />
+        <FormField
+          label="Latitude"
+          value={form.latitude}
+          onChangeText={(text) => setForm((f) => ({ ...f, latitude: text }))}
+          placeholder="e.g. 17.3850"
+          keyboardType="decimal-pad"
+        />
+        <FormField
+          label="Longitude"
+          value={form.longitude}
+          onChangeText={(text) => setForm((f) => ({ ...f, longitude: text }))}
+          placeholder="e.g. 78.4867"
+          keyboardType="decimal-pad"
         />
 
         <FormField

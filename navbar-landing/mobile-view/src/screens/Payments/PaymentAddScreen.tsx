@@ -63,7 +63,7 @@ export default function PaymentAddScreen({ navigation }: any) {
         status: 'Pending',
         createdBy: user?._id,
       };
-      await apiService.post('/payments', payload);
+      await apiService.post('/payments/create', payload);
       setSuccessMessage('Payment added successfully.');
       setErrorMessage(null);
       scrollRef.current?.scrollTo({ y: 0, animated: true });

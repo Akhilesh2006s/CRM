@@ -163,6 +163,7 @@ export default function PendingDCPage() {
     dcDate?: string
     dcCategory?: string
     financeRemarks?: string
+    smeRemarks?: string
     splApproval?: string
     dcRemarks?: string
     dcNotes?: string
@@ -533,6 +534,9 @@ export default function PendingDCPage() {
     }
     if (!String(financeRemarks || '').trim()) {
       next.financeRemarks = 'Finance Remarks is required.'
+    }
+    if (!String(smeRemarks || '').trim()) {
+      next.smeRemarks = 'SME Remarks is required.'
     }
     if (!String(splApproval || '').trim()) {
       next.splApproval = 'SPL Approval is required.'
@@ -1277,13 +1281,19 @@ export default function PendingDCPage() {
             </div>
             <div className="flex gap-2">
               <div className="flex items-center gap-2">
-                <Label className="text-sm">SME Remarks:</Label>
+                <Label className="text-sm">SME Remarks *:</Label>
                 <Input
                   value={smeRemarks}
-                  onChange={(e) => setSmeRemarks(e.target.value)}
+                  onChange={(e) => {
+                    setSmeRemarks(e.target.value)
+                    clearDcDetailsError('smeRemarks')
+                  }}
                   placeholder="SME Remarks"
-                  className="bg-white text-gray-900 w-48"
+                  className={`bg-white text-gray-900 w-48 ${dcDetailsErrors.smeRemarks ? 'border-red-500' : ''}`}
                 />
+                {dcDetailsErrors.smeRemarks && (
+                  <p className="text-xs text-red-600">{dcDetailsErrors.smeRemarks}</p>
+                )}
               </div>
               <Button
                 type="button"

@@ -824,6 +824,19 @@ const convertToClient = async (req, res) => {
       return res.status(200).json(populated);
     }
 
+    const latitude =
+      body.latitude != null && body.latitude !== ''
+        ? Number(body.latitude)
+        : lead.latitude != null
+          ? Number(lead.latitude)
+          : undefined;
+    const longitude =
+      body.longitude != null && body.longitude !== ''
+        ? Number(body.longitude)
+        : lead.longitude != null
+          ? Number(lead.longitude)
+          : undefined;
+
     const dcOrderPayload = {
       school_name: body.school_name || lead.school_name,
       contact_person: body.contact_person || lead.contact_person,
@@ -841,6 +854,8 @@ const convertToClient = async (req, res) => {
       created_by: userIdObj,
       estimated_delivery_date: body.estimated_delivery_date ? new Date(body.estimated_delivery_date) : undefined,
       pod_proof_url: body.pod_proof_url || lead.pod_proof_url,
+      ...(Number.isFinite(latitude) ? { latitude } : {}),
+      ...(Number.isFinite(longitude) ? { longitude } : {}),
     };
 
     const dcOrder = await DcOrder.create(dcOrderPayload);

@@ -9,9 +9,17 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { login } from '@/lib/auth'
+import { apiRequest } from '@/lib/api'
 import Link from 'next/link'
 
 export default function LoginPage() {
@@ -20,6 +28,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotStep, setForgotStep] = useState<'request' | 'reset'>('request')
+  const [forgotId, setForgotId] = useState('')
+  const [forgotOtp, setForgotOtp] = useState('')
+  const [forgotNewPassword, setForgotNewPassword] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,6 +53,60 @@ export default function LoginPage() {
       toast.error(err?.message || 'Login failed')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function requestOtp(e: React.FormEvent) {
+    e.preventDefault()
+    if (!forgotId.trim()) {
+      toast.error('Enter mobile or email')
+      return
+    }
+    setForgotLoading(true)
+    try {
+      const data = await apiRequest<{ message?: string; otp?: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ mobile: forgotId.trim(), email: forgotId.trim() }),
+      })
+      toast.success(data?.message || 'If account exists, OTP sent')
+      if (data?.otp) {
+        toast.message(`Dev OTP: ${data.otp}`)
+        setForgotOtp(data.otp)
+      }
+      setForgotStep('reset')
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to send OTP')
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  async function submitReset(e: React.FormEvent) {
+    e.preventDefault()
+    if (!forgotOtp.trim() || !forgotNewPassword.trim()) {
+      toast.error('OTP and new password are required')
+      return
+    }
+    setForgotLoading(true)
+    try {
+      await apiRequest('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          mobile: forgotId.trim(),
+          email: forgotId.trim(),
+          otp: forgotOtp.trim(),
+          newPassword: forgotNewPassword,
+        }),
+      })
+      toast.success('Password reset successfully. You can sign in now.')
+      setForgotOpen(false)
+      setForgotStep('request')
+      setForgotOtp('')
+      setForgotNewPassword('')
+    } catch (err: any) {
+      toast.error(err?.message || 'Reset failed')
+    } finally {
+      setForgotLoading(false)
     }
   }
 
@@ -100,6 +169,19 @@ export default function LoginPage() {
                     </button>
                   </div>
                 </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-sm text-blue-300 hover:text-blue-200"
+                    onClick={() => {
+                      setForgotId(mobile)
+                      setForgotStep('request')
+                      setForgotOpen(true)
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <Button type="submit" disabled={loading} className="w-full">
                   {loading ? 'Signing in…' : 'Sign in'}
                 </Button>
@@ -114,9 +196,69 @@ export default function LoginPage() {
           </motion.div>
         </main>
       </div>
+
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="bg-neutral-900 border-neutral-700 text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription className="text-neutral-400">
+              {forgotStep === 'request'
+                ? 'Enter your mobile or email to receive a one-time code.'
+                : 'Enter the OTP and your new password.'}
+            </DialogDescription>
+          </DialogHeader>
+          {forgotStep === 'request' ? (
+            <form onSubmit={requestOtp} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-gray-300">Mobile or email</Label>
+                <Input
+                  value={forgotId}
+                  onChange={(e) => setForgotId(e.target.value)}
+                  className="bg-neutral-800 border-neutral-700 text-white"
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={forgotLoading} className="w-full">
+                {forgotLoading ? 'Sending…' : 'Send OTP'}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={submitReset} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-gray-300">OTP</Label>
+                <Input
+                  value={forgotOtp}
+                  onChange={(e) => setForgotOtp(e.target.value)}
+                  className="bg-neutral-800 border-neutral-700 text-white"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-gray-300">New password</Label>
+                <Input
+                  type="password"
+                  value={forgotNewPassword}
+                  onChange={(e) => setForgotNewPassword(e.target.value)}
+                  className="bg-neutral-800 border-neutral-700 text-white"
+                  minLength={6}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={forgotLoading} className="w-full">
+                {forgotLoading ? 'Saving…' : 'Reset password'}
+              </Button>
+              <button
+                type="button"
+                className="text-sm text-neutral-400 hover:text-white w-full text-center"
+                onClick={() => setForgotStep('request')}
+              >
+                Back
+              </button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
       <Toaster richColors position="top-center" />
     </div>
   )
 }
-
-

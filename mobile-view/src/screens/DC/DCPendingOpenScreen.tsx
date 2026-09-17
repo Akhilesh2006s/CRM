@@ -415,6 +415,11 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
       scrollRef.current?.scrollTo({ y: 0, animated: true });
       return false;
     }
+    if (!smeRemarks.trim()) {
+      setErrorMessage('SME Remarks * is required');
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+      return false;
+    }
     if (!splApproval.trim()) {
       setErrorMessage('SPL Approval * is required');
       scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -870,7 +875,7 @@ export default function DCPendingOpenScreen({ navigation, route }: any) {
         {(isSeniorCoordinator || isAdmin) && !isTermWiseDc && (
           <View style={styles.section}>
             <View style={styles.fieldContainer}>
-              <Text style={styles.label}>SME Remarks</Text>
+              <Text style={styles.label}>SME Remarks *</Text>
               <WebInput
                 style={styles.input}
                 value={smeRemarks}

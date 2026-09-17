@@ -26,6 +26,10 @@ type ChangeLog = {
   fields?: string[]
   actorName?: string
   actorEmail?: string
+  ipAddress?: string
+  userAgent?: string
+  previousValues?: Record<string, unknown>
+  newValues?: Record<string, unknown>
   createdAt?: string
 }
 
@@ -36,7 +40,18 @@ type ChangeLogStats = {
   topEntity?: string
 }
 
-const ENTITY_OPTIONS = ['all', 'Lead', 'DC', 'DcOrder', 'Expense', 'Product', 'Training', 'Service', 'ContactQuery']
+const ENTITY_OPTIONS = ['all', 'Lead', 'Visit', 'DC', 'DcOrder', 'Expense', 'Product', 'Training', 'Service', 'ContactQuery']
+
+function truncateJson(value: unknown, max = 120) {
+  if (value == null) return ''
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value)
+    if (text.length <= max) return text
+    return `${text.slice(0, max)}…`
+  } catch {
+    return '—'
+  }
+}
 
 function entityBadgeClass(entity?: string) {
   const value = (entity || '').trim()
@@ -294,14 +309,16 @@ export default function ChangeLogsPage() {
           <div className="text-center py-12 text-slate-500">No change logs yet. New creates and updates will appear here.</div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[1100px] table-fixed text-sm">
+            <table className="w-full min-w-[1400px] table-fixed text-sm">
               <thead className="bg-slate-50 text-slate-700 font-semibold text-xs uppercase tracking-wider">
                 <tr>
                   <th className="text-left px-4 py-3 w-44">When</th>
                   <th className="text-left px-4 py-3 w-28">Entity</th>
                   <th className="text-left px-4 py-3 w-28">Action</th>
                   <th className="text-left px-4 py-3">Summary</th>
-                  <th className="text-left px-4 py-3 w-64">Modified Fields</th>
+                  <th className="text-left px-4 py-3 w-48">Modified Fields</th>
+                  <th className="text-left px-4 py-3 w-32">IP</th>
+                  <th className="text-left px-4 py-3 w-56">Previous Values</th>
                   <th className="text-left px-4 py-3 w-40">Performed By</th>
                 </tr>
               </thead>
@@ -309,6 +326,7 @@ export default function ChangeLogsPage() {
                 {rows.map((row) => {
                   const summary = splitSummary(row.summary)
                   const fields = Array.isArray(row.fields) ? row.fields.filter(Boolean) : []
+                  const prevText = truncateJson(row.previousValues)
                   return (
                     <tr key={row._id} className="border-t border-slate-100 hover:bg-slate-50/70 transition-colors">
                       <td className="px-4 py-3 text-slate-800 whitespace-nowrap">{formatWhen(row.createdAt)}</td>
@@ -343,6 +361,23 @@ export default function ChangeLogsPage() {
                               <span className="text-[11px] text-slate-400">+{fields.length - 6}</span>
                             ) : null}
                           </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700 font-mono text-xs truncate" title={row.ipAddress || ''}>
+                        {row.ipAddress || '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {prevText ? (
+                          <details className="group">
+                            <summary className="cursor-pointer text-xs text-slate-600 truncate list-none [&::-webkit-details-marker]:hidden">
+                              <span className="font-mono" title={prevText}>{prevText}</span>
+                            </summary>
+                            <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-100 p-2 text-[10px] text-slate-700 whitespace-pre-wrap break-all">
+                              {JSON.stringify(row.previousValues, null, 2)}
+                            </pre>
+                          </details>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}

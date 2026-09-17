@@ -22,45 +22,41 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Survives Fast Refresh so the app does not flash to login / a blank screen. */
+let sessionUser: User | null = null;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUserState] = useState<User | null>(sessionUser);
+  const [loading, setLoading] = useState(!sessionUser);
+
+  const setUser = (next: User | null) => {
+    sessionUser = next;
+    setUserState(next);
+  };
 
   useEffect(() => {
     checkAuth();
   }, []);
 
-  // Debug: Log auth state
   useEffect(() => {
     console.log('Auth state:', { user: user?.email || 'null', loading, isFirstTime: user ? !user.hasCompletedFirstTimeSetup : false });
   }, [user, loading]);
 
   const checkAuth = async () => {
     try {
-      // Add timeout to prevent infinite loading
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Auth check timeout')), 3000)
-      );
-      
-      const authPromise = (async () => {
-        const token = await AsyncStorage.getItem('authToken');
-        const userData = await AsyncStorage.getItem('userData');
-        
-        if (token && userData) {
-          apiService.setToken(token);
-          const user = JSON.parse(userData);
-          setUser(user);
-        } else {
-          // No stored auth, ensure user is null
-          setUser(null);
-        }
-      })();
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
 
-      await Promise.race([authPromise, timeoutPromise]);
+      if (token && userData) {
+        apiService.setToken(token);
+        const parsed = JSON.parse(userData);
+        const id = parsed?._id || parsed?.id;
+        if (id) {
+          setUser({ ...parsed, _id: id });
+        }
+      }
     } catch (error) {
       console.error('Auth check error:', error);
-      // On error, clear any invalid data and show login
-      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -69,18 +65,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (mobile: string, password: string) => {
     try {
       console.log('Attempting login with mobile:', mobile);
-      const response = await apiService.post('/auth/login', { mobile, email: mobile, password });
+      let deviceId = await AsyncStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        await AsyncStorage.setItem('deviceId', deviceId);
+      }
+      const response = await apiService.post('/auth/login', {
+        mobile,
+        email: mobile,
+        password,
+        deviceId,
+      });
       const { token, ...userData } = response;
-      
+
       if (!token) {
         throw new Error('No token received from server');
       }
-      
+
       await AsyncStorage.setItem('authToken', token);
       await AsyncStorage.setItem('userData', JSON.stringify(userData));
-      
+
       apiService.setToken(token);
-      setUser(userData);
+      const id = userData?._id || userData?.id;
+      setUser(id ? { ...userData, _id: id } : userData);
       console.log('Login successful for user:', userData.email);
     } catch (error: any) {
       console.error('Login error:', {
@@ -89,43 +96,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: error.response?.status,
         code: error.code,
       });
-      
-      // Handle 401 Unauthorized (invalid credentials)
+
+      if (error.response?.status === 403) {
+        throw new Error(error.response?.data?.message || 'Device not authorized. Contact admin to reset device.');
+      }
+
       if (error.response?.status === 401) {
         const errorMessage = error.response?.data?.message || 'Invalid mobile number, email, or password';
         throw new Error(errorMessage);
       }
-      
-      // Handle network errors
-      if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.message?.includes('Network Error') || error.message?.includes('timeout')) {
-        throw new Error('Cannot connect to server. Make sure:\n1. Backend is running on port 5000\n2. API URL is correct\n3. Device and computer are on same network\n4. Firewall allows port 5000');
+
+      if (
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT' ||
+        error.message?.includes('Network Error') ||
+        error.message?.includes('timeout')
+      ) {
+        throw new Error('Cannot connect to server. Make sure the backend is running on port 5000.');
       }
-      
-      // Handle other axios errors
+
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
       }
-      
-      // Handle custom error messages
+
       if (error.message && !error.message.includes('Request failed')) {
         throw error;
       }
-      
-      // Default error message
+
       throw new Error(error.message || 'Login failed. Please check your credentials and try again.');
     }
   };
 
   const logout = async () => {
+    setUser(null);
+    apiService.setToken('');
     try {
-      await AsyncStorage.multiRemove(['authToken', 'userData', 'authUser']);
+      await AsyncStorage.multiRemove(['authToken', 'userData', 'authUser', 'adminSessionBackup']);
     } catch (e) {
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('authUser');
+      await AsyncStorage.removeItem('adminSessionBackup');
     }
-    apiService.setToken('');
-    setUser(null);
   };
 
   const isFirstTime = user ? !user.hasCompletedFirstTimeSetup : false;
@@ -144,4 +156,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

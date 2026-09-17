@@ -2,17 +2,38 @@ const { AsyncLocalStorage } = require('async_hooks');
 
 const actorStore = new AsyncLocalStorage();
 
-function runWithActor(user, callback) {
-  return actorStore.run({ user }, callback);
+/**
+ * Run a request handler with the acting user (and optional request meta) in ALS.
+ * @param {object} user
+ * @param {Function} callback
+ * @param {{ ipAddress?: string, ip?: string, userAgent?: string }} [meta]
+ */
+function runWithActor(user, callback, meta = {}) {
+  return actorStore.run(
+    {
+      user,
+      ipAddress: meta.ipAddress || meta.ip || '',
+      userAgent: meta.userAgent || '',
+    },
+    callback
+  );
 }
 
 function currentActor() {
-  const user = actorStore.getStore()?.user;
-  if (!user) return {};
+  const store = actorStore.getStore() || {};
+  const user = store.user;
+  if (!user) {
+    return {
+      ipAddress: store.ipAddress || '',
+      userAgent: store.userAgent || '',
+    };
+  }
   return {
     actorName: user.name || '',
     actorEmail: user.email || '',
     actorId: user._id,
+    ipAddress: store.ipAddress || '',
+    userAgent: store.userAgent || '',
   };
 }
 
@@ -32,6 +53,10 @@ function logChange(entry) {
       actorName: String(entry?.actorName || actor.actorName || '').slice(0, 120),
       actorEmail: String(entry?.actorEmail || actor.actorEmail || '').slice(0, 120),
       actorId: entry?.actorId || actor.actorId || undefined,
+      ipAddress: String(entry?.ipAddress || actor.ipAddress || '').slice(0, 120),
+      userAgent: String(entry?.userAgent || actor.userAgent || '').slice(0, 500),
+      previousValues: entry?.previousValues && typeof entry.previousValues === 'object' ? entry.previousValues : undefined,
+      newValues: entry?.newValues && typeof entry.newValues === 'object' ? entry.newValues : undefined,
     };
     ChangeLog.create(payload).catch((err) => {
       console.warn('ChangeLog write skipped:', err?.message);

@@ -1,5 +1,6 @@
 /**
- * Student type / follow-up DC options (Raise DC UI). Only "Shortage" is wired end-to-end elsewhere.
+ * Student type / follow-up DC options (Raise DC UI).
+ * All values persist on DC.studentType; Shortage also opens the shortage DC flow.
  */
 export const STUDENT_TYPE_OPTIONS = [
   'NA',

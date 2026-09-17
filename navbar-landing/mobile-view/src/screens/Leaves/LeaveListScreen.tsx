@@ -39,9 +39,12 @@ export default function LeaveListScreen({ navigation }: any) {
   const loadLeaves = async () => {
     setLoading(true);
     try {
-      // Assuming there's an endpoint to get employee's leaves
-      const data = await apiService.get(`/leaves/employee/${user?._id}`);
-      setLeaves(data);
+      // Backend exposes GET /leaves (no /leaves/employee/:id) — fetch all and filter to this user
+      const data = await apiService.get('/leaves');
+      const myLeaves = data.filter((leave: any) =>
+        leave.employeeId?._id === user?._id || leave.employeeId === user?._id
+      );
+      setLeaves(myLeaves);
     } catch (error: any) {
       // If endpoint doesn't exist, try general endpoint
       try {

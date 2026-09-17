@@ -18,67 +18,59 @@ import { exportSalesVisitReport } from '../../utils/exportSalesVisitReport';
 
 type Visit = {
   _id: string;
-  customerName?: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  dcDate?: string;
+  schoolName?: string;
+  schoolCode?: string;
+  zone?: string;
+  town?: string;
+  category?: string;
+  remarks?: string;
+  visitDate?: string;
   createdAt?: string;
-  dcCategory?: string;
-  dcRemarks?: string;
-  dcNotes?: string;
-  status?: string;
-  dcOrderId?: {
-    _id?: string;
-    school_name?: string;
-    school_type?: string;
-    dc_code?: string;
-    zone?: string;
-    location?: string;
-    contact_mobile?: string;
-  };
-  saleId?: { zone?: string };
-  employeeId?: { _id?: string; name?: string };
-  createdBy?: { _id?: string; name?: string };
+  outcome?: string;
+  leadId?: string | { _id?: string };
+  dcOrderId?: string | { _id?: string };
+  executiveId?: { _id?: string; name?: string };
 };
 
 type Employee = { _id: string; name?: string };
 
 function getVisitDateStr(visit: Visit) {
-  return visit.dcDate || visit.createdAt;
+  return visit.visitDate || visit.createdAt;
 }
 
 function getSchoolName(visit: Visit) {
-  return visit.dcOrderId?.school_name || visit.customerName || '-';
+  return visit.schoolName || '-';
 }
 
 function getSchoolCode(visit: Visit) {
-  return visit.dcOrderId?.dc_code || '-';
+  return visit.schoolCode || '-';
 }
 
 function isNewSchool(visit: Visit) {
-  const schoolType = (visit.dcOrderId?.school_type || '').toLowerCase();
-  return schoolType === 'new' || !visit.dcOrderId;
+  if (visit.category === 'New Business' || visit.category === 'New School') return true;
+  if (visit.dcOrderId) return false;
+  return Boolean(visit.leadId);
 }
 
 function getZone(visit: Visit) {
-  return visit.dcOrderId?.zone || visit.saleId?.zone || '-';
+  return visit.zone || '-';
 }
 
 function getExecutive(visit: Visit) {
-  return visit.employeeId?.name || visit.createdBy?.name || 'Not Assigned';
+  return visit.executiveId?.name || 'Not Assigned';
 }
 
 function getTown(visit: Visit) {
-  return visit.dcOrderId?.location || visit.customerAddress || '-';
+  return visit.town || '-';
 }
 
 function isConvertedToClient(visit: Visit) {
-  return visit.status === 'completed';
+  const remarks = (visit.remarks || '').toLowerCase();
+  return remarks.includes('converted') || visit.outcome === 'Hot';
 }
 
 function getVisitCategoryLabel(visit: Visit) {
-  if (isNewSchool(visit)) return 'New School';
-  return visit.dcCategory || 'Follow-up';
+  return visit.category || (isNewSchool(visit) ? 'New Business' : 'Follow-up');
 }
 
 function formatVisitDate(dateStr?: string) {
@@ -89,11 +81,14 @@ function formatVisitDate(dateStr?: string) {
 }
 
 function getSchoolKey(visit: Visit) {
-  return visit.dcOrderId?._id || visit.dcOrderId?.dc_code || getSchoolName(visit);
+  return visit.schoolCode || getSchoolName(visit);
+}
+
+function looksLikeSchoolCode(value: string) {
+  return /dc[-_]?\s*\d+/i.test(value) || /^\s*[A-Za-z]{1,8}[-_]\d+/.test(value);
 }
 
 export default function ReportsSalesVisitScreen() {
-  const [allVisits, setAllVisits] = useState<Visit[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [zones, setZones] = useState<string[]>([]);
@@ -110,27 +105,40 @@ export default function ReportsSalesVisitScreen() {
     loadData();
   }, []);
 
-  useEffect(() => {
-    applyFilters();
-  }, [allVisits, zone, employee, visitDate, schoolSearch]);
+  const buildQuery = () => {
+    const qs = new URLSearchParams();
+    if (zone) qs.set('zone', zone);
+    if (employee) qs.set('executiveId', employee);
+    if (visitDate) {
+      qs.set('fromDate', visitDate);
+      qs.set('toDate', visitDate);
+    }
+    const term = schoolSearch.trim();
+    if (term) {
+      if (looksLikeSchoolCode(term)) qs.set('schoolCode', term);
+      else qs.set('schoolName', term);
+    }
+    return qs;
+  };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [dcData, employeeData] = await Promise.all([
-        apiService.get<any>('/dc'),
+      const qs = buildQuery();
+      const [visitData, employeeData] = await Promise.all([
+        apiService.get<any>(`/visits${qs.toString() ? `?${qs.toString()}` : ''}`),
         apiService.get<any>('/employees?isActive=true').catch(() => []),
       ]);
-      const entries = Array.isArray(dcData) ? dcData : dcData?.data || [];
-      setAllVisits(entries);
+      const entries = Array.isArray(visitData) ? visitData : visitData?.data || [];
+      setVisits(entries);
       setEmployees(Array.isArray(employeeData) ? employeeData : employeeData?.data || []);
       const uniqueZones = Array.from(
-        new Set(entries.map((v: Visit) => v.dcOrderId?.zone || v.saleId?.zone).filter(Boolean))
+        new Set(entries.map((v: Visit) => v.zone).filter(Boolean))
       ).sort() as string[];
-      setZones(uniqueZones);
+      if (!zone) setZones(uniqueZones);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load sales visits');
-      setAllVisits([]);
+      setVisits([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -140,42 +148,6 @@ export default function ReportsSalesVisitScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
-  };
-
-  const applyFilters = () => {
-    let filtered = [...allVisits];
-
-    if (zone) {
-      filtered = filtered.filter((visit) => getZone(visit).toLowerCase().includes(zone.toLowerCase()));
-    }
-    if (employee) {
-      filtered = filtered.filter(
-        (visit) => visit.employeeId?._id === employee || visit.createdBy?._id === employee
-      );
-    }
-    if (visitDate) {
-      const target = new Date(visitDate);
-      filtered = filtered.filter((visit) => {
-        const raw = getVisitDateStr(visit);
-        if (!raw) return false;
-        const date = new Date(raw);
-        return (
-          date.getFullYear() === target.getFullYear() &&
-          date.getMonth() === target.getMonth() &&
-          date.getDate() === target.getDate()
-        );
-      });
-    }
-    if (schoolSearch.trim()) {
-      const query = schoolSearch.trim().toLowerCase();
-      filtered = filtered.filter((visit) => {
-        const name = getSchoolName(visit).toLowerCase();
-        const code = getSchoolCode(visit).toLowerCase();
-        return name.includes(query) || code.includes(query);
-      });
-    }
-
-    setVisits(filtered);
   };
 
   const summary = useMemo(() => {
@@ -197,14 +169,15 @@ export default function ReportsSalesVisitScreen() {
   const handleExport = async () => {
     setExporting(true);
     try {
+      const term = schoolSearch.trim();
       await exportSalesVisitReport(
         {
           zone: zone || undefined,
-          employeeId: employee || undefined,
+          executiveId: employee || undefined,
           fromDate: visitDate || undefined,
           toDate: visitDate || undefined,
-          schoolName: schoolSearch.trim() || undefined,
-          schoolCode: schoolSearch.trim() || undefined,
+          schoolName: term && !looksLikeSchoolCode(term) ? term : undefined,
+          schoolCode: term && looksLikeSchoolCode(term) ? term : undefined,
         },
         `Sales_Visit_Report_${new Date().toISOString().split('T')[0]}.xlsx`
       );
@@ -221,7 +194,7 @@ export default function ReportsSalesVisitScreen() {
   return (
     <ScreenShell
       title="Sales Visit Report"
-      subtitle="School visits from DC records"
+      subtitle="School visits"
       loading={loading && !refreshing}
       refreshing={refreshing}
       onRefresh={onRefresh}
@@ -295,7 +268,7 @@ export default function ReportsSalesVisitScreen() {
             value={schoolSearch}
             onChangeText={setSchoolSearch}
           />
-          <WebButton title="Search" onPress={applyFilters} />
+          <WebButton title="Search" onPress={loadData} />
         </View>
 
       <View style={styles.logHeader}>
@@ -340,7 +313,7 @@ export default function ReportsSalesVisitScreen() {
                   <Text style={styles.convertedBadge}>Converted to Client</Text>
                 ) : null}
               </View>
-              <Text style={styles.infoLine}>Remarks: {visit.dcRemarks || visit.dcNotes || '-'}</Text>
+              <Text style={styles.infoLine}>Remarks: {visit.remarks || '-'}</Text>
             </View>
           ))
         )}

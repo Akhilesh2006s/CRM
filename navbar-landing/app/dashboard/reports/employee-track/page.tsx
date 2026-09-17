@@ -14,11 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download, MapPin, Radio, Search, Users } from 'lucide-react'
+import { Download, MapPin, Radio, Route, Search, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 type TrackingData = {
   _id: string
+  employeeId?: string
   employeeName: string
   mobileNo: string
   zone: string
@@ -28,6 +29,27 @@ type TrackingData = {
   lastLatitude?: number
   lastLongitude?: number
   logCount: number
+}
+
+type TrackingLatestRow = {
+  employeeId: string
+  name?: string
+  mobile?: string
+  zone?: string
+  started?: string
+  lastUsed?: string
+  lastLocation?: { latitude?: number; longitude?: number } | string
+  pings?: number
+}
+
+type RouteSummary = {
+  employeeId: string
+  date?: string
+  pointCount: number
+  distanceKm: number
+  firstPingAt?: string | null
+  lastPingAt?: string | null
+  points?: Array<{ latitude: number; longitude: number; recordedAt?: string }>
 }
 
 type Employee = {
@@ -60,12 +82,48 @@ function isSameLocalDay(dateStr?: string) {
   )
 }
 
+function formatLocation(loc?: TrackingLatestRow['lastLocation'], lat?: number, lng?: number) {
+  if (typeof loc === 'string' && loc.trim()) return loc
+  if (loc && typeof loc === 'object' && loc.latitude != null && loc.longitude != null) {
+    return `${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}`
+  }
+  if (lat != null && lng != null) return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+  return ''
+}
+
+function mapLatestToTracking(rows: TrackingLatestRow[]): TrackingData[] {
+  return rows.map((row) => {
+    const lat =
+      typeof row.lastLocation === 'object' ? row.lastLocation?.latitude : undefined
+    const lng =
+      typeof row.lastLocation === 'object' ? row.lastLocation?.longitude : undefined
+    return {
+      _id: String(row.employeeId),
+      employeeId: String(row.employeeId),
+      employeeName: row.name || 'Unknown',
+      mobileNo: row.mobile || '',
+      zone: row.zone || '',
+      started: row.started || '',
+      lastUsed: row.lastUsed || '',
+      lastLocation: formatLocation(row.lastLocation, lat, lng) || '-',
+      lastLatitude: lat,
+      lastLongitude: lng,
+      logCount: Number(row.pings) || 0,
+    }
+  })
+}
+
 export default function EmployeeTrackingReportPage() {
   const [trackingData, setTrackingData] = useState<TrackingData[]>([])
   const [allTrackingData, setAllTrackingData] = useState<TrackingData[]>([])
   const [loading, setLoading] = useState(true)
   const [employees, setEmployees] = useState<Employee[]>([])
   const [selectedTrack, setSelectedTrack] = useState<TrackingData | null>(null)
+  const [routeTrack, setRouteTrack] = useState<TrackingData | null>(null)
+  const [routeDate, setRouteDate] = useState('')
+  const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null)
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [usingTrackingApi, setUsingTrackingApi] = useState(false)
 
   const [searchText, setSearchText] = useState('')
   const [employee, setEmployee] = useState('')
@@ -96,40 +154,61 @@ export default function EmployeeTrackingReportPage() {
     return matches.length === 1 ? matches[0]._id : ''
   }
 
+  const applyClientFilters = (rows: TrackingData[]) => {
+    const q = searchText.trim().toLowerCase()
+    let filtered = rows
+    if (q) {
+      filtered = filtered.filter((row) =>
+        (row.employeeName || '').toLowerCase().includes(q) ||
+        (row.mobileNo || '').toLowerCase().includes(q)
+      )
+    }
+    if (zone) {
+      filtered = filtered.filter((row) => (row.zone || '') === zone)
+    }
+    if (fromDate) {
+      filtered = filtered.filter((row) => localYmd(row.started) === fromDate)
+    }
+    if (toDate) {
+      filtered = filtered.filter((row) => localYmd(row.lastUsed) === toDate)
+    }
+    return filtered
+  }
+
   const loadTrackingData = async () => {
     setLoading(true)
     try {
       const resolvedId = resolveEmployeeId(searchText)
       setEmployee(resolvedId)
 
-      const qs = new URLSearchParams()
-      if (resolvedId) qs.append('employeeId', resolvedId)
-      if (fromDate) qs.append('fromDate', fromDate)
-      if (toDate) qs.append('toDate', toDate)
-      const data = await apiRequest<TrackingData[]>(`/employees/tracking${qs.toString() ? `?${qs.toString()}` : ''}`)
-      const rows = Array.isArray(data) ? data : []
-      setAllTrackingData(rows)
-
-      const q = searchText.trim().toLowerCase()
-      let filtered = rows
-      if (q) {
-        filtered = filtered.filter((row) =>
-          (row.employeeName || '').toLowerCase().includes(q) ||
-          (row.mobileNo || '').toLowerCase().includes(q)
+      // Prefer live tracking API; fall back to legacy employees/tracking export source.
+      try {
+        const qs = new URLSearchParams()
+        if (zone) qs.set('zone', zone)
+        const latest = await apiRequest<TrackingLatestRow[]>(
+          `/tracking/latest${qs.toString() ? `?${qs.toString()}` : ''}`
         )
+        const rows = mapLatestToTracking(Array.isArray(latest) ? latest : [])
+        setUsingTrackingApi(true)
+        setAllTrackingData(rows)
+        setTrackingData(applyClientFilters(rows))
+      } catch (_) {
+        const qs = new URLSearchParams()
+        if (resolvedId) qs.append('employeeId', resolvedId)
+        if (fromDate) qs.append('fromDate', fromDate)
+        if (toDate) qs.append('toDate', toDate)
+        const data = await apiRequest<TrackingData[]>(
+          `/employees/tracking${qs.toString() ? `?${qs.toString()}` : ''}`
+        )
+        const rows = Array.isArray(data) ? data : []
+        setUsingTrackingApi(false)
+        setAllTrackingData(rows)
+        setTrackingData(applyClientFilters(rows))
       }
-      if (zone) {
-        filtered = filtered.filter((row) => (row.zone || '') === zone)
-      }
-      if (fromDate) {
-        filtered = filtered.filter((row) => localYmd(row.started) === fromDate)
-      }
-      if (toDate) {
-        filtered = filtered.filter((row) => localYmd(row.lastUsed) === toDate)
-      }
-      setTrackingData(filtered)
     } catch (_) {
       toast.error('Failed to load employee tracking data')
+      setTrackingData([])
+      setAllTrackingData([])
     }
     setLoading(false)
   }
@@ -169,6 +248,33 @@ export default function EmployeeTrackingReportPage() {
     setSelectedTrack(track)
   }
 
+  const openRouteDialog = (track: TrackingData) => {
+    setRouteTrack(track)
+    setRouteSummary(null)
+    setRouteDate(localYmd(track.lastUsed) || localYmd(new Date().toISOString()))
+  }
+
+  const loadRoute = async () => {
+    if (!routeTrack) return
+    const employeeId = routeTrack.employeeId || routeTrack._id
+    if (!employeeId || !routeDate) {
+      toast.error('Select a date to view the route')
+      return
+    }
+    setRouteLoading(true)
+    try {
+      const data = await apiRequest<RouteSummary>(
+        `/tracking/${employeeId}/route?date=${encodeURIComponent(routeDate)}`
+      )
+      setRouteSummary(data)
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to load route')
+      setRouteSummary(null)
+    } finally {
+      setRouteLoading(false)
+    }
+  }
+
   const zones = useMemo(() => {
     const fromTracking = allTrackingData.map((row) => row.zone).filter(Boolean)
     const fromEmployees = employees.map((emp) => emp.zone).filter(Boolean) as string[]
@@ -192,7 +298,10 @@ export default function EmployeeTrackingReportPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">Employee Tracking Report</h1>
-          <p className="text-sm text-slate-500 mt-1">Field executive activity, GPS logs, and last known location</p>
+          <p className="text-sm text-slate-500 mt-1">
+            Field executive activity, GPS logs, and last known location
+            {usingTrackingApi ? '' : ' (legacy employees/tracking)'}
+          </p>
         </div>
         <Button onClick={handleExport} className="bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0">
           <Download className="mr-2 h-4 w-4" />
@@ -351,15 +460,27 @@ export default function EmployeeTrackingReportPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewDetails(track)}
-                          className="rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
-                        >
-                          View Activity
-                        </Button>
+                        <div className="flex flex-col gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewDetails(track)}
+                            className="rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
+                          >
+                            View Activity
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openRouteDialog(track)}
+                            className="rounded-xl border-blue-200 text-blue-700 hover:bg-blue-50"
+                          >
+                            <Route className="h-3.5 w-3.5 mr-1" />
+                            View route
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -424,6 +545,87 @@ export default function EmployeeTrackingReportPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!routeTrack}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRouteTrack(null)
+            setRouteSummary(null)
+          }
+        }}
+      >
+        <DialogContent className="rounded-xl sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>View route</DialogTitle>
+            <DialogDescription>
+              {routeTrack?.employeeName || 'Employee'} — distance and GPS points for the selected day
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Date</label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={routeDate}
+                  onChange={(e) => setRouteDate(e.target.value)}
+                  className="rounded-xl"
+                />
+                <Button
+                  type="button"
+                  onClick={loadRoute}
+                  disabled={routeLoading}
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {routeLoading ? 'Loading…' : 'Load'}
+                </Button>
+              </div>
+            </div>
+            {routeSummary && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Distance</p>
+                    <p className="text-slate-800 font-semibold">{routeSummary.distanceKm ?? 0} km</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Point count</p>
+                    <p className="text-slate-800 font-semibold">{routeSummary.pointCount ?? 0}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">First ping</p>
+                    <p className="text-slate-800">{formatDate(routeSummary.firstPingAt || undefined)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Last ping</p>
+                    <p className="text-slate-800">{formatDate(routeSummary.lastPingAt || undefined)}</p>
+                  </div>
+                </div>
+                {Array.isArray(routeSummary.points) && routeSummary.points.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200">
+                    <ul className="divide-y divide-slate-100 text-xs">
+                      {routeSummary.points.slice(0, 50).map((p, i) => (
+                        <li key={`${p.recordedAt}-${i}`} className="px-3 py-2 flex justify-between gap-2">
+                          <span className="text-slate-600">{formatDate(p.recordedAt)}</span>
+                          <span className="text-slate-800 font-mono">
+                            {Number(p.latitude).toFixed(5)}, {Number(p.longitude).toFixed(5)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {routeSummary.points.length > 50 && (
+                      <p className="px-3 py-2 text-slate-500">Showing first 50 of {routeSummary.points.length} points</p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

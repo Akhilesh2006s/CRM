@@ -283,6 +283,10 @@ async function collectChangeLogRows(query = {}) {
         fields: row.fields || [],
         actorName: row.actorName,
         actorEmail: row.actorEmail,
+        ipAddress: row.ipAddress || '',
+        userAgent: row.userAgent || '',
+        previousValues: row.previousValues || undefined,
+        newValues: row.newValues || undefined,
         createdAt: row.createdAt,
       });
     });
@@ -476,6 +480,9 @@ const exportChangeLogs = async (req, res) => {
       { header: 'Action', key: 'action', width: 12 },
       { header: 'Summary', key: 'summary', width: 40 },
       { header: 'Fields', key: 'fields', width: 30 },
+      { header: 'IP', key: 'ipAddress', width: 18 },
+      { header: 'Previous Values', key: 'previousValues', width: 40 },
+      { header: 'New Values', key: 'newValues', width: 40 },
       { header: 'User', key: 'user', width: 24 },
     ];
     rows.forEach((row, i) => {
@@ -486,6 +493,9 @@ const exportChangeLogs = async (req, res) => {
         action: row.action || '',
         summary: row.summary || '',
         fields: (row.fields || []).join(', '),
+        ipAddress: row.ipAddress || '',
+        previousValues: row.previousValues ? JSON.stringify(row.previousValues) : '',
+        newValues: row.newValues ? JSON.stringify(row.newValues) : '',
         user: row.actorName || row.actorEmail || '',
       });
     });

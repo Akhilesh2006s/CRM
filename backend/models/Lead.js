@@ -41,7 +41,7 @@ const leadSchema = new mongoose.Schema(
     // Segmentation: new school vs existing school (DcOrder) renewal
     lead_type: {
       type: String,
-      enum: ['new', 'renewal'],
+      enum: ['new', 'renewal', 'cross_sale'],
       default: 'new',
       index: true,
     },
@@ -112,6 +112,39 @@ const leadSchema = new mongoose.Schema(
       trim: true,
     },
     area: {
+      type: String,
+      trim: true,
+    },
+    mandal: {
+      type: String,
+      trim: true,
+    },
+    cluster: {
+      type: String,
+      trim: true,
+    },
+
+    // Geo-tag of the school, captured when the lead is created in the field.
+    // Powers map views, territory planning and "schools near me".
+    latitude: {
+      type: Number,
+    },
+    longitude: {
+      type: Number,
+    },
+
+    // Qualification signals used for pricing and prioritisation
+    avg_fee: {
+      // average annual fee per student
+      type: Number,
+      min: 0,
+    },
+    no_of_branches: {
+      type: Number,
+      min: 0,
+    },
+    decision_maker: {
+      // who actually signs off (Correspondent / Principal / Director ...)
       type: String,
       trim: true,
     },

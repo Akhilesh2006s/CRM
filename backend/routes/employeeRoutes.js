@@ -7,10 +7,11 @@ const {
   updateEmployee,
   getEmployeeLeaves,
   resetEmployeePassword,
+  resetEmployeeDevice,
   getEmployeeTracking,
   exportEmployeeTracking,
 } = require('../controllers/employeeController');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, roleMiddleware } = require('../middleware/authMiddleware');
 const { requirePermission, requirePermissionWhen } = require('../middleware/permissionMiddleware');
 
 router.get('/', authMiddleware, getEmployees);
@@ -33,6 +34,12 @@ router.put(
   updateEmployee
 );
 router.put('/:id/reset-password', authMiddleware, resetEmployeePassword);
+router.put(
+  '/:id/reset-device',
+  authMiddleware,
+  roleMiddleware('Admin', 'Super Admin'),
+  resetEmployeeDevice
+);
 
 module.exports = router;
 

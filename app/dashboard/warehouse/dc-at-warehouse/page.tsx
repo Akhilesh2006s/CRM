@@ -183,6 +183,11 @@ export default function WarehouseDcAtWarehouse() {
   const [zone, setZone] = useState('')
   const [cluster, setCluster] = useState('')
   const [remarks, setRemarks] = useState('')
+  const [transport, setTransport] = useState('')
+  const [transportArea, setTransportArea] = useState('')
+  const [lrNo, setLrNo] = useState('')
+  const [lrDate, setLrDate] = useState('')
+  const [boxes, setBoxes] = useState('')
   const [processing, setProcessing] = useState(false)
   const [onHoldProcessing, setOnHoldProcessing] = useState(false)
   const [openDialog, setOpenDialog] = useState(false)
@@ -190,7 +195,17 @@ export default function WarehouseDcAtWarehouse() {
   const [insufficientStockMessage, setInsufficientStockMessage] = useState('')
   const [warehouseInventory, setWarehouseInventory] = useState<WarehouseItem[]>([])
   
-  const { productNames: availableProducts } = useProducts()
+  const { productNames: availableProducts, getProductSpecs } = useProducts()
+  const resolveProductMasterSpec = (productName: string, currentSpec: unknown): string => {
+    const masterSpecs = getProductSpecs(productName)
+    if (!Array.isArray(masterSpecs) || masterSpecs.length === 0) return ''
+
+    const normalizedCurrent = String(currentSpec || '').trim().toLowerCase()
+    const matchedSpec = masterSpecs.find(
+      (spec) => String(spec || '').trim().toLowerCase() === normalizedCurrent
+    )
+    return matchedSpec || masterSpecs[0] || ''
+  }
   const availableClasses = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'NA']
   const availableCategories = ['New Students', 'Existing Students', 'Both', 'Training-Material']
 
@@ -292,7 +307,7 @@ export default function WarehouseDcAtWarehouse() {
             productCategory: mapped.productCategory,
             class: p.class || 'NA',
             category: p.category || 'Training-Material',
-            specs: mapped.specs,
+            specs: resolveProductMasterSpec(productName, p.specs),
             subject: mapped.subject || undefined,
             quantity: requestedQty,
             availableQuantity: availableQty,
@@ -328,7 +343,7 @@ export default function WarehouseDcAtWarehouse() {
           productCategory: mapped.productCategory,
           class: 'NA',
           category: 'Training-Material',
-          specs: mapped.specs,
+          specs: resolveProductMasterSpec(productName, undefined),
           subject: mapped.subject || undefined,
           quantity: requestedQty,
           availableQuantity: availableQty,
@@ -377,6 +392,11 @@ export default function WarehouseDcAtWarehouse() {
           assignedTo?.cluster
         )
       )
+      setTransport(pickNonEmpty(mergedDC.transport, dcOrder.transport_name))
+      setTransportArea(pickNonEmpty(mergedDC.transportArea, dcOrder.transport_location))
+      setLrNo(pickNonEmpty(mergedDC.lrNo))
+      setLrDate(mergedDC.lrDate ? new Date(mergedDC.lrDate).toISOString().split('T')[0] : '')
+      setBoxes(pickNonEmpty(mergedDC.boxes))
       setRemarks(pickNonEmpty(mergedDC.remarks, dcOrder.remarks))
       setInsufficientQuantity(false)
       setInsufficientStockMessage('')
@@ -459,7 +479,7 @@ export default function WarehouseDcAtWarehouse() {
             productCategory: p.productCategory,
             class: p.class,
             category: p.category,
-            specs: p.specs || 'Regular',
+            specs: p.specs || '',
             subject: p.subject || undefined,
             quantity: p.quantity,
             availableQuantity: p.availableQuantity,
@@ -485,6 +505,11 @@ export default function WarehouseDcAtWarehouse() {
           zone: zone || undefined,
           cluster: cluster || undefined,
           remarks: remarks || undefined,
+          transport: transport || undefined,
+          transportArea: transportArea || undefined,
+          lrNo: lrNo || undefined,
+          lrDate: lrDate || undefined,
+          boxes: boxes || undefined,
           dcOrderId: selectedDC.dcOrderId && typeof selectedDC.dcOrderId === 'object' 
             ? { ...selectedDC.dcOrderId, school_type: schoolType || undefined, address: schoolAddress || undefined }
             : selectedDC.dcOrderId,
@@ -606,7 +631,7 @@ export default function WarehouseDcAtWarehouse() {
             class: p.class,
             category: p.category,
             productCategory: p.productCategory,
-            specs: p.specs || 'Regular',
+            specs: p.specs || '',
             subject: p.subject || undefined,
             quantity: p.quantity,
             availableQuantity: p.availableQuantity,
@@ -634,6 +659,11 @@ export default function WarehouseDcAtWarehouse() {
           zone: zone || undefined,
           cluster: cluster || undefined,
           remarks: remarks || undefined,
+          transport: transport || undefined,
+          transportArea: transportArea || undefined,
+          lrNo: lrNo || undefined,
+          lrDate: lrDate || undefined,
+          boxes: boxes || undefined,
           dcOrderId: selectedDC.dcOrderId && typeof selectedDC.dcOrderId === 'object' 
             ? { ...selectedDC.dcOrderId, school_type: schoolType || undefined, address: schoolAddress || undefined }
             : selectedDC.dcOrderId,
@@ -832,9 +862,6 @@ export default function WarehouseDcAtWarehouse() {
               {/* Delivery & Address Information - Full Width */}
               {(() => {
                 const dcOrder = typeof selectedDC.dcOrderId === 'object' ? selectedDC.dcOrderId : null
-                // Get delivery and address information from database (saved in edit PO in executive)
-                const transportName = dcOrder?.transport_name || selectedDC.transport || ''
-                const transportLocation = dcOrder?.transport_location || selectedDC.transportArea || ''
                 const transportLandmark = dcOrder?.transportation_landmark || ''
                 const pincode = dcOrder?.pincode || ''
                 
@@ -843,23 +870,21 @@ export default function WarehouseDcAtWarehouse() {
                     <h3 className="font-semibold text-neutral-900 mb-4">Delivery & Address Information</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <Label className="text-sm text-neutral-600">Transport Name</Label>
+                        <Label className="text-sm text-neutral-600">Transport</Label>
                         <Input
-                          value={transportName}
-                          readOnly
-                          disabled
-                          className="mt-1 bg-neutral-50"
-                          placeholder="Not provided"
+                          value={transport}
+                          onChange={(e) => setTransport(e.target.value)}
+                          className="mt-1"
+                          placeholder="Transport name"
                         />
                       </div>
                       <div>
-                        <Label className="text-sm text-neutral-600">Transport Location</Label>
+                        <Label className="text-sm text-neutral-600">Transport Area</Label>
                         <Input
-                          value={transportLocation}
-                          readOnly
-                          disabled
-                          className="mt-1 bg-neutral-50"
-                          placeholder="Not provided"
+                          value={transportArea}
+                          onChange={(e) => setTransportArea(e.target.value)}
+                          className="mt-1"
+                          placeholder="Transport area / location"
                         />
                       </div>
                       <div>
@@ -882,40 +907,33 @@ export default function WarehouseDcAtWarehouse() {
                           placeholder="Not provided"
                         />
                       </div>
-                      {selectedDC.lrNo && (
-                        <div>
-                          <Label className="text-sm text-neutral-600">LR No</Label>
-                          <Input
-                            value={selectedDC.lrNo}
-                            readOnly
-                            disabled
-                            className="mt-1 bg-neutral-50"
-                          />
-                        </div>
-                      )}
-                      {selectedDC.lrDate && (
-                        <div>
-                          <Label className="text-sm text-neutral-600">LR Date</Label>
-                          <Input
-                            type="date"
-                            value={selectedDC.lrDate ? new Date(selectedDC.lrDate).toISOString().split('T')[0] : ''}
-                            readOnly
-                            disabled
-                            className="mt-1 bg-neutral-50"
-                          />
-                        </div>
-                      )}
-                      {selectedDC.boxes && (
-                        <div>
-                          <Label className="text-sm text-neutral-600">Boxes</Label>
-                          <Input
-                            value={selectedDC.boxes}
-                            readOnly
-                            disabled
-                            className="mt-1 bg-neutral-50"
-                          />
-                        </div>
-                      )}
+                      <div>
+                        <Label className="text-sm text-neutral-600">LR No</Label>
+                        <Input
+                          value={lrNo}
+                          onChange={(e) => setLrNo(e.target.value)}
+                          className="mt-1"
+                          placeholder="LR number"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm text-neutral-600">LR Date</Label>
+                        <Input
+                          type="date"
+                          value={lrDate}
+                          onChange={(e) => setLrDate(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm text-neutral-600">Boxes</Label>
+                        <Input
+                          value={boxes}
+                          onChange={(e) => setBoxes(e.target.value)}
+                          className="mt-1"
+                          placeholder="Number of boxes"
+                        />
+                      </div>
                       {selectedDC.deliveryStatus && (
                         <div>
                           <Label className="text-sm text-neutral-600">Delivery Status</Label>
@@ -1031,7 +1049,7 @@ export default function WarehouseDcAtWarehouse() {
                               <TableCell className="font-medium text-neutral-900">{row.product}</TableCell>
                               <TableCell>{row.class || '-'}</TableCell>
                               <TableCell>{row.productCategory || '-'}</TableCell>
-                              <TableCell>{row.specs || '-'}</TableCell>
+                              <TableCell>{resolveProductMasterSpec(row.product, row.specs) || '-'}</TableCell>
                               <TableCell>{row.subject || '-'}</TableCell>
                               <TableCell>{row.quantity || 0}</TableCell>
                               <TableCell>{row.level || '-'}</TableCell>

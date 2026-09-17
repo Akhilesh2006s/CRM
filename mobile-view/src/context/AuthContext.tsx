@@ -65,7 +65,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (mobile: string, password: string) => {
     try {
       console.log('Attempting login with mobile:', mobile);
-      const response = await apiService.post('/auth/login', { mobile, email: mobile, password });
+      let deviceId = await AsyncStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        await AsyncStorage.setItem('deviceId', deviceId);
+      }
+      const response = await apiService.post('/auth/login', {
+        mobile,
+        email: mobile,
+        password,
+        deviceId,
+      });
       const { token, ...userData } = response;
 
       if (!token) {
@@ -86,6 +96,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: error.response?.status,
         code: error.code,
       });
+
+      if (error.response?.status === 403) {
+        throw new Error(error.response?.data?.message || 'Device not authorized. Contact admin to reset device.');
+      }
 
       if (error.response?.status === 401) {
         const errorMessage = error.response?.data?.message || 'Invalid mobile number, email, or password';

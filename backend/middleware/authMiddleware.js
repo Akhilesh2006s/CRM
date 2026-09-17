@@ -18,7 +18,14 @@ const authMiddleware = async (req, res, next) => {
     }
 
     req.user = user;
-    return runWithActor(user, () => next());
+    const forwarded = req.headers['x-forwarded-for'];
+    const ipAddress =
+      (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '') ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      '';
+    const userAgent = String(req.headers['user-agent'] || '');
+    return runWithActor(user, () => next(), { ipAddress, userAgent });
   } catch (error) {
     res.status(401).json({ message: 'Token is not valid' });
   }

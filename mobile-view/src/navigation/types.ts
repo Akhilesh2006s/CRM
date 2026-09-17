@@ -11,6 +11,8 @@ export type RootStackParamList = {
   LeadEdit: { id: string };
   LeadFollowup: undefined;
   LeadClose: { id: string };
+  SchoolVisits: { leadId?: string; schoolName?: string } | undefined;
+  Visits: { leadId?: string; schoolName?: string } | undefined;
   
   // DC Management
   DCCreate: { dealId?: string; mode?: 'raise' | 'update' };

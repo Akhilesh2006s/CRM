@@ -8,14 +8,16 @@ import LogoutButton from '../../components/LogoutButton';
 
 interface Visit {
   _id: string;
-  customerName?: string;
-  customerPhone?: string;
-  customerAddress?: string;
-  dcDate?: string;
+  schoolName?: string;
+  schoolCode?: string;
+  zone?: string;
+  town?: string;
+  category?: string;
+  remarks?: string;
+  visitDate?: string;
+  contactMobile?: string;
   createdAt?: string;
-  dcOrderId?: { school_name?: string; zone?: string; contact_mobile?: string };
-  employeeId?: { name?: string };
-  status?: string;
+  executiveId?: { name?: string };
 }
 
 export default function ReportsSalesVisitScreen({ navigation }: any) {
@@ -32,7 +34,7 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
   const loadVisits = async () => {
     try {
       setLoading(true);
-      const data = await apiService.get<any>('/dc');
+      const data = await apiService.get<any>('/visits');
       const entries = Array.isArray(data) ? data : data?.data || [];
       setVisits(entries);
     } catch (error: any) {
@@ -52,8 +54,7 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
   const zones = useMemo(() => {
     const set = new Set<string>();
     visits.forEach((visit) => {
-      const zone = visit.dcOrderId?.zone;
-      if (zone) set.add(zone);
+      if (visit.zone) set.add(visit.zone);
     });
     return Array.from(set).sort();
   }, [visits]);
@@ -61,22 +62,22 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
   const filteredVisits = useMemo(() => {
     const term = search.trim().toLowerCase();
     return visits.filter((visit) => {
-      const zone = visit.dcOrderId?.zone || '';
+      const zone = visit.zone || '';
       const matchesZone = zoneFilter === 'all' || zone.toLowerCase() === zoneFilter.toLowerCase();
       const matchesSearch =
         !term ||
-        visit.customerName?.toLowerCase().includes(term) ||
-        visit.dcOrderId?.school_name?.toLowerCase().includes(term) ||
-        visit.customerPhone?.includes(term) ||
-        visit.dcOrderId?.contact_mobile?.includes(term);
+        visit.schoolName?.toLowerCase().includes(term) ||
+        visit.schoolCode?.toLowerCase().includes(term) ||
+        visit.contactMobile?.includes(term) ||
+        visit.town?.toLowerCase().includes(term);
       return matchesZone && matchesSearch;
     });
   }, [visits, zoneFilter, search]);
 
   const summary = useMemo(() => {
-    const completed = visits.filter((v) => v.status === 'completed').length;
-    const pending = visits.filter((v) => v.status !== 'completed').length;
-    return { total: visits.length, completed, pending };
+    const withRemarks = visits.filter((v) => (v.remarks || '').trim()).length;
+    const categories = new Set(visits.map((v) => v.category).filter(Boolean)).size;
+    return { total: visits.length, withRemarks, categories };
   }, [visits]);
 
   if (loading && !refreshing) {
@@ -98,6 +99,7 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
           <Text style={styles.headerTitle}>Sales Visit Report</Text>
           <LogoutButton />
         </View>
+        <Text style={styles.headerSubtitle}>School visits</Text>
       </LinearGradient>
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
@@ -105,12 +107,12 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
           <Text style={styles.summaryValue}>{summary.total}</Text>
         </View>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Completed</Text>
-          <Text style={[styles.summaryValue, { color: colors.success }]}>{summary.completed}</Text>
+          <Text style={styles.summaryLabel}>With Remarks</Text>
+          <Text style={[styles.summaryValue, { color: colors.success }]}>{summary.withRemarks}</Text>
         </View>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Pending</Text>
-          <Text style={[styles.summaryValue, { color: colors.warning }]}>{summary.pending}</Text>
+          <Text style={styles.summaryLabel}>Categories</Text>
+          <Text style={[styles.summaryValue, { color: colors.warning }]}>{summary.categories}</Text>
         </View>
       </View>
       <View style={styles.filters}>
@@ -149,16 +151,18 @@ export default function ReportsSalesVisitScreen({ navigation }: any) {
           filteredVisits.map((visit) => (
             <View key={visit._id} style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.visitTitle}>{visit.dcOrderId?.school_name || visit.customerName || 'Visit'}</Text>
-                <Text style={styles.badge}>{visit.status || 'Pending'}</Text>
+                <Text style={styles.visitTitle}>{visit.schoolName || 'Visit'}</Text>
+                <Text style={styles.badge}>{visit.category || 'Visit'}</Text>
               </View>
-              <Text style={styles.infoLine}>Contact: {visit.customerPhone || visit.dcOrderId?.contact_mobile || '-'}</Text>
-              <Text style={styles.infoLine}>Zone: {visit.dcOrderId?.zone || '-'}</Text>
-              <Text style={styles.infoLine}>Assigned To: {visit.employeeId?.name || '-'}</Text>
+              <Text style={styles.infoLine}>Code: {visit.schoolCode || '-'}</Text>
+              <Text style={styles.infoLine}>Contact: {visit.contactMobile || '-'}</Text>
+              <Text style={styles.infoLine}>Zone: {visit.zone || '-'}</Text>
+              <Text style={styles.infoLine}>Town: {visit.town || '-'}</Text>
+              <Text style={styles.infoLine}>Executive: {visit.executiveId?.name || '-'}</Text>
               <Text style={styles.infoLine}>
-                Date: {visit.dcDate ? new Date(visit.dcDate).toLocaleDateString('en-IN') : visit.createdAt ? new Date(visit.createdAt).toLocaleDateString('en-IN') : '-'}
+                Date: {visit.visitDate ? new Date(visit.visitDate).toLocaleDateString('en-IN') : visit.createdAt ? new Date(visit.createdAt).toLocaleDateString('en-IN') : '-'}
               </Text>
-              {visit.customerAddress ? <Text style={styles.infoLine}>Address: {visit.customerAddress}</Text> : null}
+              {visit.remarks ? <Text style={styles.infoLine}>Remarks: {visit.remarks}</Text> : null}
             </View>
           ))
         )}
@@ -176,6 +180,7 @@ const styles = StyleSheet.create({
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   backIcon: { fontSize: 24, color: colors.textLight, fontWeight: 'bold' },
   headerTitle: { ...typography.heading.h1, color: colors.textLight, flex: 1, textAlign: 'center' },
+  headerSubtitle: { ...typography.body.medium, color: colors.textLight, opacity: 0.85, textAlign: 'center', marginTop: 4 },
   placeholder: { width: 40 },
   summaryRow: { flexDirection: 'row', padding: 16, gap: 10 },
   summaryCard: { flex: 1, padding: 12, borderRadius: 12, backgroundColor: colors.backgroundLight, borderWidth: 1, borderColor: colors.border },

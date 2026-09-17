@@ -196,6 +196,27 @@ const resetEmployeePassword = async (req, res) => {
   }
 };
 
+// @desc    Clear bound mobile device so employee can re-bind
+// @route   PUT /api/employees/:id/reset-device
+// @access  Private (Admin / Super Admin via route middleware)
+const resetEmployeeDevice = async (req, res) => {
+  try {
+    const employee = await User.findById(req.params.id);
+
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+
+    employee.boundDeviceId = null;
+    employee.boundDeviceAt = null;
+    await employee.save();
+
+    res.json({ message: 'Device binding cleared successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Get employee leaves
 // @route   GET /api/employees/:id/leaves
 // @access  Private
@@ -401,6 +422,7 @@ module.exports = {
   updateEmployee,
   getEmployeeLeaves,
   resetEmployeePassword,
+  resetEmployeeDevice,
   getEmployeeTracking,
   exportEmployeeTracking,
 };

@@ -18,6 +18,7 @@ import { exportEmployeeTrackingReport } from '../../utils/exportEmployeeTracking
 
 type TrackingData = {
   _id: string;
+  employeeId?: string;
   employeeName: string;
   mobileNo: string;
   email?: string;
@@ -27,6 +28,39 @@ type TrackingData = {
   lastLocation: string;
   logCount: number;
 };
+
+type TrackingLatestRow = {
+  employeeId: string;
+  name?: string;
+  mobile?: string;
+  zone?: string;
+  started?: string;
+  lastUsed?: string;
+  lastLocation?: { latitude?: number; longitude?: number } | string;
+  pings?: number;
+};
+
+function formatLocation(loc?: TrackingLatestRow['lastLocation']) {
+  if (typeof loc === 'string' && loc.trim()) return loc;
+  if (loc && typeof loc === 'object' && loc.latitude != null && loc.longitude != null) {
+    return `${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}`;
+  }
+  return '-';
+}
+
+function mapLatestRows(rows: TrackingLatestRow[]): TrackingData[] {
+  return rows.map((row) => ({
+    _id: String(row.employeeId),
+    employeeId: String(row.employeeId),
+    employeeName: row.name || 'Unknown',
+    mobileNo: row.mobile || '',
+    zone: row.zone || '',
+    started: row.started || '',
+    lastUsed: row.lastUsed || '',
+    lastLocation: formatLocation(row.lastLocation),
+    logCount: Number(row.pings) || 0,
+  }));
+}
 
 function formatActivityTimestamp(dateStr?: string) {
   if (!dateStr) return '-';
@@ -94,14 +128,39 @@ export default function ReportsEmployeeTrackScreen() {
   const loadTracking = async () => {
     try {
       setLoading(true);
-      const data = await apiService.get<TrackingData[]>('/employees/tracking');
-      setAllRecords(data || []);
+      try {
+        const qs = zone ? `?zone=${encodeURIComponent(zone)}` : '';
+        const latest = await apiService.get<TrackingLatestRow[]>(`/tracking/latest${qs}`);
+        setAllRecords(mapLatestRows(Array.isArray(latest) ? latest : []));
+      } catch (_) {
+        const data = await apiService.get<TrackingData[]>('/employees/tracking');
+        setAllRecords(data || []);
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load tracking data');
       setAllRecords([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const viewRoute = async (rec: TrackingData) => {
+    const employeeId = rec.employeeId || rec._id;
+    const date =
+      rec.lastUsed && !Number.isNaN(new Date(rec.lastUsed).getTime())
+        ? new Date(rec.lastUsed).toISOString().slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+    try {
+      const route = await apiService.get<any>(
+        `/tracking/${employeeId}/route?date=${encodeURIComponent(date)}`
+      );
+      Alert.alert(
+        'Route summary',
+        `${rec.employeeName}\nDate: ${date}\nDistance: ${route?.distanceKm ?? 0} km\nPoints: ${route?.pointCount ?? 0}`
+      );
+    } catch (error: any) {
+      Alert.alert('Route', error?.message || 'Failed to load route');
     }
   };
 
@@ -269,6 +328,7 @@ export default function ReportsEmployeeTrackScreen() {
                     <View style={[styles.logBarFill, { width: `${logPct}%` }]} />
                   </View>
                 </View>
+                <WebButton title="View route" onPress={() => viewRoute(rec)} />
               </View>
             );
           })

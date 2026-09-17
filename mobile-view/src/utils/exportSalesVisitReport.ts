@@ -5,6 +5,7 @@ import { getApiUrl } from '../services/api';
 
 type ExportParams = {
   zone?: string;
+  executiveId?: string;
   employeeId?: string;
   fromDate?: string;
   toDate?: string;
@@ -15,13 +16,14 @@ type ExportParams = {
 export async function exportSalesVisitReport(params: ExportParams, filename: string) {
   const qs = new URLSearchParams();
   if (params.zone) qs.append('zone', params.zone);
-  if (params.employeeId) qs.append('employeeId', params.employeeId);
+  if (params.executiveId) qs.append('executiveId', params.executiveId);
+  else if (params.employeeId) qs.append('executiveId', params.employeeId);
   if (params.fromDate) qs.append('fromDate', params.fromDate);
   if (params.toDate) qs.append('toDate', params.toDate);
   if (params.schoolName) qs.append('schoolName', params.schoolName);
   if (params.schoolCode) qs.append('schoolCode', params.schoolCode);
 
-  const url = `${getApiUrl()}/dc/export-sales-visit?${qs.toString()}`;
+  const url = `${getApiUrl()}/visits/export?${qs.toString()}`;
   const token = await AsyncStorage.getItem('authToken');
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
