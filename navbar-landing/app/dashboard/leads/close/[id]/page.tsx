@@ -121,14 +121,20 @@ export default function CloseLeadPage() {
       if (leadData) {
         setLead(leadData)
         // Pre-fill form with lead data
-        // Only use estimated_delivery_date, NOT follow_up_date
-        const deliveryDate = leadData.estimated_delivery_date 
+        // Prefill delivery only from a real estimated_delivery_date.
+        // Never use follow_up_date — and ignore estimated when it was wrongly cloned from follow-up.
+        const followUpYmd = leadData.follow_up_date
+          ? new Date(leadData.follow_up_date).toISOString().split('T')[0]
+          : ''
+        const estimatedYmd = leadData.estimated_delivery_date
           ? new Date(leadData.estimated_delivery_date).toISOString().split('T')[0]
           : ''
+        const deliveryDate =
+          estimatedYmd && estimatedYmd !== followUpYmd ? estimatedYmd : ''
         setForm({
           contact_person2: leadData.decision_maker || leadData.contact_person2 || leadData.contact_person || '',
           contact_mobile2: leadData.contact_mobile2 || '',
-                delivery_date: deliveryDate, // Do NOT use follow_up_date here
+                delivery_date: deliveryDate,
                 year: currentAcademicYear,
         })
         

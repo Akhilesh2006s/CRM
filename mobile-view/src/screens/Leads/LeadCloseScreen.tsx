@@ -201,9 +201,15 @@ export default function LeadCloseScreen({ navigation, route }: any) {
       
       if (data) {
         setLead(data);
-        const deliveryDate = data.estimated_delivery_date 
+        const followUpYmd = data.follow_up_date
+          ? new Date(data.follow_up_date).toISOString().split('T')[0]
+          : '';
+        const estimatedYmd = data.estimated_delivery_date
           ? new Date(data.estimated_delivery_date).toISOString().split('T')[0]
           : '';
+        // Never treat follow-up as delivery; ignore estimated when it matches follow-up (legacy bug).
+        const deliveryDate =
+          estimatedYmd && estimatedYmd !== followUpYmd ? estimatedYmd : '';
         setForm({
           school_name: data.school_name || '',
           contact_person: data.contact_person || '',

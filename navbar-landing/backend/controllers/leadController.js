@@ -3,8 +3,11 @@ const DcOrder = require('../models/DcOrder');
 const ExcelJS = require('exceljs');
 const mongoose = require('mongoose');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
-const { normalizeProductTerm } = require('../utils/productTerm');
+const { ensureSchoolCode, isClientConversionUpdate } = require('../utils/clientSchoolCode');
+const { persistProductTerm } = require('../utils/productTerm');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
+const { parseFollowUpDateOnly } = require('../utils/followUpDate');
+const { closeOpenLeadsForConvertedOrder } = require('../utils/closeOpenLeadsForClient');
 
 function mapProductsFromInterested(productsInput) {
   if (!Array.isArray(productsInput)) return [];
@@ -14,7 +17,7 @@ function mapProductsFromInterested(productsInput) {
       product_name: String(p.product_name || p.product || '').trim(),
       quantity: Math.max(0, Number(p.quantity ?? p.strength) || 1),
       unit_price: Number(p.unit_price) || 0,
-      term: normalizeProductTerm(p.term),
+      term: persistProductTerm(p),
       deliverables: Array.isArray(p.deliverables) ? p.deliverables : [],
     }));
 }
@@ -24,68 +27,9 @@ function normalizeLeadProducts(products) {
 
   return products.map((p) => {
     const product = { ...p };
-    product.term = normalizeProductTerm(product.term);
-    if (product.renewal_pct != null) {
-      product.renewal_pct = Math.max(0, Math.min(100, Number(product.renewal_pct) || 0));
-    }
-    if (product.is_from_previous_dc != null) {
-      product.is_from_previous_dc = Boolean(product.is_from_previous_dc);
-    }
+    product.term = persistProductTerm(product);
     return product;
   });
-}
-
-function parseRenewalPct(row) {
-  const raw = row.renewal_pct ?? row.chance;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.min(100, n));
-}
-
-function mapRenewalProducts(productsInput) {
-  if (!Array.isArray(productsInput)) return [];
-  return productsInput
-    .filter((p) => p && (p.product_name || p.product))
-    .map((p) => {
-      const renewalPct = parseRenewalPct(p);
-      const strengthQty = Math.max(1, Number(p.strength) || Number(p.quantity) || 1);
-      return {
-        product_name: String(p.product_name || p.product || '').trim(),
-        quantity: strengthQty,
-        unit_price: Number(p.unit_price) || 0,
-        term: normalizeProductTerm(p.term),
-        deliverables: Array.isArray(p.deliverables) ? p.deliverables : [],
-        renewal_pct: renewalPct,
-        is_from_previous_dc: Boolean(p.is_from_previous_dc ?? p.isFromPreviousDc),
-      };
-    });
-}
-
-function normalizeRenewalProductsInterested(rows = []) {
-  return rows
-    .filter((row) => row && (row.product_name || row.product))
-    .map((row) => {
-      const pct = parseRenewalPct(row) ?? 0;
-      return {
-        product_name: String(row.product_name || row.product || '').trim(),
-        term: normalizeProductTerm(row.term),
-        status: 'Warm',
-        strength: Number(row.strength) || Number(row.quantity) || 0,
-        chance: pct,
-        is_from_previous_dc: Boolean(row.is_from_previous_dc ?? row.isFromPreviousDc),
-      };
-    });
-}
-
-function renewalInterestedToLeadProducts(rows = []) {
-  return rows.map((row) => ({
-    product_name: row.product_name,
-    term: row.term,
-    quantity: Math.max(1, Number(row.strength) || Number(row.quantity) || 1),
-    unit_price: 0,
-    renewal_pct: row.chance,
-    is_from_previous_dc: Boolean(row.is_from_previous_dc),
-  }));
 }
 
 // @desc    Get all leads
@@ -112,8 +56,10 @@ const getLeads = async (req, res) => {
       fromDate, 
       toDate,
       lead_type: leadType,
+      pipeline,
     } = req.query;
     const filter = {};
+    const isFollowUpPipeline = String(pipeline || '').toLowerCase() === 'followup';
 
     if (leadType) {
       if (String(leadType).includes(',')) {
@@ -123,7 +69,10 @@ const getLeads = async (req, res) => {
       }
     }
 
-    if (status) {
+    if (isFollowUpPipeline) {
+      // Follow-up Leads: only active/open leads. Closed/converted must not be returned.
+      filter.status = { $in: ['Pending', 'Processing'] };
+    } else if (status) {
       // Handle multiple statuses (comma-separated)
       if (status.includes(',')) {
         filter.status = { $in: status.split(',').map(s => s.trim()) };
@@ -172,7 +121,7 @@ const getLeads = async (req, res) => {
 
     // Pagination support
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Default 50 items per page
+    const limit = parseInt(req.query.limit) || (isFollowUpPipeline ? 500 : 50);
     const skip = (page - 1) * limit;
 
     // Get total count for pagination - use estimatedDocumentCount for better performance if no filters
@@ -200,7 +149,9 @@ const getLeads = async (req, res) => {
     // Only populate essential fields for list view
     let query = Lead.find(filter)
       .select(
-        'school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
+        isFollowUpPipeline
+          ? 'school_name school_code contact_person contact_person2 contact_mobile zone status follow_up_date location strength createdAt updatedAt remarks priority products managed_by assigned_by createdBy lead_type school_id renewalSource'
+          : 'school_name school_code contact_person contact_person2 contact_mobile zone status follow_up_date location strength createdAt updatedAt remarks priority managed_by assigned_by createdBy lead_type school_id renewalSource'
       ) // Only select needed fields
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -238,9 +189,55 @@ const getLeads = async (req, res) => {
     
     const leads = await query;
 
+    // Closed Sales merges GET /leads?status=Closed. After Raise DC the lead stays "Closed"
+    // forever, so exclude any lead whose school already has a raised pipeline DC / past Closed Sales sale.
+    let leadRows = leads;
+    const statusParam = String(status || '');
+    if (statusParam === 'Closed' || statusParam.split(',').map((s) => s.trim()).includes('Closed')) {
+      const DC = require('../models/DC');
+      const raisedDcs = await DC.find({
+        status: { $in: ['pending_dc', 'sent_to_manager', 'warehouse_processing', 'completed', 'hold'] },
+      })
+        .select('customerName customerPhone dcOrderId')
+        .populate('dcOrderId', 'school_name contact_mobile')
+        .lean()
+        .maxTimeMS(20000);
+
+      const pastOrders = await DcOrder.find({
+        $or: [
+          { workflowStage: { $in: ['PendingDC', 'EmpDC', 'CompletedDC'] } },
+          { status: 'dc_sent_to_senior' },
+        ],
+      })
+        .select('school_name contact_mobile')
+        .lean()
+        .maxTimeMS(20000);
+
+      const blockedNames = new Set();
+      const blockedNameMobile = new Set();
+      const mark = (name, mobile) => {
+        const n = String(name || '').toLowerCase().trim();
+        const m = String(mobile || '').trim();
+        if (n) blockedNames.add(n);
+        if (n && m) blockedNameMobile.add(`${n}|${m}`);
+      };
+      raisedDcs.forEach((d) => {
+        mark(d.dcOrderId?.school_name || d.customerName, d.dcOrderId?.contact_mobile || d.customerPhone);
+      });
+      pastOrders.forEach((o) => mark(o.school_name, o.contact_mobile));
+
+      leadRows = leads.filter((lead) => {
+        const n = String(lead.school_name || '').toLowerCase().trim();
+        const m = String(lead.contact_mobile || '').trim();
+        if (n && m && blockedNameMobile.has(`${n}|${m}`)) return false;
+        if (n && blockedNames.has(n)) return false;
+        return true;
+      });
+    }
+
     // Return paginated response
     res.json({
-      data: leads,
+      data: leadRows,
       pagination: {
         page,
         limit,
@@ -269,7 +266,7 @@ const getLead = async (req, res) => {
       .populate('createdBy', 'name email')
       .populate(
         'school_id',
-        'school_name school_code dc_code contact_person contact_mobile zone location city state region area pincode strength address school_type products status remarks'
+        'school_name school_code dc_code contact_person contact_mobile contact_person2 contact_mobile2 email zone location city state region area pincode strength address school_type products status remarks estimated_delivery_date'
       );
 
     if (!lead) {
@@ -291,6 +288,24 @@ const createLead = async (req, res) => {
       return createRenewalLead(req, res);
     }
 
+    // Require email for normal new-school lead creation (Add Lead).
+    // Skip for internal Closed reporting records created during Turn Lead to Client.
+    const isClosedReportingLead =
+      String(req.body?.status || '').toLowerCase() === 'closed';
+    if (!isClosedReportingLead) {
+      const email = (req.body.email || '').trim();
+      if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+      req.body.email = email;
+    } else if (req.body.email) {
+      req.body.email = String(req.body.email).trim();
+    }
+
     const leadData = {
       ...req.body,
       createdBy: req.user._id,
@@ -300,6 +315,13 @@ const createLead = async (req, res) => {
     }
     delete leadData.school_id;
     delete leadData.renewalSource;
+
+    if (leadData.follow_up_date) {
+      leadData.follow_up_date = parseFollowUpDateOnly(leadData.follow_up_date) || undefined;
+    }
+    // Lead create must not store a delivery date (that belongs on convert / DC).
+    delete leadData.estimated_delivery_date;
+    delete leadData.delivery_date;
 
     // Normalize product terms (adds default Term 1 when missing, validates when provided)
     try {
@@ -355,22 +377,9 @@ const createRenewalLead = async (req, res) => {
     }
 
     const code = String(order.school_code || order.dc_code || '').trim();
-    const productsFromBody = mapRenewalProducts(req.body.products || req.body.productsInterested);
+    const productsFromBody = mapProductsFromInterested(req.body.products || req.body.productsInterested);
     if (productsFromBody.length === 0) {
       return res.status(400).json({ message: 'Add at least one product interested for this renewal.' });
-    }
-    const invalidProducts = productsFromBody.some(
-      (row) =>
-        row.renewal_pct == null ||
-        row.renewal_pct < 1 ||
-        row.renewal_pct > 100 ||
-        !row.quantity ||
-        row.quantity <= 0
-    );
-    if (invalidProducts) {
-      return res.status(400).json({
-        message: 'Each product must have Strength greater than 0 and Chance % between 1 and 100.',
-      });
     }
     let productsNormalized;
     try {
@@ -412,11 +421,9 @@ const createRenewalLead = async (req, res) => {
       zone: order.zone || '',
       strength: order.strength != null ? order.strength : 0,
       remarks: req.body.remarks != null ? String(req.body.remarks) : '',
-      recommendations:
-        req.body.recommendations != null ? String(req.body.recommendations).trim() : '',
       priority: ['Hot', 'Warm', 'Cold'].includes(req.body.priority) ? req.body.priority : 'Warm',
       status: 'Pending',
-      follow_up_date: req.body.follow_up_date ? new Date(req.body.follow_up_date) : undefined,
+      follow_up_date: req.body.follow_up_date ? parseFollowUpDateOnly(req.body.follow_up_date) || undefined : undefined,
       createdBy: userId,
       managed_by: userId,
       assigned_by: userId,
@@ -459,16 +466,13 @@ const updateLead = async (req, res) => {
 
     const hasFollowUpDate = req.body.follow_up_date !== undefined;
     const hasRemarks = req.body.remarks !== undefined;
-    const hasRecommendations = req.body.recommendations !== undefined;
     const hasProductsInterested = Array.isArray(req.body.productsInterested);
-    const isRenewalLead = lead.lead_type === 'renewal';
-
     const normalizeProductsInterested = (rows = []) =>
       rows
         .filter((row) => row && (row.product_name || row.product))
         .map((row) => ({
           product_name: String(row.product_name || row.product || '').trim(),
-          term: normalizeProductTerm(row.term),
+          term: persistProductTerm(row),
           status: ['Hot', 'Warm', 'Visit Again', 'Not Met Management', 'Not Interested'].includes(row.status)
             ? row.status
             : 'Warm',
@@ -478,50 +482,37 @@ const updateLead = async (req, res) => {
           quantity: Number(row.strength) || 0,
           unit_price: 0,
         }));
-
     const normalizedProductsInterested = hasProductsInterested
-      ? isRenewalLead
-        ? normalizeRenewalProductsInterested(req.body.productsInterested)
-        : normalizeProductsInterested(req.body.productsInterested)
+      ? normalizeProductsInterested(req.body.productsInterested)
       : [];
-
-    const isFollowUpSubmission = hasFollowUpDate && hasRemarks;
-    if (isFollowUpSubmission && hasProductsInterested) {
-      if (normalizedProductsInterested.length === 0) {
-        return res.status(400).json({
-          message: isRenewalLead
-            ? 'At least one product with Renewal % is required'
-            : 'At least one product with Strength (quantity) and Chance % is required',
-        });
+    const validateFollowUpProducts = (rows) => {
+      if (rows.length === 0) {
+        return 'At least one product with Strength and Chance % is required';
       }
-      if (isRenewalLead) {
-        const invalidRenewalRows = normalizedProductsInterested.some(
-          (row) => row.chance < 1 || row.chance > 100 || row.strength <= 0
-        );
-        if (invalidRenewalRows) {
-          return res.status(400).json({
-            message:
-              'Each product must have Strength greater than 0 and Chance % between 1 and 100',
-          });
+      for (const row of rows) {
+        if (row.strength <= 0 || row.chance <= 0) {
+          return 'Each product must have Strength greater than 0 and Chance % greater than 0';
         }
-      } else {
-        const invalidProductRows = normalizedProductsInterested.some(
-          (row) => row.strength <= 0 || row.chance <= 0
-        );
-        if (invalidProductRows) {
-          return res.status(400).json({
-            message: 'Each product must have Strength greater than 0 and Chance % greater than 0',
-          });
+        if (row.status === 'Hot' && row.chance < 80) {
+          return 'Hot products require Chance % at least 80';
         }
+        if (row.status === 'Warm' && row.chance < 20) {
+          return 'Warm products require Chance % at least 20';
+        }
+      }
+      return null;
+    };
+
+    if (hasProductsInterested) {
+      const productErr = validateFollowUpProducts(normalizedProductsInterested);
+      if (productErr) {
+        return res.status(400).json({ message: productErr });
       }
     }
 
-    let derivedLeadPriority = null;
-    if (!isRenewalLead && normalizedProductsInterested.length > 0) {
-      derivedLeadPriority = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
-      if (derivedLeadPriority) {
-        req.body.priority = derivedLeadPriority;
-      }
+    const derivedLeadPriority = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
+    if (normalizedProductsInterested.length > 0 && derivedLeadPriority) {
+      req.body.priority = derivedLeadPriority;
     }
     const hasPriority = req.body.priority !== undefined;
 
@@ -530,11 +521,7 @@ const updateLead = async (req, res) => {
       req.body.products = normalizeLeadProducts(req.body.products);
     }
     if (hasProductsInterested) {
-      req.body.products = normalizeLeadProducts(
-        isRenewalLead
-          ? renewalInterestedToLeadProducts(normalizedProductsInterested)
-          : normalizedProductsInterested
-      );
+      req.body.products = normalizeLeadProducts(normalizedProductsInterested);
     }
 
     // Remove transient payload key, not a Lead top-level field
@@ -542,8 +529,7 @@ const updateLead = async (req, res) => {
       delete req.body.productsInterested;
     }
 
-    const shouldTrackHistory =
-      hasFollowUpDate || hasRemarks || hasRecommendations || hasPriority || hasProductsInterested;
+    const shouldTrackHistory = hasFollowUpDate || hasRemarks || hasPriority || hasProductsInterested;
 
     if (shouldTrackHistory) {
       const historyPriority =
@@ -555,10 +541,9 @@ const updateLead = async (req, res) => {
       req.body.$push = {
         updateHistory: {
           follow_up_date: hasFollowUpDate && req.body.follow_up_date
-            ? new Date(req.body.follow_up_date)
+            ? parseFollowUpDateOnly(req.body.follow_up_date)
             : null,
           remarks: hasRemarks ? (req.body.remarks || '') : '',
-          recommendations: hasRecommendations ? (req.body.recommendations || '') : '',
           priority: historyPriority,
           productsInterested: normalizedProductsInterested,
           updatedBy: req.user?._id || lead.createdBy,
@@ -570,6 +555,30 @@ const updateLead = async (req, res) => {
     const updateData = { ...req.body };
     const pushData = updateData.$push;
     delete updateData.$push;
+    if (hasFollowUpDate) {
+      updateData.follow_up_date = req.body.follow_up_date
+        ? parseFollowUpDateOnly(req.body.follow_up_date)
+        : null;
+    }
+
+    const becomingClosed =
+      String(updateData.status || '').toLowerCase() === 'closed' ||
+      String(lead.status || '').toLowerCase() === 'closed';
+    if (!lead.school_code && (becomingClosed || isClientConversionUpdate(updateData, lead))) {
+      let code = '';
+      if (lead.school_id) {
+        const order = await DcOrder.findById(lead.school_id).lean();
+        if (order) {
+          code = await ensureSchoolCode(order, updateData);
+        }
+      }
+      if (!code) {
+        code = await ensureSchoolCode(lead, updateData);
+      }
+      if (code) {
+        updateData.school_code = code;
+      }
+    }
 
     const mongoUpdate = {};
     if (Object.keys(updateData).length > 0) {
@@ -628,8 +637,10 @@ const exportLeads = async (req, res) => {
       fromDate, 
       toDate,
       lead_type: leadTypeExport,
+      pipeline,
     } = req.query;
     const filter = {};
+    const isFollowUpExport = String(pipeline || '').toLowerCase() === 'followup';
 
     if (leadTypeExport) {
       if (String(leadTypeExport).includes(',')) {
@@ -639,7 +650,9 @@ const exportLeads = async (req, res) => {
       }
     }
 
-    if (status) {
+    if (isFollowUpExport) {
+      filter.status = { $in: ['Pending', 'Processing'] };
+    } else if (status) {
       // Handle multiple statuses (comma-separated)
       if (status.includes(',')) {
         filter.status = { $in: status.split(',').map(s => s.trim()) };
@@ -703,7 +716,7 @@ const exportLeads = async (req, res) => {
         location: lead.location || '',
         schoolName: lead.school_name || '',
         contactPerson: lead.contact_person || '',
-        decisionMaker: lead.contact_person || '',
+        decisionMaker: lead.contact_person2 || '',
         mobile: lead.contact_mobile || '',
         followUpOn: lead.follow_up_date ? new Date(lead.follow_up_date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '',
         schoolStrength: lead.strength || 0,
@@ -750,13 +763,24 @@ const convertToClient = async (req, res) => {
           product_name: p.product_name || p.product || 'Abacus',
           quantity: Number(p.quantity) || 1,
           unit_price: Number(p.unit_price) || 0,
-          term: normalizeProductTerm(p.term),
+          term: persistProductTerm(p),
+          level: p.level,
+          class: p.class,
+          specs: p.specs,
+          subject: p.subject,
+          productCategory: p.productCategory,
+          category: p.category,
         }))
       : (lead.products && lead.products.length > 0
           ? lead.products.map((p) => ({
               product_name: p.product_name || p.product || 'Abacus',
               quantity: Number(p.quantity) || 1,
               unit_price: Number(p.unit_price) || 0,
+              term: persistProductTerm(p),
+              level: p.level,
+              class: p.class,
+              specs: p.specs,
+              subject: p.subject,
             }))
           : [{ product_name: 'Abacus', quantity: 1, unit_price: 0 }]);
 
@@ -784,7 +808,7 @@ const convertToClient = async (req, res) => {
             product_name: p.product_name,
             quantity: Number(p.quantity) || 1,
             unit_price: Number(p.unit_price) || 0,
-            term: normalizeProductTerm(p.term),
+            term: persistProductTerm(p),
           });
         }
       }
@@ -803,6 +827,19 @@ const convertToClient = async (req, res) => {
       return res.status(200).json(populated);
     }
 
+    const latitude =
+      body.latitude != null && body.latitude !== ''
+        ? Number(body.latitude)
+        : lead.latitude != null
+          ? Number(lead.latitude)
+          : undefined;
+    const longitude =
+      body.longitude != null && body.longitude !== ''
+        ? Number(body.longitude)
+        : lead.longitude != null
+          ? Number(lead.longitude)
+          : undefined;
+
     const dcOrderPayload = {
       school_name: body.school_name || lead.school_name,
       contact_person: body.contact_person || lead.contact_person,
@@ -818,13 +855,21 @@ const convertToClient = async (req, res) => {
       status: 'saved',
       assigned_to: userIdObj,
       created_by: userIdObj,
-      estimated_delivery_date: body.estimated_delivery_date ? new Date(body.estimated_delivery_date) : undefined,
+      estimated_delivery_date: body.estimated_delivery_date
+        ? new Date(body.estimated_delivery_date)
+        : undefined,
+      // Never use lead.follow_up_date as delivery date — those are different fields.
       pod_proof_url: body.pod_proof_url || lead.pod_proof_url,
+      ...(Number.isFinite(latitude) ? { latitude } : {}),
+      ...(Number.isFinite(longitude) ? { longitude } : {}),
     };
 
     const dcOrder = await DcOrder.create(dcOrderPayload);
 
     await Lead.findByIdAndUpdate(req.params.id, { status: 'Closed' });
+    await closeOpenLeadsForConvertedOrder(dcOrder).catch((err) => {
+      console.warn('Could not close matching open leads after convert-to-client:', err?.message);
+    });
 
     const populated = await DcOrder.findById(dcOrder._id)
       .populate('assigned_to', 'name email')

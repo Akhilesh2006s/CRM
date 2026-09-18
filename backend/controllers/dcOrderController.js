@@ -660,8 +660,7 @@ const create = async (req, res) => {
 
     const followUpRaw =
       payload.follow_up_date ||
-      payload.followUpDate ||
-      payload.estimated_delivery_date;
+      payload.followUpDate;
     if (followUpRaw === undefined || followUpRaw === null || String(followUpRaw).trim() === '') {
       return res.status(400).json({ message: 'Follow-up Date is required.' });
     }
@@ -669,8 +668,18 @@ const create = async (req, res) => {
     if (!followUpDate) {
       return res.status(400).json({ message: 'Follow-up Date is required.' });
     }
+    // Follow-up and delivery are separate. Never copy follow-up into estimated_delivery_date.
     payload.follow_up_date = followUpDate;
-    payload.estimated_delivery_date = followUpDate;
+    if (
+      payload.estimated_delivery_date !== undefined &&
+      payload.estimated_delivery_date !== null &&
+      String(payload.estimated_delivery_date).trim() !== ''
+    ) {
+      const deliveryOnly = parseFollowUpDateOnly(payload.estimated_delivery_date);
+      payload.estimated_delivery_date = deliveryOnly || undefined;
+    } else {
+      delete payload.estimated_delivery_date;
+    }
 
     // Normalize / validate email when provided
     if (payload.email !== undefined && payload.email !== null && String(payload.email).trim() !== '') {

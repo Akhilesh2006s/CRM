@@ -451,7 +451,7 @@ export default function DCCreateSaleScreen({ navigation }: any) {
         remarks: form.remarks.trim(),
         email,
         products: selectedProducts,
-        estimated_delivery_date: followUp,
+        follow_up_date: followUp,
         assigned_to: form.assigned_to,
       });
       setSuccess('Deal created successfully. DC entry has been created — submit PO from EMP DC / Admin DCs.');

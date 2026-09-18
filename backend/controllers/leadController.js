@@ -319,6 +319,9 @@ const createLead = async (req, res) => {
     if (leadData.follow_up_date) {
       leadData.follow_up_date = parseFollowUpDateOnly(leadData.follow_up_date) || undefined;
     }
+    // Lead create must not store a delivery date (that belongs on convert / DC).
+    delete leadData.estimated_delivery_date;
+    delete leadData.delivery_date;
 
     // Normalize product terms (adds default Term 1 when missing, validates when provided)
     try {
@@ -852,7 +855,10 @@ const convertToClient = async (req, res) => {
       status: 'saved',
       assigned_to: userIdObj,
       created_by: userIdObj,
-      estimated_delivery_date: body.estimated_delivery_date ? new Date(body.estimated_delivery_date) : undefined,
+      estimated_delivery_date: body.estimated_delivery_date
+        ? new Date(body.estimated_delivery_date)
+        : undefined,
+      // Never use lead.follow_up_date as delivery date — those are different fields.
       pod_proof_url: body.pod_proof_url || lead.pod_proof_url,
       ...(Number.isFinite(latitude) ? { latitude } : {}),
       ...(Number.isFinite(longitude) ? { longitude } : {}),

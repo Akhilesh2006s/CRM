@@ -1,14 +1,229 @@
 const DcOrder = require('../models/DcOrder');
 const DC = require('../models/DC');
+const Lead = require('../models/Lead');
 const { generateSchoolCode } = require('../utils/schoolCodeGenerator');
-const { normalizeProductTerm, normalizeDcOrderProductTermsInArray } = require('../utils/productTerm');
+const {
+  ensureSchoolCode,
+  isClientConversionUpdate,
+} = require('../utils/clientSchoolCode');
+const { normalizeProductTerm, persistProductTerm, normalizeDcOrderProductTermsInArray } = require('../utils/productTerm');
+const {
+  productLineIdentity,
+  orderProductToDcDetail,
+  dcDetailToOrderProduct,
+  siblingTermWiseRows,
+  filterOutExactTermWiseLines,
+  mergeMyClientsProductsPreservingTermWise,
+  mergeTermWiseProductsPreservingMyClients,
+  sumProductQuantities,
+  sumProductAmounts,
+  rowUnitPrice,
+  rowQuantity,
+} = require('../utils/productLineIdentity');
 const { derivePriorityFromFollowUpProducts } = require('../utils/leadFollowUpPriority');
 const { dealProductsToFollowUpSnapshot } = require('../utils/dealProductsToFollowUpSnapshot');
 const { attachResolvedUpdatedByToHistory } = require('../utils/resolveHistoryUpdatedBy');
 const { isTransportCompleteForUpdate } = require('../utils/dcTransport');
+const { validateSaleIdentityFields, validateSaleProducts } = require('../utils/saleFieldValidation');
+const { parseFollowUpDateOnly } = require('../utils/followUpDate');
+const { closeOpenLeadsForConvertedOrder } = require('../utils/closeOpenLeadsForClient');
 const mongoose = require('mongoose');
 
 const SCHOOL_LEAD_STATUSES = new Set(['Hot', 'Warm', 'Cold']);
+
+function plainProduct(p) {
+  if (!p) return null;
+  const row = typeof p.toObject === 'function' ? p.toObject() : { ...p };
+  const name = String(row.product_name || row.product || row.productName || '').trim();
+  if (!name) return null;
+  const qty = Number(row.quantity) || Number(row.strength) || 0;
+  const price = Number(row.unit_price) || Number(row.price) || 0;
+  return {
+    ...row,
+    product_name: name,
+    quantity: qty,
+    strength: Number(row.strength) || qty,
+    unit_price: price,
+    total: Number(row.total) || qty * price,
+    class: row.class || '1',
+    specs: row.specs || 'Regular',
+    subject: row.subject,
+    level: row.level || '',
+    term: persistProductTerm(row),
+    productCategory: row.productCategory,
+    category: row.category,
+    selected_subjects: row.selected_subjects,
+    closeLeadDestination: row.closeLeadDestination || 'MY_CLIENT',
+    lineId: row.lineId,
+  };
+}
+
+function applySavedUnitPricesToDcDetails(details, orderProducts) {
+  const orders = Array.isArray(orderProducts) ? orderProducts : [];
+  const source =
+    Array.isArray(details) && details.length > 0
+      ? details
+      : orders.map((p) => orderProductToDcDetail(p));
+  const used = new Set();
+  return source.map((row, idx) => {
+    const plain = row && typeof row.toObject === 'function' ? row.toObject() : { ...row };
+    const key = productLineIdentity(plain);
+    let matchIdx = orders.findIndex(
+      (o, i) => !used.has(i) && productLineIdentity(o) === key
+    );
+    if (matchIdx < 0) {
+      const name = String(plain.product || plain.productName || plain.product_name || '')
+        .trim()
+        .toLowerCase();
+      const klass = String(plain.class ?? '').trim().toLowerCase();
+      matchIdx = orders.findIndex((o, i) => {
+        if (used.has(i)) return false;
+        const on = String(o.product_name || o.product || o.productName || '')
+          .trim()
+          .toLowerCase();
+        const oc = String(o.class ?? '').trim().toLowerCase();
+        if (on !== name || !name) return false;
+        if (klass && oc && klass !== oc) return false;
+        return rowUnitPrice(o) > 0;
+      });
+    }
+    if (matchIdx < 0) {
+      const name = String(plain.product || plain.productName || plain.product_name || '')
+        .trim()
+        .toLowerCase();
+      matchIdx = orders.findIndex((o, i) => {
+        if (used.has(i)) return false;
+        return String(o.product_name || o.product || '').trim().toLowerCase() === name;
+      });
+    }
+    if (matchIdx < 0 && orders[idx] && !used.has(idx)) matchIdx = idx;
+    if (matchIdx >= 0) used.add(matchIdx);
+    const match = matchIdx >= 0 ? orders[matchIdx] : null;
+    const price = rowUnitPrice(match) || rowUnitPrice(plain);
+    const qty = rowQuantity(plain);
+    return {
+      ...plain,
+      price,
+      unit_price: price,
+      total: qty * price,
+    };
+  });
+}
+
+async function syncSubmittedUnitPricesToAllDcs(orderId, submittedProducts) {
+  const submitted = (Array.isArray(submittedProducts) ? submittedProducts : [])
+    .map(plainProduct)
+    .filter(Boolean);
+  if (!orderId || submitted.length === 0) return;
+
+  const relatedDcs = await DC.find({
+    dcOrderId: orderId,
+    status: { $ne: 'scheduled_for_later' },
+  });
+  for (const dc of relatedDcs) {
+    dc.productDetails = applySavedUnitPricesToDcDetails(dc.productDetails, submitted);
+    await dc.save({ validateBeforeSave: false });
+  }
+
+  const order = await DcOrder.findById(orderId);
+  if (order && Array.isArray(order.products) && order.products.length > 0) {
+    const patchedDetails = applySavedUnitPricesToDcDetails(
+      order.products.map((p) => orderProductToDcDetail(p)),
+      submitted
+    );
+    order.products = patchedDetails.map((d) => dcDetailToOrderProduct(d, order.products));
+    await order.save({ validateBeforeSave: false });
+  }
+}
+
+function isRicherProductList(candidate, current) {
+  const a = Array.isArray(candidate) ? candidate : [];
+  const b = Array.isArray(current) ? current : [];
+  if (a.length > b.length) return true;
+  if (a.length < b.length) return false;
+  return sumProductQuantities(a) > sumProductQuantities(b);
+}
+
+/**
+ * Persist a PO product list onto the sale, My Clients DCs, and Closed Sales snapshot.
+ * Order is written first; DC sync is best-effort so a DC validator cannot block the sale.
+ */
+async function commitPoProductList(order, rawProducts, userId, options = {}) {
+  const markApproved = options.markApproved !== false;
+  const pendingPlain = (Array.isArray(rawProducts) ? rawProducts : [])
+    .map(plainProduct)
+    .filter(Boolean);
+  if (pendingPlain.length === 0) return null;
+
+  const approvedProducts = normalizeDcOrderProductTermsInArray(pendingPlain);
+  const twRows = await siblingTermWiseRows(DC, order._id, null);
+  const myClientsApproved = filterOutExactTermWiseLines(approvedProducts, twRows);
+  const myClientsDetails = myClientsApproved.map((p) => orderProductToDcDetail(p));
+  const approvedQty = sumProductQuantities(myClientsApproved);
+  const approvedAmount = sumProductAmounts(approvedProducts);
+  const pendingKeys = new Set(myClientsApproved.map((p) => productLineIdentity(p)));
+  const siblingOrderProducts = (twRows || [])
+    .filter((p) => !pendingKeys.has(productLineIdentity(p)))
+    .map((p) => dcDetailToOrderProduct(p, order.products));
+  const mergedOrderProducts = [...myClientsApproved, ...siblingOrderProducts];
+
+  const prevRequest =
+    order.dcRequestData && typeof order.dcRequestData.toObject === 'function'
+      ? order.dcRequestData.toObject()
+      : order.dcRequestData || {};
+
+  const $set = {
+    products: mergedOrderProducts,
+    total_amount: approvedAmount > 0 ? approvedAmount : order.total_amount,
+    dcRequestData: {
+      ...prevRequest,
+      productDetails: myClientsDetails,
+      requestedQuantity: approvedQty,
+    },
+  };
+  if (markApproved) {
+    $set['pendingEdit.status'] = 'approved';
+    $set['pendingEdit.products'] = approvedProducts;
+    if (userId) {
+      $set['pendingEdit.approvedBy'] = userId;
+      $set['pendingEdit.approvedAt'] = new Date();
+    }
+  }
+
+  const updated = await DcOrder.findByIdAndUpdate(
+    order._id,
+    { $set },
+    { new: true, runValidators: false }
+  );
+
+  try {
+    const dcSet = { productDetails: myClientsDetails };
+    if (approvedQty > 0) dcSet.requestedQuantity = approvedQty;
+    if (myClientsDetails[0] && myClientsDetails[0].product) {
+      dcSet.product = myClientsDetails[0].product;
+    }
+    await DC.updateMany(
+      {
+        dcOrderId: order._id,
+        status: { $in: ['created', 'po_submitted'] },
+      },
+      { $set: dcSet }
+    );
+  } catch (dcErr) {
+    console.warn('commitPoProductList DC sync failed:', order._id, dcErr?.message || dcErr);
+  }
+
+  console.log('📦 Committed PO products to sale', {
+    id: String(order._id),
+    school: order.school_name,
+    productCount: mergedOrderProducts.length,
+    names: mergedOrderProducts.map((p) => p.product_name),
+    qty: approvedQty,
+    amount: approvedAmount,
+    markApproved,
+  });
+  return updated;
+}
 
 function resolveSchoolLeadStatus(...candidates) {
   for (const value of candidates) {
@@ -18,15 +233,99 @@ function resolveSchoolLeadStatus(...candidates) {
   return '';
 }
 
-/** Lead status badge for a history row (school Hot/Warm/Cold, then per-product deal status). */
+/** Build DC fields from a DcOrder so Create Sale always links one DC per deal. */
+function buildCreatedDcPayloadFromOrder(order, createdByUserId) {
+  let productName = 'Abacus';
+  if (order.products && Array.isArray(order.products) && order.products.length > 0) {
+    productName = order.products[0].product_name || order.products[0].product || 'Abacus';
+  } else if (typeof order.products === 'string') {
+    const products = order.products.split(',').map((p) => p.trim()).filter(Boolean);
+    productName = products.length > 0 ? products[0] : 'Abacus';
+  }
+
+  let quantity = 1;
+  if (order.products && Array.isArray(order.products) && order.products.length > 0) {
+    quantity = order.products.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0) || 1;
+  }
+
+  return {
+    dcOrderId: order._id,
+    employeeId: order.assigned_to,
+    customerName: order.school_name,
+    customerEmail: order.email || undefined,
+    customerAddress: order.address || order.location || 'N/A',
+    customerPhone: order.contact_mobile || 'N/A',
+    product: productName,
+    requestedQuantity: quantity,
+    deliverableQuantity: 0,
+    status: 'created',
+    createdBy: createdByUserId,
+  };
+}
+
+/**
+ * Ensure a DC exists for this deal (status=created preferred).
+ * Never creates a second DC when any DC is already linked to the order.
+ */
+async function ensureCreatedDcForOrder(order, createdByUserId, session = null) {
+  const existingQuery = DC.findOne({ dcOrderId: order._id });
+  if (session) existingQuery.session(session);
+  const existingAny = await existingQuery;
+  if (existingAny) {
+    return { dc: existingAny, created: false };
+  }
+
+  if (!order.assigned_to) {
+    throw new Error('Please assign the deal to an executive. DC will not be created without assignment.');
+  }
+  if (!mongoose.Types.ObjectId.isValid(String(order.assigned_to))) {
+    throw new Error('Invalid assigned executive id.');
+  }
+
+  const User = require('../models/User');
+  const execQuery = User.findById(order.assigned_to).select('_id name role isActive');
+  if (session) execQuery.session(session);
+  const assignedExecutive = await execQuery;
+  if (!assignedExecutive) {
+    throw new Error('Assigned executive not found.');
+  }
+
+  const payload = buildCreatedDcPayloadFromOrder(order, createdByUserId);
+  const createOpts = session ? { session } : undefined;
+  const createdList = await DC.create([payload], createOpts);
+  const dc = createdList[0];
+  console.log(
+    `DC created successfully for DcOrder ${order._id}, assigned to employee ${order.assigned_to}`
+  );
+  return { dc, created: true };
+}
+
+async function populateDealAndDcResponse(orderId, dcId) {
+  const populated = await DcOrder.findById(orderId)
+    .populate('created_by', 'name email')
+    .populate('assigned_to', 'name email')
+    .lean();
+  const populatedDc = await DC.findById(dcId)
+    .populate('employeeId', 'name email')
+    .populate('createdBy', 'name email')
+    .populate('dcOrderId', 'school_name contact_mobile school_code status assigned_to')
+    .lean();
+  return {
+    ...populated,
+    dc: populatedDc,
+    dcCreated: true,
+  };
+}
+
+/** Lead status badge for a history row — school lead_status (Hot/Warm/Cold) wins over product-derived Hot. */
 function resolveHistoryPriorityForResponse(entry = {}, doc = {}) {
+  const docLeadStatus = resolveSchoolLeadStatus(doc.lead_status);
+  if (docLeadStatus) return docLeadStatus;
+
   const rows = Array.isArray(entry.productsInterested) ? entry.productsInterested : [];
   const stored = (entry.priority || '').trim();
-  const docLeadStatus = resolveSchoolLeadStatus(doc.lead_status);
 
   if (SCHOOL_LEAD_STATUSES.has(stored)) return stored;
-
-  if (docLeadStatus) return docLeadStatus;
 
   const fromProducts = derivePriorityFromFollowUpProducts(rows);
   if (fromProducts && rows.length > 0) return fromProducts;
@@ -36,13 +335,12 @@ function resolveHistoryPriorityForResponse(entry = {}, doc = {}) {
   if (
     stored === 'Cold' &&
     rows.length === 0 &&
-    !docLeadStatus &&
     doc.priority &&
     !SCHOOL_LEAD_STATUSES.has(doc.priority)
   ) {
     return doc.priority;
   }
-  return docLeadStatus || doc.priority || 'Warm';
+  return resolveSchoolLeadStatus(doc.priority) || 'Warm';
 }
 
 const list = async (req, res) => {
@@ -61,9 +359,15 @@ const list = async (req, res) => {
       });
     }
 
-    const { status, q, zone, assigned_to, lead_status, from, to } = req.query;
+    const { status, q, zone, assigned_to, lead_status, from, to, workflowStage, pipeline } = req.query;
     const filter = {};
-    if (status) filter.status = status;
+    const isFollowUpPipeline = String(pipeline || '').toLowerCase() === 'followup';
+    if (isFollowUpPipeline) {
+      // Follow-up Leads: only open deals. Converted clients use saved/completed/DC pipeline statuses.
+      filter.status = 'pending';
+    } else if (status) {
+      filter.status = status;
+    }
     if (zone) filter.zone = zone;
     if (assigned_to) filter.assigned_to = assigned_to;
     if (lead_status) filter.lead_status = lead_status;
@@ -83,9 +387,32 @@ const list = async (req, res) => {
         { email: new RegExp(q, 'i') },
       ];
     }
+
+    const {
+      WORKFLOW_STAGE,
+      POST_CLOSED_SALES_STAGES,
+      CLOSED_SALES_QUEUE_STATUSES,
+    } = require('../constants/dcWorkflow');
+    // DC is already imported at top of this file
+
+    // Closed Sales = sales the Executive requested (dc_requested / dc_accepted).
+    const closedSalesStatuses = CLOSED_SALES_QUEUE_STATUSES;
+    const isClosedSalesQuery =
+      workflowStage === WORKFLOW_STAGE.ClosedSales ||
+      (status && closedSalesStatuses.includes(String(status)));
+
+    if (isFollowUpPipeline) {
+      filter.workflowStage = { $nin: POST_CLOSED_SALES_STAGES };
+    } else if (workflowStage && !isClosedSalesQuery) {
+      filter.workflowStage = workflowStage;
+    }
+
+    if (isClosedSalesQuery) {
+      filter.status = status || { $in: closedSalesStatuses };
+    }
     // Pagination support
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; // Default 50 items per page
+    const limit = parseInt(req.query.limit) || (isFollowUpPipeline ? 500 : 50);
     const skip = (page - 1) * limit;
 
     // Get total count for pagination - use estimatedDocumentCount for better performance if no filters
@@ -112,10 +439,10 @@ const list = async (req, res) => {
     // Query with pagination - optimized for performance
     // Only populate essential fields, skip updateHistory populate for list view
     const query = DcOrder.find(filter)
-      .select('school_name school_code contact_person contact_mobile zone status follow_up_date location strength createdAt remarks school_type priority lead_status assigned_to created_by pendingEdit products') // products: used for follow-up list lead status from line items
+      .select('school_name school_code contact_person contact_mobile zone status workflowStage follow_up_date location address branches strength createdAt updatedAt remarks school_type priority lead_status assigned_to created_by pendingEdit products dcRequestData total_amount requestedAt requestedBy') // products: used for follow-up list lead status from line items
       .populate('assigned_to', 'name email') // Only populate assigned_to for list view
       .populate('pendingEdit.requestedBy', 'name email') // Populate pendingEdit.requestedBy for Executive Manager
-      .sort({ createdAt: -1 })
+      .sort(String(status) === 'dc_approved' || String(status) === 'saved' ? { updatedAt: -1, createdAt: -1 } : { createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean() // Use lean() for better performance
@@ -177,7 +504,7 @@ const getOne = async (req, res) => {
 
     const item = await DcOrder.findById(req.params.id)
       .populate('created_by', 'name email')
-      .populate('assigned_to', 'name email')
+      .populate('assigned_to', 'name email cluster')
       .populate('updateHistory.updatedBy', 'name email')
       .populate('pendingEdit.requestedBy', 'name email')
       .populate('pendingEdit.approvedBy', 'name email')
@@ -306,10 +633,112 @@ const create = async (req, res) => {
     if (Array.isArray(payload.products)) {
       payload.products = normalizeDcOrderProductTermsInArray(payload.products);
     }
-    
-    // Auto-generate school code if not provided
-    // Use assigned_to if available, otherwise use created_by (the user creating)
-    if (!payload.school_code) {
+
+    const identity = validateSaleIdentityFields(payload);
+    if (!identity.ok) {
+      return res.status(400).json({ message: identity.message });
+    }
+    Object.assign(payload, identity.fields);
+    if (identity.fields.school_code === undefined) {
+      delete payload.school_code;
+    }
+    if (identity.fields.contact_person2 === undefined) {
+      delete payload.contact_person2;
+    }
+    if (identity.fields.contact_mobile2 === undefined) {
+      delete payload.contact_mobile2;
+    }
+
+    const productsCheck = validateSaleProducts(payload.products);
+    // Create Sale may omit products when the Products UI block is not shown.
+    if (!productsCheck.ok && Array.isArray(payload.products) && payload.products.length > 0) {
+      return res.status(400).json({ message: productsCheck.message });
+    }
+    if (!Array.isArray(payload.products)) {
+      payload.products = [];
+    }
+
+    const followUpRaw =
+      payload.follow_up_date ||
+      payload.followUpDate;
+    if (followUpRaw === undefined || followUpRaw === null || String(followUpRaw).trim() === '') {
+      return res.status(400).json({ message: 'Follow-up Date is required.' });
+    }
+    const followUpDate = parseFollowUpDateOnly(followUpRaw);
+    if (!followUpDate) {
+      return res.status(400).json({ message: 'Follow-up Date is required.' });
+    }
+    // Follow-up and delivery are separate. Never copy follow-up into estimated_delivery_date.
+    payload.follow_up_date = followUpDate;
+    if (
+      payload.estimated_delivery_date !== undefined &&
+      payload.estimated_delivery_date !== null &&
+      String(payload.estimated_delivery_date).trim() !== ''
+    ) {
+      const deliveryOnly = parseFollowUpDateOnly(payload.estimated_delivery_date);
+      payload.estimated_delivery_date = deliveryOnly || undefined;
+    } else {
+      delete payload.estimated_delivery_date;
+    }
+
+    // Normalize / validate email when provided
+    if (payload.email !== undefined && payload.email !== null && String(payload.email).trim() !== '') {
+      const email = String(payload.email).trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+      payload.email = email;
+    }
+
+    // School code: use provided value when present; never overwrite with a generated one
+    if (payload.school_code !== undefined && payload.school_code !== null) {
+      payload.school_code = String(payload.school_code).trim();
+    }
+    if (payload.school_code) {
+      const codeRegex = new RegExp(
+        `^${payload.school_code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+        'i'
+      );
+      const [existingOrder, existingLead] = await Promise.all([
+        DcOrder.findOne({ school_code: codeRegex }),
+        Lead.findOne({ school_code: codeRegex }).select('_id school_code').lean(),
+      ]);
+
+      // Heal orphan deals from prior Super Admin Create Sale (deal saved, DC skipped).
+      // Do NOT create a duplicate deal; attach the missing DC and return success.
+      if (existingOrder) {
+        const linkedDc = await DC.findOne({ dcOrderId: existingOrder._id });
+        if (linkedDc) {
+          return res.status(400).json({
+            message: 'School Code already exists. Please enter a unique School Code.',
+          });
+        }
+        try {
+          const { dc } = await ensureCreatedDcForOrder(existingOrder, req.user._id);
+          const body = await populateDealAndDcResponse(existingOrder._id, dc._id);
+          return res.status(201).json({
+            ...body,
+            healedOrphanDeal: true,
+            message: 'Existing deal was missing a DC entry; DC has been created and linked.',
+          });
+        } catch (healErr) {
+          console.error('Failed to heal orphan DcOrder missing DC:', healErr);
+          return res.status(500).json({
+            message:
+              healErr.message ||
+              'School code exists on a deal that has no DC, and DC creation failed. Contact support.',
+          });
+        }
+      }
+
+      if (existingLead) {
+        return res.status(400).json({
+          message: 'School Code already exists. Please enter a unique School Code.',
+        });
+      }
+    } else {
+      // Auto-generate school code only when not provided
       try {
         const schoolCode = await generateSchoolCode({
           region: payload.region || '',
@@ -319,23 +748,47 @@ const create = async (req, res) => {
           payload.school_code = schoolCode;
         }
       } catch (codeError) {
-        // If school code generation fails, log but don't fail the creation
-        // (in case the user is not an executive or cluster is not set)
         console.warn('School code generation failed:', codeError.message);
       }
     }
     
-    if (payload.lead_status) {
-      payload.priority = payload.lead_status;
+    // Create Sale UI sends deal pipeline status as `status` (pending|saved|completed).
+    // If a caller mistakenly puts that value in `lead_status`, remap it — lead_status is Hot/Warm/Cold only.
+    const dealStatusValues = new Set([
+      'saved',
+      'pending',
+      'in_transit',
+      'completed',
+      'hold',
+      'dc_requested',
+      'dc_accepted',
+      'dc_approved',
+      'dc_sent_to_senior',
+    ]);
+    if (payload.lead_status && dealStatusValues.has(String(payload.lead_status).trim())) {
+      if (!payload.status) payload.status = String(payload.lead_status).trim();
+      delete payload.lead_status;
+    }
+
+    const schoolLeadStatus = resolveSchoolLeadStatus(payload.lead_status, payload.priority);
+    if (schoolLeadStatus) {
+      payload.lead_status = schoolLeadStatus;
+      payload.priority = schoolLeadStatus;
+    } else {
+      // Do not persist invalid lead_status/priority from the deal-status dropdown
+      delete payload.lead_status;
+      if (payload.priority && !resolveSchoolLeadStatus(payload.priority)) {
+        delete payload.priority;
+      }
     }
 
     const creationProductSnapshot = dealProductsToFollowUpSnapshot(payload.products || []);
-    const creationLeadStatus = payload.lead_status || payload.priority || 'Warm';
+    const creationLeadStatus = schoolLeadStatus || resolveSchoolLeadStatus(payload.priority) || 'Warm';
     // Initialize history with creation entry (includes per-product lead status from create form)
     if (
       payload.follow_up_date ||
       payload.remarks ||
-      payload.lead_status ||
+      schoolLeadStatus ||
       payload.priority ||
       creationProductSnapshot.length > 0
     ) {
@@ -348,55 +801,44 @@ const create = async (req, res) => {
         updatedAt: new Date(),
       }];
     }
-    
-    const item = await DcOrder.create(payload);
-    
-    // Auto-create DC entry when DcOrder (Lead/Deal) is created
-    // Get products - if it's an array, take first product, otherwise use string
-    let productName = 'Abacus'; // default
-    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
-      productName = item.products[0].product_name || item.products[0].product || 'Abacus';
-    } else if (typeof item.products === 'string') {
-      // If products is a comma-separated string
-      const products = item.products.split(',').map(p => p.trim()).filter(Boolean);
-      productName = products.length > 0 ? products[0] : 'Abacus';
+
+    // Super Admin Create Sale assigned to an Executive: keep deal in follow-up pipeline
+    // (pending), create DC for the Clients Create Sale list, and do NOT mark as Closed Sales.
+    const isSuperAdminCreator =
+      req.user?.role === 'Super Admin' || Boolean(req.user?.isSuperAdmin);
+    const assignedToRaw = payload.assigned_to ? String(payload.assigned_to) : '';
+    const assignedToOtherExecutive =
+      Boolean(assignedToRaw) && assignedToRaw !== String(req.user._id);
+    if (isSuperAdminCreator && assignedToOtherExecutive) {
+      payload.status = 'pending';
+      delete payload.workflowStage;
     }
-    
-    // Calculate quantity from products array or default to 1
-    let quantity = 1;
-    if (item.products && Array.isArray(item.products) && item.products.length > 0) {
-      quantity = item.products.reduce((sum, p) => sum + (p.quantity || 1), 0);
-    }
-    
-    // Only create DC if assigned_to exists
-    if (item.assigned_to) {
-      try {
-        const dc = await DC.create({
-          dcOrderId: item._id,
-          employeeId: item.assigned_to,
-          customerName: item.school_name,
-          customerEmail: item.email || undefined,
-          customerAddress: item.address || item.location || 'N/A',
-          customerPhone: item.contact_mobile || item.contact_person || 'N/A',
-          product: productName,
-          requestedQuantity: quantity,
-          deliverableQuantity: 0,
-          status: 'created',
-          createdBy: req.user._id,
-        });
-        console.log(`DC created successfully for DcOrder ${item._id}, assigned to employee ${item.assigned_to}`);
-      } catch (dcError) {
-        console.error('Error creating DC for DcOrder:', dcError);
-        // Don't fail the DcOrder creation if DC creation fails, but log it
+
+    // Always create Deal + linked DC together (including Super Admin → Executive assign).
+    // Never leave Deal-without-DC: if DC creation fails, roll back the newly created deal.
+    let item;
+    try {
+      item = await DcOrder.create(payload);
+      const { dc: createdDc } = await ensureCreatedDcForOrder(item, req.user._id);
+      const body = await populateDealAndDcResponse(item._id, createdDc._id);
+      return res.status(201).json(body);
+    } catch (createErr) {
+      console.error('Error creating Deal/DC:', createErr);
+      if (item?._id) {
+        try {
+          await DC.deleteMany({ dcOrderId: item._id });
+          await DcOrder.findByIdAndDelete(item._id);
+        } catch (rollbackErr) {
+          console.error('Failed to roll back orphan DcOrder after DC failure:', rollbackErr);
+        }
       }
-    } else {
-      console.warn(`DcOrder ${item._id} created without assigned_to, so no DC was created`);
+      const status = /assign|executive|invalid/i.test(String(createErr?.message || '')) ? 400 : 500;
+      return res.status(status).json({
+        message:
+          createErr.message ||
+          'Deal was not fully created: DC entry could not be created. Please try again.',
+      });
     }
-    
-    const populated = await DcOrder.findById(item._id)
-      .populate('created_by', 'name email')
-      .populate('assigned_to', 'name email');
-    res.status(201).json(populated);
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
@@ -416,6 +858,29 @@ const update = async (req, res) => {
     if (!item) {
       console.log('❌ DcOrder not found:', req.params.id);
       return res.status(404).json({ message: 'DC not found' });
+    }
+
+    // Closed Sales page sends validateClosedSalesContact2 — require Contact Person 2 / Mobile 2.
+    // Scoped by this flag only (not model-level); Create Sale / other updates omit the flag.
+    if (req.body.validateClosedSalesContact2 === true) {
+      const { validateContactPerson, validateContactMobile } = require('../utils/saleFieldValidation');
+      const person2Raw =
+        req.body.contact_person2 !== undefined ? req.body.contact_person2 : item.contact_person2;
+      const mobile2Raw =
+        req.body.contact_mobile2 !== undefined ? req.body.contact_mobile2 : item.contact_mobile2;
+      const person2Check = validateContactPerson(person2Raw, {
+        required: true,
+        label: 'Contact Person 2',
+      });
+      if (!person2Check.ok) {
+        return res.status(400).json({ message: person2Check.message });
+      }
+      const mobile2Check = validateContactMobile(mobile2Raw, { required: true });
+      if (!mobile2Check.ok) {
+        return res.status(400).json({ message: mobile2Check.message });
+      }
+      req.body.contact_person2 = person2Check.value;
+      req.body.contact_mobile2 = mobile2Check.value;
     }
 
     if (Array.isArray(req.body.products)) {
@@ -451,19 +916,28 @@ const update = async (req, res) => {
       ? normalizeProductsInterested(req.body.productsInterested)
       : [];
     const isFollowUpSubmission = hasFollowUpDate && hasRemarks;
-    if (isFollowUpSubmission) {
-      if (normalizedProductsInterested.length === 0) {
-        return res.status(400).json({
-          message: 'At least one product with Strength (quantity) and Chance % is required',
-        });
+    const validateFollowUpProducts = (rows) => {
+      if (rows.length === 0) {
+        return 'At least one product with Strength and Chance % is required';
       }
-      const invalidProductRows = normalizedProductsInterested.some(
-        (row) => row.strength <= 0 || row.chance <= 0
-      );
-      if (invalidProductRows) {
-        return res.status(400).json({
-          message: 'Each product must have Strength greater than 0 and Chance % greater than 0',
-        });
+      for (const row of rows) {
+        if (row.strength <= 0 || row.chance <= 0) {
+          return 'Each product must have Strength greater than 0 and Chance % greater than 0';
+        }
+        if (row.status === 'Hot' && row.chance < 80) {
+          return 'Hot products require Chance % at least 80';
+        }
+        if (row.status === 'Warm' && row.chance < 20) {
+          return 'Warm products require Chance % at least 20';
+        }
+      }
+      return null;
+    };
+
+    if (hasProductsInterested) {
+      const productErr = validateFollowUpProducts(normalizedProductsInterested);
+      if (productErr) {
+        return res.status(400).json({ message: productErr });
       }
     }
 
@@ -537,7 +1011,9 @@ const update = async (req, res) => {
     
     // Update fields using $set
     if (hasFollowUpDate) {
-      updateData.follow_up_date = req.body.follow_up_date ? new Date(req.body.follow_up_date) : null;
+      updateData.follow_up_date = req.body.follow_up_date
+        ? parseFollowUpDateOnly(req.body.follow_up_date)
+        : null;
     }
     if (hasRemarks) {
       updateData.remarks = req.body.remarks;
@@ -576,8 +1052,15 @@ const update = async (req, res) => {
     }
 
     // Update other fields if provided
+    if (!item.school_code && isClientConversionUpdate(req.body, item)) {
+      const generated = await ensureSchoolCode(item, req.body);
+      if (generated) {
+        updateData.school_code = generated;
+      }
+    }
+
     const fieldsToUpdate = [
-      'status', 'zone', 'location', 'contact_person', 'contact_mobile', 'school_name',
+      'status', 'zone', 'location', 'contact_person', 'contact_mobile', 'school_name', 'school_code',
       'contact_person2', 'contact_mobile2', 'email', 'address', 'school_type',
       'pincode', 'state', 'city', 'region', 'area',
       'average_fee', 'branches', 'strength', 'remarks',
@@ -587,6 +1070,11 @@ const update = async (req, res) => {
       // Transport fields (new)
       'transport_name', 'transport_location', 'transportation_landmark'
     ];
+    // Edit PO saves product rows. Request DC sends status + dcRequestData only.
+    // Never treat an Edit PO payload as Request DC (Closed Sales).
+    if (Array.isArray(req.body.products) && req.body.products.length > 0 && req.body.status === 'dc_requested') {
+      delete req.body.status;
+    }
     fieldsToUpdate.forEach(field => {
       if (req.body[field] !== undefined) {
         if (field === 'average_fee' || field === 'branches' || field === 'strength') {
@@ -602,16 +1090,75 @@ const update = async (req, res) => {
       }
     });
 
+    // Edit PO must not overwrite the other DC's product allocations on this shared deal.
+    // Request DC only sends status + dcRequestData — never rewrite products on that path.
+    if (Array.isArray(updateData.products) && req.body.status !== 'dc_requested') {
+      try {
+        const originId = req.body.originatingDcId || req.body.dcId;
+        const twRows = await siblingTermWiseRows(DC, item._id, originId);
+        let originIsTermWise = false;
+        if (originId) {
+          const originDc = await DC.findById(originId).select('status').lean();
+          originIsTermWise = originDc?.status === 'scheduled_for_later';
+        }
+        if (originIsTermWise) {
+          updateData.products = mergeTermWiseProductsPreservingMyClients(
+            updateData.products,
+            item.products,
+            twRows
+          );
+        } else if (twRows.length > 0) {
+          updateData.products = mergeMyClientsProductsPreservingTermWise(
+            updateData.products,
+            item.products,
+            twRows
+          );
+        }
+      } catch (mergeErr) {
+        console.warn(
+          'Term-Wise product merge skipped (will keep incoming products):',
+          mergeErr?.message || mergeErr
+        );
+      }
+      updateData.products = updateData.products.map((p) => plainProduct(p)).filter(Boolean);
+    } else if (req.body.status === 'dc_requested') {
+      delete updateData.products;
+      const requestDetails = req.body.dcRequestData?.productDetails;
+      if (Array.isArray(requestDetails) && requestDetails.length > 0) {
+        updateData.products = requestDetails
+          .map((row) => dcDetailToOrderProduct(row, item.products))
+          .filter((p) => p && p.product_name);
+      }
+    }
+
+    if (updateData.dcRequestData && typeof updateData.dcRequestData === 'object') {
+      const emp = updateData.dcRequestData.employeeId;
+      if (emp && typeof emp === 'object') {
+        updateData.dcRequestData.employeeId = emp._id || emp.id || undefined;
+      }
+    }
+
     // When Executive requests DC (status → dc_requested), store requestedBy and requestedAt
     if (req.body.status === 'dc_requested') {
-      if (!isTransportCompleteForUpdate(item, req.body)) {
-        return res.status(400).json({
-          message:
-            'Transport Name, Transport Location, and Pincode are required before requesting DC.',
-        });
-      }
       updateData.requestedBy = req.user._id;
       updateData.requestedAt = new Date();
+      updateData.workflowStage = 'ClosedSales';
+    }
+    if (req.body.status === 'dc_accepted') {
+      updateData.workflowStage = 'ClosedSales';
+    }
+    if (req.body.status === 'dc_approved') {
+      // Closed Sales Accept → Saved DC (not My Clients `saved`)
+      updateData.workflowStage = 'ClosedSales';
+    }
+    if (req.body.status === 'dc_sent_to_senior') {
+      // Leaving Closed Sales — stage is owned by Raise DC / DC pipeline if not already set
+      if (!updateData.workflowStage && !req.body.workflowStage) {
+        updateData.workflowStage = 'PendingDC';
+      }
+    }
+    if (req.body.workflowStage !== undefined) {
+      updateData.workflowStage = req.body.workflowStage;
     }
     
     // Build the MongoDB update query
@@ -626,8 +1173,8 @@ const update = async (req, res) => {
     // This ensures every update creates a NEW entry, not overwrites existing ones
     if (shouldTrackHistory) {
       // Get the NEW values that will be set (from request body)
-      const newFollowUp = hasFollowUpDate && req.body.follow_up_date 
-        ? new Date(req.body.follow_up_date) 
+      const newFollowUp = hasFollowUpDate && req.body.follow_up_date
+        ? parseFollowUpDateOnly(req.body.follow_up_date)
         : null;
       const newRemarks = hasRemarks ? (req.body.remarks || '') : '';
       const derivedFromProducts = derivePriorityFromFollowUpProducts(normalizedProductsInterested);
@@ -692,6 +1239,23 @@ const update = async (req, res) => {
       newAssignedTo: updatedItem.assigned_to,
       schoolName: updatedItem.school_name
     });
+
+    const convertedStatus = String(updatedItem.status || '').toLowerCase();
+    if (convertedStatus === 'saved' || convertedStatus === 'completed') {
+      try {
+        await closeOpenLeadsForConvertedOrder(updatedItem);
+      } catch (closeLeadErr) {
+        console.warn('Could not close matching open leads after conversion:', closeLeadErr?.message);
+      }
+    }
+
+    if (Array.isArray(updatedItem.products) && req.body.status !== 'dc_requested') {
+      try {
+        await syncSubmittedUnitPricesToAllDcs(updatedItem._id, updatedItem.products);
+      } catch (syncErr) {
+        console.warn('DcOrder update DC unit_price sync failed:', syncErr?.message || syncErr);
+      }
+    }
     
     // Fetch the updated item again to ensure we have the latest history
     const refreshedItem = await DcOrder.findById(req.params.id)
@@ -806,10 +1370,8 @@ const submitEdit = async (req, res) => {
       return res.status(404).json({ message: 'DC not found' });
     }
 
-    // Check if there's already a pending edit
-    if (item.pendingEdit && item.pendingEdit.status === 'pending') {
-      return res.status(400).json({ message: 'There is already a pending edit request for this DC' });
-    }
+    // Replacing an existing pending request is allowed so a second Save
+    // (qty change / extra row) is not discarded.
 
     // Extract transport fields - these will be saved directly to main DcOrder (no approval needed)
     const transportFields = {
@@ -855,6 +1417,7 @@ const submitEdit = async (req, res) => {
       requestedBy: req.user._id,
       requestedAt: new Date(),
       status: 'pending',
+      originatingDcId: req.body.originatingDcId || req.body.dcId || undefined,
     };
 
     console.log('Pending edit object (fields requiring approval):', JSON.stringify(pendingEdit, null, 2));
@@ -913,6 +1476,49 @@ const submitEdit = async (req, res) => {
       console.error('Error updating related DC records with delivery address:', dcUpdateError);
     }
 
+    // Persist unit_price onto every related DC (including Completed DC) immediately.
+    // New-product / PDF changes still wait for EM approval; commercial prices must not stay 0.
+    try {
+      await syncSubmittedUnitPricesToAllDcs(item._id, req.body.products);
+    } catch (prodSyncErr) {
+      console.warn('submitEdit DC unit_price sync failed:', prodSyncErr?.message || prodSyncErr);
+    }
+
+    // Persist the submitted product list onto this My Clients DC so Edit PO
+    // reopen shows the quantities just saved (even while EM approval is pending).
+    try {
+      const originId = req.body.originatingDcId || req.body.dcId;
+      const submitted = Array.isArray(req.body.products) ? req.body.products : [];
+      if (submitted.length > 0) {
+        const twRows = await siblingTermWiseRows(DC, item._id, originId || null);
+        const myClients = filterOutExactTermWiseLines(
+          normalizeDcOrderProductTermsInArray(submitted),
+          twRows
+        );
+        const details = myClients.map((p) => orderProductToDcDetail(p));
+        const qty = sumProductQuantities(myClients);
+        const dcSet = { productDetails: details };
+        if (qty > 0) dcSet.requestedQuantity = qty;
+        const originValid =
+          originId && mongoose.Types.ObjectId.isValid(String(originId));
+        await DC.updateMany(
+          originValid
+            ? {
+                _id: originId,
+                dcOrderId: item._id,
+                status: { $in: ['created', 'po_submitted'] },
+              }
+            : {
+                dcOrderId: item._id,
+                status: { $in: ['created', 'po_submitted'] },
+              },
+          { $set: dcSet }
+        );
+      }
+    } catch (prodSyncErr) {
+      console.warn('submitEdit DC product sync failed:', prodSyncErr?.message || prodSyncErr);
+    }
+
     // Verify the saved data
     console.log('Saved delivery address directly to DcOrder:', {
       property_number: updatedItem.property_number,
@@ -948,8 +1554,20 @@ const approveEdit = async (req, res) => {
     }
 
     if (action === 'approve') {
-      // Apply the pending edit to the main document
-      // Note: Delivery address fields are NOT included here - they were already saved directly when edit was submitted
+      const pendingProducts = Array.isArray(item.pendingEdit.products)
+        ? item.pendingEdit.products
+        : [];
+
+      // Persist PO products onto the sale first. DC sync is best-effort inside commitPoProductList
+      // so a DC validator cannot leave Closed Sales on the old product list.
+      if (pendingProducts.length > 0) {
+        await commitPoProductList(item, pendingProducts, req.user._id, { markApproved: true });
+        await syncSubmittedUnitPricesToAllDcs(item._id, pendingProducts);
+      }
+
+      // Apply the pending edit to the main document (school/contact/transport).
+      // Delivery address fields are NOT included here - they were already saved when edit was submitted.
+      // Products / dcRequestData were already written by commitPoProductList.
       const updateData = {
         school_name: item.pendingEdit.school_name !== undefined ? item.pendingEdit.school_name : item.school_name,
         contact_person: item.pendingEdit.contact_person !== undefined ? item.pendingEdit.contact_person : item.contact_person,
@@ -961,27 +1579,20 @@ const approveEdit = async (req, res) => {
         school_type: item.pendingEdit.school_type !== undefined ? item.pendingEdit.school_type : item.school_type,
         zone: item.pendingEdit.zone !== undefined ? item.pendingEdit.zone : item.zone,
         location: item.pendingEdit.location !== undefined ? item.pendingEdit.location : item.location,
-        products: normalizeDcOrderProductTermsInArray(
-          item.pendingEdit.products !== undefined ? item.pendingEdit.products : item.products
-        ),
         pod_proof_url: item.pendingEdit.pod_proof_url !== undefined ? item.pendingEdit.pod_proof_url : item.pod_proof_url,
         remarks: item.pendingEdit.remarks !== undefined ? item.pendingEdit.remarks : item.remarks,
-        total_amount: item.pendingEdit.total_amount !== undefined ? item.pendingEdit.total_amount : item.total_amount,
-        // Transport fields (new)
         transport_name: item.pendingEdit.transport_name !== undefined ? item.pendingEdit.transport_name : item.transport_name,
         transport_location: item.pendingEdit.transport_location !== undefined ? item.pendingEdit.transport_location : item.transport_location,
         transportation_landmark: item.pendingEdit.transportation_landmark !== undefined ? item.pendingEdit.transportation_landmark : item.transportation_landmark,
-        // Delivery address fields are NOT updated here - they were already saved directly when edit was submitted
         'pendingEdit.status': 'approved',
         'pendingEdit.approvedBy': req.user._id,
         'pendingEdit.approvedAt': new Date(),
       };
 
-      // Update the DcOrder with approved changes
       const updatedItem = await DcOrder.findByIdAndUpdate(
         req.params.id,
-        updateData,
-        { new: true, runValidators: true }
+        { $set: updateData },
+        { new: true, runValidators: false }
       )
         .populate('created_by', 'name email')
         .populate('assigned_to', 'name email')
@@ -1057,7 +1668,12 @@ const approveEdit = async (req, res) => {
       console.log('PO edit request approved and changes applied to DcOrder:', {
         dcOrderId: req.params.id,
         schoolName: updatedItem.school_name,
-        approvedBy: req.user._id
+        approvedBy: req.user._id,
+        productCount: Array.isArray(updatedItem.products) ? updatedItem.products.length : 0,
+        productNames: Array.isArray(updatedItem.products)
+          ? updatedItem.products.map((p) => p.product_name || p.product)
+          : [],
+        totalAmount: updatedItem.total_amount,
       });
 
       res.json(updatedItem);

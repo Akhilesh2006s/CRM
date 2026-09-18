@@ -445,7 +445,6 @@ export default function CreateDealPage() {
         remarks: form.remarks.trim(),
         email: form.email.trim(),
         products: selectedProducts,
-        estimated_delivery_date: followUpIso,
         follow_up_date: followUpIso,
         assigned_to: form.assigned_to,
       }
