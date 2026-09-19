@@ -261,11 +261,13 @@ export const groupProductDetailsByProductAndClass = (
       .toLowerCase()
       .replace(/\s+/g, '')
   const normSubject = (s: any) => String(s || '').trim().toLowerCase()
+  const normSpecs = (s: any) => String(s || '').trim().toLowerCase()
 
   const map = new Map<string, any>()
 
   details.forEach((p) => {
-    const key = `${p.product || ''}||${p.class || ''}`
+    // Keep CW / HW (and other specs) as separate lines — do not collapse by product+class only.
+    const key = `${p.product || ''}||${p.class || ''}||${normSpecs(p.specs)}`
     const strength = Number(p.strength) || 0
     const price = Number(p.price) || 0
     const ct = getCt(p.product || '')
@@ -277,7 +279,7 @@ export const groupProductDetailsByProductAndClass = (
           ...p,
           strength,
           price,
-          _dimRows: [{ strength, level: p.level, subject: p.subject, price }],
+          _dimRows: [{ strength, level: p.level, subject: p.subject, specs: p.specs, price }],
         })
       } else {
         map.set(key, {
@@ -295,14 +297,17 @@ export const groupProductDetailsByProductAndClass = (
     if (ct === 'level_based' || ct === 'subject_based') {
       const dimRows = [...(existing._dimRows || [])]
       const prevDims = new Set(
-        dimRows.map((r: any) => `${normLevel(r.level)}|${normSubject(r.subject || '')}`)
+        dimRows.map(
+          (r: any) =>
+            `${normLevel(r.level)}|${normSubject(r.subject || '')}|${normSpecs(r.specs)}`
+        )
       )
-      const thisDim = `${normLevel(p.level)}|${normSubject(p.subject || '')}`
+      const thisDim = `${normLevel(p.level)}|${normSubject(p.subject || '')}|${normSpecs(p.specs)}`
       const duplicateDim = prevDims.has(thisDim)
       const mergedStrength = duplicateDim
         ? Math.max(Number(existing.strength) || 0, strength)
         : (Number(existing.strength) || 0) + strength
-      dimRows.push({ strength, level: p.level, subject: p.subject, price })
+      dimRows.push({ strength, level: p.level, subject: p.subject, specs: p.specs, price })
       map.set(key, {
         ...existing,
         strength: mergedStrength,
@@ -825,7 +830,8 @@ export function buildDcOrderProductsFromDetails(
       (r) =>
         !r.isParentRow &&
         (r.product || '') === (p.product || '') &&
-        String(r.class || '') === String(p.class || '')
+        String(r.class || '') === String(p.class || '') &&
+        String(r.specs || '').trim().toLowerCase() === String((p as any).specs || '').trim().toLowerCase()
     )
     const parentRow = sampleChild
       ? productDetails.find(
@@ -835,7 +841,9 @@ export function buildDcOrderProductsFromDetails(
     const deliverables = parentRow?.selectedDeliverables || []
     const bucketRows = childRows.filter(
       (r) =>
-        (r.product || '') === (p.product || '') && String(r.class || '') === String(p.class || '')
+        (r.product || '') === (p.product || '') &&
+        String(r.class || '') === String(p.class || '') &&
+        String(r.specs || '').trim().toLowerCase() === String((p as any).specs || '').trim().toLowerCase()
     )
     const levelSet = new Set<string>()
     const subjectSet = new Set<string>()

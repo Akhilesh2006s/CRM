@@ -112,8 +112,9 @@ export function collapseEmptyLevelDuplicateLines(rows: any[]): any[] {
   const result: any[] = []
   for (const row of rows || []) {
     const rowEmpty = !hasUsableProductLevel(row?.level)
-    const classKey = productClassBaseKey(row)
-    const existingIdx = result.findIndex((r) => productClassBaseKey(r) === classKey)
+    // Specs must be part of identity — CW vs HW are distinct lines, not duplicates.
+    const classKey = productClassSpecsBaseKey(row)
+    const existingIdx = result.findIndex((r) => productClassSpecsBaseKey(r) === classKey)
     if (existingIdx < 0) {
       result.push(row)
       continue
@@ -153,6 +154,14 @@ export function productClassBaseKey(p: Record<string, any>): string {
     .trim()
     .toLowerCase()
   return [product, klass, subject].join('|')
+}
+
+/** Same as productClassBaseKey but keeps CW/HW (and other specs) as separate lines. */
+export function productClassSpecsBaseKey(p: Record<string, any>): string {
+  const specs = String(p.specs ?? '')
+    .trim()
+    .toLowerCase()
+  return `${productClassBaseKey(p)}|${specs}`
 }
 
 /** Map approved Edit PO / DcOrder product lines onto this DC's Request DC table. */
@@ -299,13 +308,14 @@ function blankPoPart(value: unknown): string {
   return s
 }
 
-/** Edit PO / Request DC unique row: productName + class + subject + level. */
+/** Edit PO / Request DC unique row: productName + class + subject + level + specs. */
 export function poRowCompositeKey(p: Record<string, any>): string {
   const product = blankPoPart(p.product || p.productName || p.product_name)
   const klass = blankPoPart(p.class)
   const subject = blankPoPart(p.subject)
   const level = blankPoPart(p.level)
-  return [product, klass, subject, level].join('|')
+  const specs = blankPoPart(p.specs)
+  return [product, klass, subject, level, specs].join('|')
 }
 
 function productClassLevelKey(p: Record<string, any>): string {

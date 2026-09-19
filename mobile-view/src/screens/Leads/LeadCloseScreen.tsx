@@ -828,28 +828,38 @@ export default function LeadCloseScreen({ navigation, route }: any) {
           <View style={styles.splitCard}>
             <Text style={styles.splitTitle}>This lead will be split into 2 DCs</Text>
             <Text style={styles.splitSubtitle}>
-              Review how products will be divided before confirming.
+              Level/Term 1 → My Clients. Level/Term 2 → Term-Wise DC. Scroll if needed, then tap Confirm & Submit.
             </Text>
 
-            <View style={styles.splitBlock}>
-              <Text style={styles.splitBlockTitleTerm1}>DC 1 – My Clients (Term 1)</Text>
-              {(splitPreview?.term1 || []).map((p, i) => (
-                <View key={`t1-${i}`} style={styles.splitRow}>
-                  <Text style={styles.splitProduct}>• {p.productName}</Text>
-                  <Text style={styles.splitQty}>Qty: {p.strength}</Text>
-                </View>
-              ))}
-            </View>
+            <ScrollView
+              style={styles.splitScroll}
+              contentContainerStyle={{ paddingBottom: 8 }}
+              nestedScrollEnabled
+            >
+              <View style={styles.splitBlock}>
+                <Text style={styles.splitBlockTitleTerm1}>
+                  DC 1 – My Clients (Term 1 / Level 1)
+                </Text>
+                {(splitPreview?.term1 || []).map((p, i) => (
+                  <View key={`t1-${i}`} style={styles.splitRow}>
+                    <Text style={styles.splitProduct}>• {p.productName}</Text>
+                    <Text style={styles.splitQty}>Qty: {p.strength}</Text>
+                  </View>
+                ))}
+              </View>
 
-            <View style={styles.splitBlock}>
-              <Text style={styles.splitBlockTitleTerm2}>DC 2 – Term Wise DC (Term 2)</Text>
-              {(splitPreview?.term2 || []).map((p, i) => (
-                <View key={`t2-${i}`} style={styles.splitRow}>
-                  <Text style={styles.splitProduct}>• {p.productName}</Text>
-                  <Text style={styles.splitQty}>Qty: {p.strength}</Text>
-                </View>
-              ))}
-            </View>
+              <View style={styles.splitBlock}>
+                <Text style={styles.splitBlockTitleTerm2}>
+                  DC 2 – Term Wise DC (Term 2 / Level 2)
+                </Text>
+                {(splitPreview?.term2 || []).map((p, i) => (
+                  <View key={`t2-${i}`} style={styles.splitRow}>
+                    <Text style={styles.splitProduct}>• {p.productName}</Text>
+                    <Text style={styles.splitQty}>Qty: {p.strength}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
 
             <View style={styles.splitFooter}>
               <TouchableOpacity
@@ -1135,12 +1145,14 @@ const styles = StyleSheet.create({
   splitCard: {
     width: '100%',
     maxWidth: 420,
+    maxHeight: '85%',
     backgroundColor: colors.backgroundLight,
     borderRadius: 16,
     padding: 20,
   },
   splitTitle: { ...typography.heading.h3, color: colors.textPrimary, marginBottom: 6 },
-  splitSubtitle: { ...typography.body.small, color: colors.textSecondary, marginBottom: 16 },
+  splitSubtitle: { ...typography.body.small, color: colors.textSecondary, marginBottom: 12 },
+  splitScroll: { maxHeight: 320, marginBottom: 8 },
   splitBlock: {
     borderWidth: 1,
     borderColor: colors.border,
